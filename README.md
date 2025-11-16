@@ -374,5 +374,11 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Storacha Team** for building an amazing UCAN-based storage platform
 - **UCAN Working Group** for the specification
 - **IPFS & Filecoin** communities for decentralized storage infrastructure
-- **React & Vite** teams for excellent developer tools
+
+## 📚 Additional Resources
+
+Here is a detailed walkthrough of the project on Medium:
+
+👉 https://medium.com/@fyattani/building-a-decentralized-file-upload-service-with-storacha-ucans-b3ce05a60f32
+
 
