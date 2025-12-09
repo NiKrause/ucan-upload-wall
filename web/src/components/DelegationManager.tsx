@@ -334,16 +334,28 @@ export function DelegationManager({ delegationService }: DelegationManagerProps)
         )}
       </div>
 
-      {/* Create Delegation (only show if user has Storacha credentials) */}
-      {savedCredentials && (
+      {/* Create Delegation (show if user has credentials OR received delegations for chaining) */}
+      {(savedCredentials || receivedDelegations.length > 0) && (
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center mb-4">
             <Share className="h-6 w-6 text-purple-600 mr-3" />
             <div>
               <h3 className="text-xl font-semibold text-gray-900">Create Delegation for Others</h3>
-              <p className="text-sm text-gray-600">Share upload access with other DIDs by creating a UCAN delegation</p>
+              <p className="text-sm text-gray-600">
+                {savedCredentials 
+                  ? 'Share upload access with other DIDs using your Storacha credentials'
+                  : 'Chain your UCAN delegation - share access with other DIDs'}
+              </p>
             </div>
           </div>
+          
+          {!savedCredentials && receivedDelegations.length > 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+              <p className="text-blue-800 text-sm">
+                <strong>🔗 UCAN Chaining:</strong> You can re-delegate your received UCAN to another DID. This creates a delegation chain.
+              </p>
+            </div>
+          )}
           
           <button
             onClick={() => setShowCreateForm(!showCreateForm)}
