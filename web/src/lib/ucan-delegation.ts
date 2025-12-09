@@ -727,16 +727,21 @@ export class UCANDelegationService {
       }
 
       console.log('Importing delegation...');
-      console.log('Token length:', delegationProof.length, 'First chars:', delegationProof.substring(0, 20));
+      
+      // Clean the input: remove whitespace, line breaks, etc.
+      const cleanedProof = delegationProof.trim().replace(/\s+/g, '').replace(/[\r\n]/g, '');
+      console.log('Original length:', delegationProof.length, 'Cleaned length:', cleanedProof.length);
+      console.log('First chars:', cleanedProof.substring(0, 20));
+      
       let delegationInfo: DelegationInfo;
       
       // Check if it's multibase encoded (starts with 'm' for base64 multibase)
       let tokenBytes: Uint8Array;
-      if (delegationProof.startsWith('m')) {
+      if (cleanedProof.startsWith('m')) {
         console.log('Detected multibase encoding, decoding...');
         try {
           // Remove 'm' prefix and decode as base64url
-          const base64urlPart = delegationProof.substring(1);
+          const base64urlPart = cleanedProof.substring(1);
           const standardBase64 = this.base64urlToBase64(base64urlPart);
           const binary = atob(standardBase64);
           tokenBytes = new Uint8Array(binary.length);
@@ -750,7 +755,7 @@ export class UCANDelegationService {
         }
       } else {
         // Try as raw text first
-        tokenBytes = new TextEncoder().encode(delegationProof);
+        tokenBytes = new TextEncoder().encode(cleanedProof);
       }
       
       // Try to parse as CAR format
@@ -790,8 +795,8 @@ export class UCANDelegationService {
             id: delegation.cid?.toString() || crypto.randomUUID(),
             fromIssuer: String(issuerDid),
             toAudience: audienceDid,
-            proof: delegationProof,
-            capabilities: Array.isArray(delegation.capabilities) 
+            proof: cleanedProof,
+            capabilities: Array.isArray(delegation.capabilities)
               ? delegation.capabilities.map((cap: any) => cap.can || cap.capability || cap)
               : ['space/blob/add', 'upload/add'],
             createdAt: new Date().toISOString(),
