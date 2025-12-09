@@ -759,11 +759,18 @@ export class UCANDelegationService {
         const { extract } = await import('@le-space/ucanto-core/delegation');
         const extractResult = await extract(tokenBytes);
         
+        console.log('Extract result:', extractResult);
+        
         let delegation;
         if (extractResult && extractResult.ok) {
           delegation = extractResult.ok;
+          console.log('Got delegation from extract.ok');
         } else if (extractResult && !extractResult.error) {
           delegation = extractResult;
+          console.log('Got delegation directly from extract');
+        } else if (extractResult && extractResult.error) {
+          console.error('Extract returned error:', extractResult.error);
+          throw extractResult.error;
         }
         
         if (delegation && delegation.audience) {
