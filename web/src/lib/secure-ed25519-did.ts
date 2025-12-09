@@ -1,8 +1,31 @@
 /**
  * Hardware-Protected Ed25519 DID Provider
  * 
- * Creates Ed25519 DIDs for UCAN with hardware-protected private keys
- * Uses WebAuthn largeBlob/hmac-secret to protect the encryption key
+ * Creates Ed25519 DIDs for UCAN with hardware-protected private keys.
+ * Uses WebAuthn largeBlob/hmac-secret to protect the encryption key.
+ * 
+ * @example
+ * // Create new hardware-protected Ed25519 DID
+ * const provider = await SecureEd25519DIDProvider.create({
+ *   encryptionMethod: 'largeBlob' // or 'hmac-secret'
+ * });
+ * 
+ * // Get DID for UCAN audience/issuer
+ * const did = provider.getDID(); // did:key:z6Mk...
+ * 
+ * // Use with ucanto for UCAN signing
+ * const signer = await provider.createUcantoSigner();
+ * const delegation = await delegate({
+ *   issuer: signer,
+ *   audience: targetDID,
+ *   capabilities: [{ with: spaceDID, can: 'store/add' }]
+ * });
+ * 
+ * // Later: unlock existing DID (requires biometric auth)
+ * const provider = await SecureEd25519DIDProvider.unlock(credentialId);
+ * 
+ * // Lock session to clear private key from memory
+ * provider.lock();
  */
 
 import { varint } from 'multiformats';
@@ -380,16 +403,45 @@ export class SecureEd25519DIDProvider {
   }
 
   /**
-   * Sign data with Ed25519 key (for UCAN)
+   * Export private key in ucanto-compatible format
+   * Returns a multibase-encoded string that can be used with Signer.parse()
    */
-  async sign(data: Uint8Array): Promise<Uint8Array> {
+  exportPrivateKey(): string {
     if (!this.sessionUnlocked) throw new Error('Session not unlocked');
     if (!this.keypair) throw new Error('Keypair not initialized');
 
-    // TODO: Implement proper Ed25519 signing
-    // For now, return a placeholder signature
-    const hash = await crypto.subtle.digest('SHA-256', data);
-    return new Uint8Array(hash);
+    // Ucanto expects Ed25519 keys in multibase format
+    // The format is: multibase(multicodec-ed25519-priv + private-key-bytes)
+    // For Ed25519 private keys, multicodec is 0x1300
+    const ED25519_PRIV_MULTICODEC = 0x1300;
+    
+    // Encode multicodec as varint
+    const codecBytes = new Uint8Array(2);
+    codecBytes[0] = ED25519_PRIV_MULTICODEC & 0xff;
+    codecBytes[1] = (ED25519_PRIV_MULTICODEC >> 8) & 0xff;
+    
+    // Combine multicodec + private key
+    const combined = new Uint8Array(codecBytes.length + this.keypair.privateKey.length);
+    combined.set(codecBytes, 0);
+    combined.set(this.keypair.privateKey, codecBytes.length);
+    
+    // Encode as base58btc with 'z' prefix (multibase identifier for base58btc)
+    const encoded = base58btc.encode(combined);
+    return encoded;
+  }
+
+  /**
+   * Create a ucanto Ed25519 Signer from this provider
+   * This can be used directly with ucanto for signing UCANs
+   */
+  async createUcantoSigner(): Promise<any> {
+    if (!this.sessionUnlocked) throw new Error('Session not unlocked');
+    
+    const privateKeyString = this.exportPrivateKey();
+    
+    // Import ucanto's Ed25519 Signer
+    const { Signer } = await import('@storacha/client/principal/ed25519');
+    return Signer.parse(privateKeyString);
   }
 
   /**
