@@ -149,6 +149,73 @@ For this application to be production-ready, the following steps are required:
 
 ---
 
+## 🔐 P-256 UCAN Delegation: Challenges and Reality
+
+### The WebAuthn Signature Format Problem
+
+While WebAuthn uses P-256 (ES256) for signatures, it doesn't sign arbitrary data directly. Instead, it creates signatures over a specific structure:
+
+```
+signature = sign_P256(authenticatorData || sha256(clientDataJSON))
+```
+
+Where `clientDataJSON` wraps your data:
+```json
+{
+  "type": "webauthn.get",
+  "challenge": "base64url(yourData)",
+  "origin": "https://your-domain.com"
+}
+```
+
+**This is fundamentally different from what UCAN needs:**
+```
+signature = sign_P256(rawUcanPayloadBytes)
+```
+
+### What P-256 Support Enables
+
+Our [P-256 fork](https://github.com/NiKrause/ucanto/tree/p256) adds P-256 signature **verification** to ucanto, which means:
+
+✅ Ucanto can verify P-256 signatures  
+✅ Storacha could accept P-256 DIDs  
+✅ UCAN tokens can use P-256 keys  
+
+**However**, this still requires **raw P-256 signatures**, not WebAuthn-wrapped assertions.
+
+### The Missing Piece
+
+To achieve true hardware-backed UCAN signing, we would need:
+
+1. **Raw P-256 signing capability** (not WebAuthn-wrapped)
+2. **Hardware-backed keys** (TPM/Secure Enclave)
+3. **Both simultaneously** ← This is what WebAuthn doesn't provide today
+
+WebAuthn provides #2 but not #1. You can have hardware security **OR** raw UCAN-compatible signatures, but not both with current web standards.
+
+### Why the Current Architecture Exists
+
+The Ed25519-in-worker approach is a **pragmatic compromise** given:
+
+- WebAuthn can't produce raw signatures for UCAN
+- UCAN ecosystem expects standard signature formats
+- Pure hardware-backed delegation isn't feasible with current web APIs
+- Storacha requires working signatures today (not in 2+ years)
+
+This architectural limitation is **not a design flaw** but rather **the reality of current web cryptography standards**.
+
+### Future Possibilities
+
+True hardware-backed P-256 UCAN delegation would require:
+
+1. **WebAuthn Level 3+** with raw signing capabilities (not currently standardized)
+2. **Platform-specific APIs** (Apple CryptoKit, Windows CNG) outside the browser
+3. **Native applications** with direct hardware access (defeats the browser-only goal)
+
+**Timeline**: Any web standard solution is likely 2-5 years away, if it happens at all.
+
+---
+
 ## 🔒 Mitigation Strategies (Current Architecture)
 
 While the current architecture is insecure, the following measures reduce (but do not eliminate) risk:
