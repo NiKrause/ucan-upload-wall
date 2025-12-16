@@ -4,6 +4,12 @@
 
 A browser-only file upload application powered by **WebAuthn DIDs**, **worker-based Ed25519 keystore**, and **UCAN delegations** on Storacha.
 
+## 🌐 Live Demo
+
+**[Try it now →](https://bafybeid2ygpsn7762snsrhdq5ahwmrtym7gfxrbj76mzrj4fwxsz6rksn4.ipfs.dweb.link/)**
+
+⚠️ **Demo is for testing only** - do not use with valuable data (see security warnings above)
+
 ## 🏗️ Architecture
 
 ### **WebAuthn DID (P-256)**
