@@ -32,7 +32,7 @@ A browser-only file upload application powered by **WebAuthn DIDs**, **worker-ba
 
 ## 🎥 Demo Video
 
-[![UCAN Upload Wall Demo](https://img.youtube.com/vi/3ZqkgYMS1MM/maxresdefault.jpg)](https://www.youtube.com/watch?v=3ZqkgYMS1MM)
+[![UCAN Upload Wall Demo](https://img.youtube.com/vi/3ZqkgYMS1MM/hqdefault.jpg)](https://www.youtube.com/watch?v=3ZqkgYMS1MM)
 
 *Click the image above to watch the demo video on YouTube*
 
