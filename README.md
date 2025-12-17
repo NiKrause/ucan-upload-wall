@@ -26,6 +26,7 @@ A browser-only file upload application powered by **WebAuthn DIDs**, **worker-ba
 ⚠️ **Demo is for testing only** - do not use with valuable data (see security warnings above)
 
 **To mitigate the above stated security risks**, please use the browser app only in:
+
 - Browsers **without any installed browser extensions** (e.g., Chrome extensions), or
 - **Mobile phones** where the attack surface is much smaller
 
