@@ -841,8 +841,8 @@ export function DelegationManager({ delegationService }: DelegationManagerProps)
                           {delegation.format}
                         </div>
                       )}
-                      <div className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-medium">
-                        Active
+                    <div className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-medium">
+                      Active
                       </div>
                     </div>
                   </div>

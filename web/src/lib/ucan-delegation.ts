@@ -246,6 +246,68 @@ export class UCANDelegationService {
   }
 
   /**
+   * Parse a delegation proof string using the appropriate method
+   * Tries ucanto extract first, then Storacha Proof.parse as fallback
+   * @param proofString The delegation proof (multibase encoded)
+   * @returns Parsed delegation object
+   */
+  private async parseDelegationProof(proofString: string): Promise<any> {
+    // Normalize the proof: add 'm' prefix if not present
+    let normalizedProof = proofString.trim();
+    if (!normalizedProof.startsWith('m') && !normalizedProof.startsWith('u')) {
+      normalizedProof = 'm' + normalizedProof;
+    }
+    
+    // Decode the multibase string to bytes
+    let tokenBytes: Uint8Array;
+    if (normalizedProof.startsWith('m')) {
+      // Standard base64
+      const base64Part = normalizedProof.substring(1);
+      const binary = atob(base64Part);
+      tokenBytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        tokenBytes[i] = binary.charCodeAt(i);
+      }
+    } else if (normalizedProof.startsWith('u')) {
+      // Base64url
+      const base64urlPart = normalizedProof.substring(1);
+      const standardBase64 = this.base64urlToBase64(base64urlPart);
+      const binary = atob(standardBase64);
+      tokenBytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        tokenBytes[i] = binary.charCodeAt(i);
+      }
+    } else {
+      throw new Error('Invalid multibase prefix');
+    }
+    
+    // Try ucanto extract first (for delegations created by this app)
+    try {
+      const { extract } = await import('@ucanto/core/delegation');
+      const extractResult = await extract(tokenBytes);
+      
+      if (extractResult && extractResult.ok) {
+        return extractResult.ok;
+      } else if (extractResult && !extractResult.error) {
+        return extractResult;
+      }
+      throw new Error('ucanto extract failed');
+    } catch (ucantoError) {
+      console.log('ucanto extract failed, trying Storacha Proof.parse:', (ucantoError as Error).message);
+    }
+    
+    // Fallback to Storacha Proof.parse (for Storacha CLI delegations)
+    try {
+      const Proof = await import('@storacha/client/proof');
+      const delegation = await Proof.parse(normalizedProof);
+      return delegation;
+    } catch (proofError) {
+      console.error('Storacha Proof.parse also failed:', (proofError as Error).message);
+      throw new Error(`Failed to parse delegation: ucanto and Storacha methods both failed. Error: ${(proofError as Error).message}`);
+    }
+  }
+
+  /**
    * Get a UCAN Signer backed by the worker keystore.
    * Reconstructs Ed25519Signer from encrypted archive stored in localStorage.
    */
@@ -382,8 +444,8 @@ export class UCANDelegationService {
   
   private async deleteWithDelegation(rootCid: string, delegationInfo: DelegationInfo): Promise<void> {
     try {
-      const Proof = await import('@storacha/client/proof');
-      const delegation = await Proof.parse(delegationInfo.proof);
+      // Parse the delegation using the helper method (tries ucanto first, then Storacha)
+      const delegation = await this.parseDelegationProof(delegationInfo.proof);
       
       const Client = await import('@storacha/client');
       const { StoreMemory } = await import('@storacha/client/stores/memory');
@@ -590,17 +652,8 @@ export class UCANDelegationService {
    */
   private async listUploadsWithDelegation(delegationInfo: DelegationInfo): Promise<Array<{ root: string; shards?: string[]; insertedAt?: string; updatedAt?: string }>> {
     try {
-      // Parse the delegation - ensure it's in multibase format for Proof.parse()
-      const Proof = await import('@storacha/client/proof');
-      
-      // Normalize the proof: add 'm' prefix if not present (for delegations from Browser A)
-      let normalizedProof = delegationInfo.proof.trim();
-      if (!normalizedProof.startsWith('m')) {
-        // Plain base64 from Browser A - add multibase prefix
-        normalizedProof = 'm' + normalizedProof;
-      }
-      
-      const delegation = await Proof.parse(normalizedProof);
+      // Parse the delegation using the helper method (tries ucanto first, then Storacha)
+      const delegation = await this.parseDelegationProof(delegationInfo.proof);
       
       // Import required modules
       const Client = await import('@storacha/client');
@@ -670,18 +723,9 @@ export class UCANDelegationService {
     try {
       console.log('Using delegation for upload:', delegationInfo.id);
       
-      // Parse the delegation using @storacha/client/proof (same as import)
+      // Parse the delegation using the helper method (tries ucanto first, then Storacha)
       console.log('Parsing delegation proof...');
-      const Proof = await import('@storacha/client/proof');
-      
-      // Normalize the proof: add 'm' prefix if not present (for delegations from Browser A)
-      let normalizedProof = delegationInfo.proof.trim();
-      if (!normalizedProof.startsWith('m')) {
-        // Plain base64 from Browser A - add multibase prefix
-        normalizedProof = 'm' + normalizedProof;
-      }
-      
-      const delegation = await Proof.parse(normalizedProof);
+      const delegation = await this.parseDelegationProof(delegationInfo.proof);
       console.log('✅ Delegation parsed for upload');
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       console.log('Delegation capabilities:', delegation.capabilities.map((c: any) => c.can).join(', '));
@@ -806,16 +850,8 @@ export class UCANDelegationService {
         throw new Error('No suitable received delegation found with required capabilities. Need a delegation that includes at least one of the requested capabilities.');
       }
       
-      // Parse the received delegation to use as proof
-      const Proof = await import('@storacha/client/proof');
-      
-      // Normalize the proof: add 'm' prefix if not present
-      let normalizedProof = suitableDelegation.proof.trim();
-      if (!normalizedProof.startsWith('m')) {
-        normalizedProof = 'm' + normalizedProof;
-      }
-      
-      proofDelegation = await Proof.parse(normalizedProof);
+      // Parse the received delegation to use as proof (using helper for compatibility)
+      proofDelegation = await this.parseDelegationProof(suitableDelegation.proof);
       
       // Extract space DID from the delegation's capabilities
       if (proofDelegation.capabilities && proofDelegation.capabilities.length > 0) {
@@ -885,54 +921,29 @@ export class UCANDelegationService {
       
       console.log('✅ Delegation created successfully');
       
-      // Archive to CAR format using Storacha's Delegation module
-      let carBase64: string;
+      // Archive to CAR format using ucanto's archive method directly
+      console.log('📦 Archiving delegation to CAR format...');
+      const archiveResult = await delegation.archive();
       
-      try {
-        // Use Storacha's Delegation.archive() which creates proper CAR format
-        const { Delegation } = await import('@storacha/client/delegation');
-        
-        // Storacha's archive method returns a proper multibase-encoded CAR string
-        const archivedDelegation = await Delegation.archive(delegation);
-        
-        if (!archivedDelegation || typeof archivedDelegation !== 'string') {
-          throw new Error('Delegation archive did not return a string');
-        }
-        
-        // Storacha's Delegation.archive() already returns multibase format
-        // Just ensure it starts with 'm' (it should already)
-        carBase64 = archivedDelegation.startsWith('m') ? archivedDelegation : 'm' + archivedDelegation;
-        
-        console.log('✅ Delegation archived to CAR format, length:', carBase64.length);
-        
-      } catch (archiveError) {
-        console.error('Delegation archive failed:', archiveError);
-        console.warn('Using fallback ucanto archive...');
-        
-        // Fallback to ucanto's archive if Storacha's fails
-        try {
-          const archiveResult = await delegation.archive();
-          
-          let carBytes: Uint8Array;
-          if (archiveResult && typeof archiveResult === 'object' && 'ok' in archiveResult) {
-            carBytes = archiveResult.ok as Uint8Array;
-          } else if (archiveResult instanceof Uint8Array) {
-            carBytes = archiveResult;
-          } else {
-            throw new Error('Unexpected archive result format');
-          }
-          
-          if (!carBytes || carBytes.length === 0) {
-            throw new Error('Delegation archive resulted in empty bytes');
-          }
-          
-          // Convert to base64 and add multibase 'm' prefix
-          const buffer = carBytes.buffer;
-          carBase64 = 'm' + this.arrayBufferToBase64(buffer);
-        } catch {
-          throw new Error('All archive methods failed');
-        }
+      let carBytes: Uint8Array;
+      if (archiveResult && typeof archiveResult === 'object' && 'ok' in archiveResult) {
+        carBytes = archiveResult.ok as Uint8Array;
+      } else if (archiveResult instanceof Uint8Array) {
+        carBytes = archiveResult;
+      } else {
+        throw new Error('Unexpected archive result format');
       }
+      
+      if (!carBytes || carBytes.length === 0) {
+        throw new Error('Delegation archive resulted in empty bytes');
+      }
+      
+      // Convert to base64 and add multibase 'm' prefix (matching Storacha CLI format)
+      const buffer = carBytes.buffer;
+      const carBase64 = 'm' + this.arrayBufferToBase64(buffer);
+      
+      console.log('✅ Delegation archived to CAR format, length:', carBase64.length);
+      console.log('📋 First 50 chars:', carBase64.substring(0, 50));
       
       // Store delegation info for UI
       const delegationInfo: DelegationInfo = {
@@ -1002,6 +1013,10 @@ export class UCANDelegationService {
       let delegationInfo: DelegationInfo;
       let detectedFormat = 'unknown';
       
+      // Track errors from different parsing attempts
+      let ucantoError: Error | null = null;
+      let storachaProofError: Error | null = null;
+      
       // Check if it's multibase encoded (starts with 'm' for base64 multibase)
       let tokenBytes: Uint8Array;
       if (cleanedProof.startsWith('m')) {
@@ -1049,7 +1064,81 @@ export class UCANDelegationService {
         tokenBytes = new TextEncoder().encode(cleanedProof);
       }
       
-      // Try to parse using @storacha/client/proof (handles Storacha CLI format)
+      // PRIORITY 1: Try ucanto's extract() first (for delegations created by this app)
+      try {
+        console.log('Attempting to parse with @ucanto/core/delegation extract() (primary method)...');
+        
+        const { extract } = await import('@ucanto/core/delegation');
+        
+        // Extract from the bytes we decoded earlier
+        const extractResult = await extract(tokenBytes);
+        
+        // Handle ucanto Result format
+        let delegation;
+        if (extractResult && extractResult.ok) {
+          delegation = extractResult.ok;
+        } else if (extractResult && !extractResult.error) {
+          delegation = extractResult;
+        } else {
+          console.log('Extract failed, trying Storacha Proof.parse()...');
+          throw new Error('Extraction returned error');
+        }
+        
+        console.log('✅ Successfully parsed delegation with ucanto extract()');
+        
+        // Verify the delegation is for our DID
+        const ourDid = this.getCurrentDID();
+        const audienceDid = typeof delegation.audience.did === 'function' 
+          ? delegation.audience.did() 
+          : delegation.audience;
+        const issuerDid = typeof delegation.issuer.did === 'function'
+          ? delegation.issuer.did()
+          : delegation.issuer;
+        
+        console.log('Delegation audience:', audienceDid);
+        console.log('Our DID:', ourDid);
+        
+        if (audienceDid !== ourDid) {
+          throw new Error(`This delegation is not for your current DID.\n\nExpected: ${ourDid}\nGot: ${audienceDid}\n\nPlease create a delegation for the correct DID.`);
+        }
+        
+        // Extract capabilities from the delegation
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const capabilities = delegation.capabilities.map((cap: any) => cap.can || cap.capability || cap);
+        
+        // Generate default name if not provided
+        const defaultName = name || `Delegation from ${issuerDid.slice(0, 20)}... (${new Date().toLocaleDateString()})`;
+        
+        delegationInfo = {
+          id: delegation.cid?.toString() || crypto.randomUUID(),
+          name: defaultName,
+          fromIssuer: String(issuerDid),
+          toAudience: audienceDid,
+          proof: cleanedProof,
+          capabilities,
+          createdAt: new Date().toISOString(),
+          expiresAt: delegation.expiration ? new Date(delegation.expiration * 1000).toISOString() : undefined,
+          format: detectedFormat + ' (ucanto extract)'
+        };
+        
+        console.log('\u2705 Delegation parsed successfully with ucanto');
+        console.log('  From:', issuerDid);
+        console.log('  To:', audienceDid);
+        console.log('  Capabilities:', capabilities.join(', '));
+        console.log('  Format:', delegationInfo.format);
+        
+        // Store the delegation
+        this.storeReceivedDelegation(delegationInfo);
+        console.log('\u2705 Delegation imported and stored successfully');
+        return; // Success! Exit the function
+        
+      } catch (err) {
+        ucantoError = err as Error;
+        console.log('ucanto extract() failed:', ucantoError.message);
+        console.log('Trying @storacha/client/proof as fallback...');
+      }
+      
+      // PRIORITY 2: Try @storacha/client/proof (for Storacha CLI delegations)
       try {
         console.log('Attempting to parse with @storacha/client/proof...');
         
@@ -1089,21 +1178,23 @@ export class UCANDelegationService {
           capabilities,
           createdAt: new Date().toISOString(),
           expiresAt: undefined, // Storacha CLI delegations don't include expiration in the parsed object
-          format: detectedFormat
+          format: detectedFormat + ' (Storacha CLI)'
         };
         
-        console.log('\u2705 Delegation parsed successfully');
+        console.log('\u2705 Delegation parsed successfully with Storacha proof');
         console.log('  From:', issuerDid);
         console.log('  To:', audienceDid);
         console.log('  Capabilities:', capabilities.join(', '));
-        console.log('  Format:', detectedFormat);
+        console.log('  Format:', delegationInfo.format);
         
         // Store the delegation
         this.storeReceivedDelegation(delegationInfo);
         console.log('\u2705 Delegation imported and stored successfully');
         return; // Success! Exit the function
-      } catch (rawCarError) {
-        console.log('Not raw CAR format, trying base64 decoding...');
+      } catch (err) {
+        storachaProofError = err as Error;
+        console.log('Storacha Proof.parse() failed:', storachaProofError.message);
+        console.log('Trying legacy formats as last resort...');
         
         try {
           // Try to decode base64 first
@@ -1271,7 +1362,13 @@ export class UCANDelegationService {
           }
         } catch (carError) {
           console.error('All parsing attempts failed');
-          throw new Error(`Invalid delegation format. Raw CAR: ${(rawCarError as Error).message}. JSON: ${(jsonError as Error).message}. Base64 CAR: ${(carError as Error).message}`);
+          if (ucantoError) console.error('  ucanto extract:', ucantoError.message);
+          if (storachaProofError) console.error('  Storacha Proof.parse:', storachaProofError.message);
+          console.error('  Legacy JSON:', (jsonError as Error).message);
+          console.error('  Legacy CAR:', (carError as Error).message);
+          
+          const primaryError = ucantoError?.message || storachaProofError?.message || 'Unknown error';
+          throw new Error(`Invalid delegation format. Tried: ucanto extract, Storacha Proof.parse, and legacy formats. All failed. Primary error: ${primaryError}`);
         }
       }
       }

@@ -65,7 +65,6 @@ Dependencies used in workers (`@ucanto/principal`, `@noble/hashes`, etc.) could 
 ### References
 
 For more information on Web Worker security limitations:
-- [OWASP Web Worker Security](https://owasp.org/www-community/vulnerabilities/Insecure_Web_Worker)
 - [MDN: Web Workers Security](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers#security)
 - [Web Worker XSS Attack Vectors](https://portswigger.net/web-security/cross-site-scripting/contexts/web-workers)
 - [Content Security Policy and Workers](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP#workers)

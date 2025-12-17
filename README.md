@@ -6,7 +6,7 @@ A browser-only file upload application powered by **WebAuthn DIDs**, **worker-ba
 
 ## 🌐 Live Demo
 
-**[Try it now →](https://bafybeid2ygpsn7762snsrhdq5ahwmrtym7gfxrbj76mzrj4fwxsz6rksn4.ipfs.dweb.link/)**
+**[Try it now →](https://bafybeibtfsituy7gxubnoggnhd4qojkg2cyrjgxi3aynytcld2k25a6xfe.ipfs.dweb.link/)**
 
 ⚠️ **Demo is for testing only** - do not use with valuable data (see security warnings above)
 
