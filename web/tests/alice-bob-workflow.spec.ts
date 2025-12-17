@@ -1,4 +1,4 @@
-import { test, expect, chromium, Browser, Page, BrowserContext, ConsoleMessage } from '@playwright/test';
+import { test, expect, chromium, Browser, Page, BrowserContext, ConsoleMessage, CDPSession } from '@playwright/test';
 import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpers/webauthn';
 import dotenv from 'dotenv';
 import * as Delegation from '@ucanto/core/delegation';
@@ -27,8 +27,8 @@ test.describe('Alice & Bob Complete Workflow', () => {
   let contextBob: BrowserContext;
   let pageAlice: Page;
   let pageBob: Page;
-  let cdpSessionAlice: { client: any; authenticatorId: string };
-  let cdpSessionBob: { client: any; authenticatorId: string };
+  let cdpSessionAlice: { client: CDPSession; authenticatorId: string };
+  let cdpSessionBob: { client: CDPSession; authenticatorId: string };
 
   test('Complete delegation and file sharing flow', async () => {
     // Helper to extract full DID from page without truncation
@@ -73,12 +73,16 @@ test.describe('Alice & Bob Complete Workflow', () => {
                 const m = v.match(/did:key:[A-Za-z0-9:+/=-]+/);
                 if (m && !m[0].includes('...')) return m[0];
               }
-            } catch {}
+            } catch {
+            // Ignore errors in credential creation override
+          }
           }
           return '';
         });
         if (fromStorage) return fromStorage;
-      } catch {}
+      } catch {
+        // Ignore storage access errors
+      }
       // Fallback to clipboard via copy button
       const copyBtn = page.getByRole('button', { name: /copy\s*did/i }).first();
       if (await copyBtn.isVisible().catch(() => false)) {
@@ -87,7 +91,9 @@ test.describe('Alice & Bob Complete Workflow', () => {
         try {
           const clip = (await page.evaluate(() => navigator.clipboard.readText()))?.trim() || '';
           if (clip && /^did:key:/.test(clip)) return clip;
-        } catch {}
+        } catch {
+          // Ignore clipboard read errors
+        }
       }
       return '';
     };
@@ -106,7 +112,7 @@ test.describe('Alice & Bob Complete Workflow', () => {
       // Force ES256 in WebAuthn create() by ensuring -7 appears and is preferred
       await contextAlice.addInitScript(() => {
         const origCreate = navigator.credentials.create.bind(navigator.credentials);
-        // @ts-ignore
+        // @ts-expect-error - Overriding navigator.credentials.create for testing
         navigator.credentials.create = async (options) => {
           try {
             if (options && options.publicKey) {
@@ -116,8 +122,10 @@ test.describe('Alice & Bob Complete Workflow', () => {
                 ...(pk.pubKeyCredParams || [])
               ].map(p => JSON.stringify(p)))).map(s => JSON.parse(s));
             }
-          } catch {}
-          // @ts-ignore
+          } catch {
+            // Ignore errors in credential creation override
+          }
+          // @ts-expect-error - Overriding navigator.credentials.create for testing
           return origCreate(options);
         };
       });
@@ -148,7 +156,7 @@ test.describe('Alice & Bob Complete Workflow', () => {
       await contextBob.grantPermissions(['clipboard-read', 'clipboard-write']);
       await contextBob.addInitScript(() => {
         const origCreate = navigator.credentials.create.bind(navigator.credentials);
-        // @ts-ignore
+        // @ts-expect-error - Overriding navigator.credentials.create for testing
         navigator.credentials.create = async (options) => {
           try {
             if (options && options.publicKey) {
@@ -158,8 +166,10 @@ test.describe('Alice & Bob Complete Workflow', () => {
                 ...(pk.pubKeyCredParams || [])
               ].map(p => JSON.stringify(p)))).map(s => JSON.parse(s));
             }
-          } catch {}
-          // @ts-ignore
+          } catch {
+            // Ignore errors in credential creation override
+          }
+          // @ts-expect-error - Overriding navigator.credentials.create for testing
           return origCreate(options);
         };
       });
@@ -319,7 +329,9 @@ test.describe('Alice & Bob Complete Workflow', () => {
           await pageAlice.waitForTimeout(200);
           try {
             proofText = (await pageAlice.evaluate(() => navigator.clipboard.readText()))?.trim() || '';
-          } catch {}
+          } catch {
+            // Ignore errors in credential creation override
+          }
         }
         
         // Fallback: read from a textbox/textarea in the dialog
@@ -370,12 +382,14 @@ test.describe('Alice & Bob Complete Workflow', () => {
           try {
             const res = await Delegation.extract(bytes);
             if (res && res.ok) return res.ok;
-          } catch {}
+          } catch {
+            // Ignore errors in credential creation override
+          }
           return null;
         };
 
         // Attempt 1: assume proofText is base64-encoded CAR bytes
-        let bytes = Buffer.from(proofText, 'base64');
+        const bytes = Buffer.from(proofText, 'base64');
         let delegationOk = await tryExtract(bytes);
 
         // Attempt 2: if bytes decode to JSON, try to reconstruct
@@ -399,6 +413,7 @@ test.describe('Alice & Bob Complete Workflow', () => {
             // Case B: nested base64 string
             if (!delegationOk) {
               const strings: string[] = [];
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const collect = (v: any) => {
                 if (typeof v === 'string') strings.push(v);
                 else if (Array.isArray(v)) v.forEach(collect);
@@ -421,6 +436,7 @@ test.describe('Alice & Bob Complete Workflow', () => {
         if (!delegationOk) throw new Error('Failed to extract delegation');
 
         // Log capabilities and verify they match what we selected
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const capabilities = delegationOk.capabilities.map((cap: any) => cap.can);
         console.log('🔓 Delegation capabilities:', capabilities);
         

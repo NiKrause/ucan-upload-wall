@@ -14,6 +14,7 @@ import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpe
 test.describe('Encrypted Keystore', () => {
   let context: BrowserContext;
   let page: Page;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let cdpSession: { client: any; authenticatorId: string };
 
   test.beforeEach(async ({ browser }) => {
@@ -321,6 +322,7 @@ test.describe('Encrypted Keystore', () => {
 test.describe('Extension Support Detection', () => {
   let context: BrowserContext;
   let page: Page;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let cdpSession: { client: any; authenticatorId: string };
 
   test.beforeEach(async ({ browser }) => {

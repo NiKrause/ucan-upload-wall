@@ -41,6 +41,7 @@ export async function generateEd25519KeyPair(): Promise<{
 }> {
   try {
     // Use native Ed25519 support where available.
+     
     const keyPair = await crypto.subtle.generateKey(
       { name: 'Ed25519' } as any,
       true,
@@ -97,6 +98,7 @@ export async function createEd25519DID(publicKeyBytes: Uint8Array): Promise<stri
 
 let keystoreWorker: Worker | null = null;
 let nextRequestId = 1;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const pendingRequests = new Map<number, { resolve: (value: any) => void; reject: (reason?: any) => void }>();
 
 function getKeystoreWorker(): Worker {
@@ -142,12 +144,14 @@ async function sendKeystoreRequest<T extends KeystoreRequestMessage['type']>(
 
   console.log('[secure-ed25519-did] 📤 Sending worker request', { id, type });
 
+   
   const message: KeystoreRequestMessage = {
     id,
     type,
     ...(payload as any)
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const promise = new Promise<any>((resolve, reject) => {
     pendingRequests.set(id, { resolve, reject });
   });
@@ -177,6 +181,7 @@ export async function initEd25519KeystoreWithPrfSeed(prfSeed: Uint8Array): Promi
  * Returns the public key bytes and did:key; the private key never leaves
  * the worker.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function generateWorkerEd25519DID(): Promise<{ publicKey: Uint8Array; did: string; archive: any }> {
   console.log('[secure-ed25519-did] 🔑 generateWorkerEd25519DID() called');
 

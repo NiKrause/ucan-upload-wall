@@ -73,7 +73,11 @@ This outputs a base64-encoded UCAN delegation proof.
 ### **3. Import Delegation**
 - Paste the delegation proof from Storacha CLI
 - App verifies the delegation is for your current Ed25519 DID
-- Delegation stored in localStorage
+- **Format auto-detection**: Supports multiple formats including:
+  - `multibase-base64` (Storacha CLI format with 'm' prefix)
+  - `multibase-base64url` (with 'u' prefix)
+  - CAR format, JSON format, and other legacy formats
+- Delegation stored in localStorage with detected format displayed
 - Capabilities: `upload/*`, `store/*`, `blob/*`, `space/*`, etc.
 
 ### **4. Upload File**
@@ -184,6 +188,7 @@ See **[PLANNING.md](./PLANNING.md)** for the complete roadmap and technical deta
 - **Archive Encryption**: Archive encrypted with AES-GCM, decrypted only in worker
 - **Delegation Mismatch**: If DID changes, delegation must be recreated
 - **Worker Persistence**: Worker state lost on page reload; archive restored from localStorage
+- **Base64 Encoding Compatibility**: Handles both standard base64 (Storacha CLI) and base64url formats by detecting the multibase prefix ('m' or 'u') and normalizing accordingly. See [issue #590](https://github.com/storacha/upload-service/issues/590) for background on the encoding challenge.
 
 ## 🔗 Resources
 

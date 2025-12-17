@@ -1,5 +1,5 @@
 import { useCallback, useState, useEffect } from 'react';
-import { Upload, FileText, X, Shield, Smartphone, Copy, Check, AlertCircle, Lock } from 'lucide-react';
+import { Upload, FileText, X, Shield, Copy, Check, AlertCircle, Lock } from 'lucide-react';
 import { UCANDelegationService } from '../lib/ucan-delegation';
 import { WebAuthnDIDProvider } from '../lib/webauthn-did';
 
@@ -18,8 +18,8 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
   const [isCreatingDID, setIsCreatingDID] = useState(false);
   const [webauthnSupported, setWebauthnSupported] = useState(false);
   const [copiedDID, setCopiedDID] = useState(false);
-  const [encryptionSupported, setEncryptionSupported] = useState(false);
-  const [encryptionMethod, setEncryptionMethod] = useState<'largeBlob' | 'hmac-secret'>('hmac-secret');
+  const [encryptionSupported] = useState(false); // Currently always false - encryption handled in worker
+  const [encryptionMethod] = useState<'largeBlob' | 'hmac-secret'>('hmac-secret'); // Default method
 
   useEffect(() => {
     // Check WebAuthn support
@@ -37,9 +37,9 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
       if (encryptionSupported) {
         try {
           await delegationService.initializeSecureEd25519DID(encryptionMethod, false);
-        } catch (encryptionError: any) {
+        } catch (encryptionError: unknown) {
           // Safari doesn't support encryption extensions - fall back to unencrypted
-          console.warn('Hardware encryption failed, using unencrypted:', encryptionError.message);
+          console.warn('Hardware encryption failed, using unencrypted:', encryptionError instanceof Error ? encryptionError.message : String(encryptionError));
           await delegationService.initializeEd25519DID(false);
         }
       } else {

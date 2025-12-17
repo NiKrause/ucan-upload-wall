@@ -52,6 +52,7 @@ export interface DelegationInfo {
   capabilities: string[];
   createdAt: string;
   expiresAt?: string;     // When the delegation expires (ISO string)
+  format?: string;        // Format of the imported delegation (e.g. "multibase-base64", "multibase-base64url", "storacha-cli")
 }
 
 export class UCANDelegationService {
@@ -134,6 +135,7 @@ export class UCANDelegationService {
     try {
       const credentialInfo: WebAuthnCredentialInfo = JSON.parse(storedCredential);
       // rawCredentialId is stored as an object; convert back to Uint8Array
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       prfSeed = new Uint8Array(Object.values(credentialInfo.rawCredentialId as any));
     } catch (error) {
       console.error('Failed to parse stored WebAuthn credential for PRF seed', error);
@@ -202,7 +204,7 @@ export class UCANDelegationService {
         console.log('✅ Successfully restored WebAuthn DID');
         return this.webauthnProvider;
         
-      } catch (error) {
+      } catch {
         console.warn('Failed to restore stored WebAuthn credential, creating new one');
         // Clear invalid stored credential
         localStorage.removeItem(STORAGE_KEYS.WEBAUTHN_CREDENTIAL);
@@ -216,7 +218,7 @@ export class UCANDelegationService {
       try {
         const storedInfo = JSON.parse(storedCredential);
         existingCredentialId = storedInfo?.credentialId;
-      } catch (e) {
+      } catch {
         console.warn('Failed to extract credential ID from stored data');
       }
     }
@@ -255,7 +257,9 @@ export class UCANDelegationService {
     // Reconstruct a full Ed25519Signer from the archive produced in the worker.
     // This gives Storacha a principal with the exact shape it expects, including
     // sign(), verify(), encode(), toArchive(), etc.
-    const principal = Ed25519Principal.from(this.ed25519Archive!) as UcanSigner<UcanDID<'key'>>;
+    // Type cast needed because archive.id is string but Ed25519Principal.from expects DID type
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const principal = Ed25519Principal.from(this.ed25519Archive as any) as UcanSigner<UcanDID<'key'>>;
     return principal;
   }
 
@@ -565,6 +569,7 @@ export class UCANDelegationService {
         for (const item of result.results) {
           uploads.push({
             root: item.root.toString(),
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             shards: item.shards?.map((s: any) => s.toString()),
             insertedAt: item.insertedAt,
             updatedAt: item.updatedAt
@@ -585,9 +590,17 @@ export class UCANDelegationService {
    */
   private async listUploadsWithDelegation(delegationInfo: DelegationInfo): Promise<Array<{ root: string; shards?: string[]; insertedAt?: string; updatedAt?: string }>> {
     try {
-      // Parse the delegation
+      // Parse the delegation - ensure it's in multibase format for Proof.parse()
       const Proof = await import('@storacha/client/proof');
-      const delegation = await Proof.parse(delegationInfo.proof);
+      
+      // Normalize the proof: add 'm' prefix if not present (for delegations from Browser A)
+      let normalizedProof = delegationInfo.proof.trim();
+      if (!normalizedProof.startsWith('m')) {
+        // Plain base64 from Browser A - add multibase prefix
+        normalizedProof = 'm' + normalizedProof;
+      }
+      
+      const delegation = await Proof.parse(normalizedProof);
       
       // Import required modules
       const Client = await import('@storacha/client');
@@ -631,7 +644,8 @@ export class UCANDelegationService {
             console.log('Upload item:', item);
             uploads.push({
               root: item.root.toString(),
-              shards: item.shards?.map((s: any) => s.toString()),
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            shards: item.shards?.map((s: any) => s.toString()),
               insertedAt: item.insertedAt,
               updatedAt: item.updatedAt
             });
@@ -659,8 +673,17 @@ export class UCANDelegationService {
       // Parse the delegation using @storacha/client/proof (same as import)
       console.log('Parsing delegation proof...');
       const Proof = await import('@storacha/client/proof');
-      const delegation = await Proof.parse(delegationInfo.proof);
+      
+      // Normalize the proof: add 'm' prefix if not present (for delegations from Browser A)
+      let normalizedProof = delegationInfo.proof.trim();
+      if (!normalizedProof.startsWith('m')) {
+        // Plain base64 from Browser A - add multibase prefix
+        normalizedProof = 'm' + normalizedProof;
+      }
+      
+      const delegation = await Proof.parse(normalizedProof);
       console.log('✅ Delegation parsed for upload');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       console.log('Delegation capabilities:', delegation.capabilities.map((c: any) => c.can).join(', '));
       
       // Import required modules
@@ -732,9 +755,11 @@ export class UCANDelegationService {
   }
 
   /**
-   * Create a UCAN delegation to another WebAuthn DID
-   * Browser A workflow: Storacha EdDSA → Browser B WebAuthn DID
-   * @param toDid Target WebAuthn DID to delegate to
+   * Create a UCAN delegation to another DID
+   * Supports two modes:
+   * 1. Direct delegation from Storacha credentials (if available)
+   * 2. Delegation chaining from a received UCAN delegation (if no credentials)
+   * @param toDid Target DID to delegate to
    * @param capabilities Array of capability strings to delegate
    * @param expirationHours Number of hours until delegation expires (default: 24, null = no expiration)
    */
@@ -743,115 +768,176 @@ export class UCANDelegationService {
       throw new Error('WebAuthn provider not initialized');
     }
 
-    if (!this.storachaClient) {
-      await this.initializeStorachaClient();
-    }
-
     const credentials = this.getStorachaCredentials();
-    if (!credentials) {
-      throw new Error('No Storacha credentials found');
+    const receivedDelegations = this.getReceivedDelegations();
+    
+    // Determine delegation source: credentials (preferred) or received delegation (chaining)
+    let spaceDid: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let issuer: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let proofDelegation: any = null;
+    
+    if (credentials) {
+      // Mode 1: Direct delegation from Storacha credentials
+      console.log('Creating delegation from Storacha credentials');
+      
+      if (!this.storachaClient) {
+        await this.initializeStorachaClient();
+      }
+      
+      const { Signer: EdDSASigner } = await import('@storacha/client/principal/ed25519');
+      issuer = EdDSASigner.parse(credentials.key);
+      spaceDid = credentials.spaceDid;
+    } else if (receivedDelegations.length > 0) {
+      // Mode 2: Delegation chaining from received delegation
+      console.log('Creating delegation via chaining from received UCAN delegation');
+      
+      // Find a suitable delegation that has the capabilities we need
+      const suitableDelegation = receivedDelegations.find(d => 
+        d.capabilities.some(cap => 
+          capabilities.some(reqCap => 
+            cap === reqCap || cap === reqCap.split('/')[0] + '/*' || cap === '*'
+          )
+        )
+      );
+      
+      if (!suitableDelegation) {
+        throw new Error('No suitable received delegation found with required capabilities. Need a delegation that includes at least one of the requested capabilities.');
+      }
+      
+      // Parse the received delegation to use as proof
+      const Proof = await import('@storacha/client/proof');
+      
+      // Normalize the proof: add 'm' prefix if not present
+      let normalizedProof = suitableDelegation.proof.trim();
+      if (!normalizedProof.startsWith('m')) {
+        normalizedProof = 'm' + normalizedProof;
+      }
+      
+      proofDelegation = await Proof.parse(normalizedProof);
+      
+      // Extract space DID from the delegation's capabilities
+      if (proofDelegation.capabilities && proofDelegation.capabilities.length > 0) {
+        const cap = proofDelegation.capabilities[0];
+        if (cap.with && typeof cap.with === 'string' && cap.with.startsWith('did:key:')) {
+          spaceDid = cap.with;
+          console.log('Extracted space DID from received delegation:', spaceDid);
+        } else {
+          throw new Error('Received delegation does not contain a valid space DID in capabilities');
+        }
+      } else {
+        throw new Error('Received delegation has no capabilities');
+      }
+      
+      // Use worker principal (Ed25519) as issuer for chained delegation
+      issuer = await this.getWorkerPrincipal();
+      console.log('Using worker Ed25519 principal as issuer for chained delegation:', issuer.did());
+    } else {
+      throw new Error('No Storacha credentials or received delegations found. Cannot create delegation without either credentials or a delegation to chain from.');
     }
 
     try {
       // Authenticate with WebAuthn to prove identity
       await this.webauthnProvider.authenticate();
       
-      console.log('Creating delegation: EdDSA → Target WebAuthn DID');
-      
       // Import ucanto delegation and principal modules
       const { delegate } = await import('@ucanto/core/delegation');
       const { Verifier } = await import('@ucanto/principal');
       
-      // Create verifier for the target WebAuthn DID
-      const browserBVerifier = Verifier.parse(toDid as any);
+      // Create verifier for the target DID
+      const targetVerifier = Verifier.parse(toDid as any);
       
       // Convert capability strings to proper UCAN capability objects
       const ucanCapabilities = capabilities
         .filter(cap => cap && typeof cap === 'string')
         .map(cap => ({
-          with: credentials.spaceDid,
+          with: spaceDid,
           can: cap
         }));
-      
-      // Direct delegation: EdDSA (Storacha) → Browser B WebAuthn DID
-      const { Signer: EdDSASigner } = await import('@storacha/client/principal/ed25519');
-      const storachaAgent = EdDSASigner.parse(credentials.key);
       
       // Calculate expiration timestamp (undefined if no expiration)
       const expirationTimestamp = expirationHours !== null 
         ? Math.floor(Date.now() / 1000) + (expirationHours * 60 * 60)
         : undefined;
       
-      const delegationParams = {
-        issuer: storachaAgent,
-        audience: browserBVerifier,
-        capabilities: ucanCapabilities as any,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const delegationParams: any = {
+        issuer,
+        audience: targetVerifier,
+        capabilities: ucanCapabilities,
         expiration: expirationTimestamp,
         facts: []
       };
+      
+      // Add proof if chaining from received delegation
+      if (proofDelegation) {
+        delegationParams.proofs = [proofDelegation];
+        console.log('Including received delegation as proof in delegation chain');
+      }
       
       // Validate delegation parameters
       if (!delegationParams.issuer || !delegationParams.audience) {
         throw new Error('Delegation parameters missing issuer or audience');
       }
       
-      const delegation = await delegate(delegationParams as any);
+      const delegation = await delegate(delegationParams);
       
       console.log('✅ Delegation created successfully');
       
-      // Archive to CAR format
+      // Archive to CAR format using Storacha's Delegation module
       let carBase64: string;
       
       try {
-        const delegationCAR = await delegation.archive();
+        // Use Storacha's Delegation.archive() which creates proper CAR format
+        const { Delegation } = await import('@storacha/client/delegation');
         
-        // Handle different archive result types
-        let buffer: ArrayBuffer;
+        // Storacha's archive method returns a proper multibase-encoded CAR string
+        const archivedDelegation = await Delegation.archive(delegation);
         
-        if (delegationCAR instanceof ArrayBuffer) {
-          buffer = delegationCAR;
-        } else if (delegationCAR instanceof Uint8Array) {
-          buffer = (delegationCAR as any).buffer;
-        } else if (delegationCAR && typeof delegationCAR === 'object') {
-          if ((delegationCAR as any).bytes) {
-            buffer = (delegationCAR as any).bytes;
-          } else if ((delegationCAR as any).buffer) {
-            buffer = (delegationCAR as any).buffer;
-          } else {
-            const jsonStr = JSON.stringify(delegationCAR);
-            buffer = new TextEncoder().encode(jsonStr).buffer;
-          }
-        } else {
-          throw new Error(`Unsupported archive result type: ${typeof delegationCAR}`);
+        if (!archivedDelegation || typeof archivedDelegation !== 'string') {
+          throw new Error('Delegation archive did not return a string');
         }
         
-        if (!buffer || buffer.byteLength === 0) {
-          throw new Error('Delegation archive resulted in empty buffer');
-        }
+        // Storacha's Delegation.archive() already returns multibase format
+        // Just ensure it starts with 'm' (it should already)
+        carBase64 = archivedDelegation.startsWith('m') ? archivedDelegation : 'm' + archivedDelegation;
         
-        carBase64 = this.arrayBufferToBase64(buffer);
+        console.log('✅ Delegation archived to CAR format, length:', carBase64.length);
         
       } catch (archiveError) {
-        console.warn('Delegation archive failed, using fallback serialization');
+        console.error('Delegation archive failed:', archiveError);
+        console.warn('Using fallback ucanto archive...');
         
-        // Fallback: Create a simple JSON representation
-        const fallbackDelegation = {
-          issuer: delegation.issuer.did(),
-          audience: delegation.audience.did(), 
-          capabilities: delegation.capabilities,
-          expiration: delegation.expiration,
-          cid: delegation.cid?.toString() || crypto.randomUUID(),
-          facts: delegation.facts || [],
-          timestamp: Date.now()
-        };
-        
-        carBase64 = btoa(JSON.stringify(fallbackDelegation));
+        // Fallback to ucanto's archive if Storacha's fails
+        try {
+          const archiveResult = await delegation.archive();
+          
+          let carBytes: Uint8Array;
+          if (archiveResult && typeof archiveResult === 'object' && 'ok' in archiveResult) {
+            carBytes = archiveResult.ok as Uint8Array;
+          } else if (archiveResult instanceof Uint8Array) {
+            carBytes = archiveResult;
+          } else {
+            throw new Error('Unexpected archive result format');
+          }
+          
+          if (!carBytes || carBytes.length === 0) {
+            throw new Error('Delegation archive resulted in empty bytes');
+          }
+          
+          // Convert to base64 and add multibase 'm' prefix
+          const buffer = carBytes.buffer;
+          carBase64 = 'm' + this.arrayBufferToBase64(buffer);
+        } catch {
+          throw new Error('All archive methods failed');
+        }
       }
       
       // Store delegation info for UI
       const delegationInfo: DelegationInfo = {
         id: delegation.cid.toString(),
-        fromIssuer: storachaAgent.did(),
+        fromIssuer: typeof issuer.did === 'function' ? issuer.did() : issuer.did,
         toAudience: toDid,
         proof: carBase64,
         capabilities,
@@ -914,11 +1000,13 @@ export class UCANDelegationService {
       console.log('First chars:', cleanedProof.substring(0, 20));
       
       let delegationInfo: DelegationInfo;
+      let detectedFormat = 'unknown';
       
       // Check if it's multibase encoded (starts with 'm' for base64 multibase)
       let tokenBytes: Uint8Array;
       if (cleanedProof.startsWith('m')) {
         console.log('Detected multibase encoding (base64), decoding...');
+        detectedFormat = 'multibase-base64 (Storacha CLI format)';
         try {
           // 'm' prefix indicates standard base64 encoding in multibase
           // Remove 'm' prefix and decode as standard base64
@@ -939,6 +1027,7 @@ export class UCANDelegationService {
         }
       } else if (cleanedProof.startsWith('u')) {
         console.log('Detected multibase encoding (base64url), decoding...');
+        detectedFormat = 'multibase-base64url';
         try {
           // 'u' prefix indicates base64url encoding in multibase
           // Remove 'u' prefix and decode as base64url
@@ -956,6 +1045,7 @@ export class UCANDelegationService {
         }
       } else {
         // Try as raw text first
+        detectedFormat = 'raw-text';
         tokenBytes = new TextEncoder().encode(cleanedProof);
       }
       
@@ -984,6 +1074,7 @@ export class UCANDelegationService {
         }
         
         // Extract capabilities from the delegation
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const capabilities = delegation.capabilities.map((cap: any) => cap.can);
         
         // Generate default name if not provided
@@ -997,13 +1088,15 @@ export class UCANDelegationService {
           proof: cleanedProof,
           capabilities,
           createdAt: new Date().toISOString(),
-          expiresAt: undefined // Storacha CLI delegations don't include expiration in the parsed object
+          expiresAt: undefined, // Storacha CLI delegations don't include expiration in the parsed object
+          format: detectedFormat
         };
         
         console.log('\u2705 Delegation parsed successfully');
         console.log('  From:', issuerDid);
         console.log('  To:', audienceDid);
         console.log('  Capabilities:', capabilities.join(', '));
+        console.log('  Format:', detectedFormat);
         
         // Store the delegation
         this.storeReceivedDelegation(delegationInfo);
@@ -1074,10 +1167,12 @@ export class UCANDelegationService {
                       toAudience: audienceDid,
                       proof: delegationProof,
                       capabilities: Array.isArray(delegation.capabilities) 
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         ? delegation.capabilities.map((cap: any) => cap.can || cap.capability || cap)
                         : ['space/blob/add', 'space/blob/list', 'space/blob/remove', 'store/add', 'store/list', 'store/remove', 'upload/add', 'upload/list', 'upload/remove'],
                       createdAt: new Date().toISOString(),
-                      expiresAt: delegation.expiration ? new Date(delegation.expiration * 1000).toISOString() : undefined
+                      expiresAt: delegation.expiration ? new Date(delegation.expiration * 1000).toISOString() : undefined,
+                      format: 'ucanto-result-format (base64-encoded JSON)'
                     };
                     
                     // Successfully parsed, we're done
@@ -1109,14 +1204,16 @@ export class UCANDelegationService {
               toAudience: jsonDelegation.audience,
               proof: delegationProof,
               capabilities: Array.isArray(jsonDelegation.capabilities) 
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ? jsonDelegation.capabilities.map((cap: any) => cap.can || cap)
                 : [],
-              createdAt: new Date().toISOString()
+              createdAt: new Date().toISOString(),
+              format: 'fallback-json-format (base64-encoded)'
             };
           } else {
             throw new Error('Not recognized JSON format');
           }
-        } catch (jsonParseError) {
+        } catch {
           throw new Error('Not JSON format');
         }
         
@@ -1162,10 +1259,12 @@ export class UCANDelegationService {
               toAudience: audienceDid,
               proof: delegationProof,
               capabilities: Array.isArray(delegation.capabilities) 
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ? delegation.capabilities.map((cap: any) => cap.can || cap.capability || cap)
                 : ['space/blob/add', 'space/blob/list', 'space/blob/remove', 'store/add', 'store/list', 'store/remove', 'upload/add', 'upload/list', 'upload/remove'], // fallback capabilities
               createdAt: new Date().toISOString(),
-              expiresAt: delegation.expiration ? new Date(delegation.expiration * 1000).toISOString() : undefined
+              expiresAt: delegation.expiration ? new Date(delegation.expiration * 1000).toISOString() : undefined,
+              format: 'car-format (base64-encoded CAR file)'
             };
           } else {
             throw new Error('Invalid UCAN delegation format - missing delegation or audience');
@@ -1347,7 +1446,7 @@ export class UCANDelegationService {
         bytes[i] = binary.charCodeAt(i);
       }
       return bytes.buffer;
-    } catch (error) {
+    } catch {
       // If still fails, try without conversion (maybe it was already standard base64)
       const binary = atob(base64);
       const bytes = new Uint8Array(binary.length);

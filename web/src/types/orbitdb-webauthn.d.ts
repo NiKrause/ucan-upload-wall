@@ -23,6 +23,7 @@ declare module '@le-space/orbitdb-identity-provider-webauthn-did' {
   // WebAuthn DID Provider
   export class WebAuthnDIDProvider {
     credentialId: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     publicKey: any;
     rawCredentialId: Uint8Array;
     
@@ -37,6 +38,7 @@ declare module '@le-space/orbitdb-identity-provider-webauthn-did' {
       encryptKeystore?: boolean;
       keystoreEncryptionMethod?: 'largeBlob' | 'hmac-secret';
     }): Promise<WebAuthnCredentialInfo>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static extractPublicKey(credential: PublicKeyCredential): Promise<any>;
     static createDID(credentialInfo: Omit<WebAuthnCredentialInfo, 'attestationObject'>): Promise<string>;
     static arrayBufferToBase64url(buffer: ArrayBuffer): string;
@@ -110,6 +112,7 @@ declare module '@le-space/orbitdb-identity-provider-webauthn-did' {
     checkExtensionSupport: typeof checkExtensionSupport;
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   export const VerificationUtils: any;
 
   // Default export

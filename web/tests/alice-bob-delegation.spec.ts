@@ -1,4 +1,4 @@
-import { test, expect, Browser, Page, BrowserContext, chromium, CDPSession } from '@playwright/test';
+import { test, expect, Page, BrowserContext, chromium, CDPSession } from '@playwright/test';
 import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpers/webauthn';
 
 // Launch a shared browser instance
@@ -378,7 +378,7 @@ async function authenticateUser(page: Page, user: typeof users[0]) {
         user.did = didText.trim();
       }
     }
-  } catch (error) {
+  } catch {
     console.warn(`⚠️ Could not extract DID for ${user.name} from UI, trying alternative method...`);
     
     // Alternative: look for any element with did:key: text

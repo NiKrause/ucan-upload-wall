@@ -1,4 +1,4 @@
-/* eslint-disable no-restricted-globals */
+ 
 
 import { derive as deriveEdSigner, encode as encodeEdSigner } from '@ucanto/principal/ed25519';
 
@@ -60,6 +60,7 @@ export type KeystoreRequestMessage =
 export interface KeystoreSuccessResponse {
   id: number;
   ok: true;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   result?: any;
 }
 
@@ -131,6 +132,8 @@ async function handleMessage(event: MessageEvent<KeystoreRequestMessage>): Promi
 
       case 'generateKeypair': {
         ctx.console.log('[ed25519-keystore.worker] 🔑 generateKeypair() called');
+         
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         ed25519KeyPair = await crypto.subtle.generateKey(
           { name: 'Ed25519' } as any,
           true,
@@ -218,6 +221,8 @@ async function handleMessage(event: MessageEvent<KeystoreRequestMessage>): Promi
         }
         ctx.console.log('[ed25519-keystore.worker] ✍️ sign() called');
 
+         
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const signature = await crypto.subtle.sign(
           { name: 'Ed25519' } as any,
           ed25519KeyPair.privateKey,
@@ -242,6 +247,7 @@ async function handleMessage(event: MessageEvent<KeystoreRequestMessage>): Promi
         }
         ctx.console.log('[ed25519-keystore.worker] ✅ verify() called');
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const valid = await crypto.subtle.verify(
           { name: 'Ed25519' } as any,
           ed25519KeyPair.publicKey,
@@ -260,9 +266,11 @@ async function handleMessage(event: MessageEvent<KeystoreRequestMessage>): Promi
 
       default: {
         const exhaustiveCheck: never = msg;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         throw new Error(`Unknown message type: ${(exhaustiveCheck as any).type}`);
       }
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (err: any) {
     ctx.console.error('[ed25519-keystore.worker] ❌ Error handling message', msg.type, err);
     ctx.postMessage({
@@ -274,7 +282,7 @@ async function handleMessage(event: MessageEvent<KeystoreRequestMessage>): Promi
 }
 
 ctx.onmessage = (event: MessageEvent) => {
-  // eslint-disable-next-line @typescript-eslint/no-floating-promises
+   
   handleMessage(event as MessageEvent<KeystoreRequestMessage>);
 };
 

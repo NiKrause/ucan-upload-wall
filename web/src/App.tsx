@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Upload, Share, Download, Calendar, Clock, Trash2 } from 'lucide-react';
+import { Upload, Share, Download, Calendar, Clock, Trash2, RefreshCw } from 'lucide-react';
 import { Header } from './components/Header';
 import { UploadZone } from './components/UploadZone';
 import { Alert } from './components/Alert';
@@ -104,7 +104,7 @@ function App() {
         message: error,
       });
     }
-  }, [uploadFile, error]);
+  }, [uploadFile, error, delegationService]);
 
   const handleCloseAlert = useCallback(() => {
     setAlert(null);
@@ -147,6 +147,26 @@ function App() {
     const hasDID = !!delegationService.getCurrentDID();
     setDidCreated(hasDID);
   };
+  
+  const handleReloadFiles = useCallback(async () => {
+    setIsLoadingFiles(true);
+    try {
+      const files = await delegationService.listUploads();
+      setStorachaFiles(files);
+      setAlert({
+        type: 'success',
+        message: 'Files reloaded successfully!',
+      });
+    } catch (error) {
+      console.error('Failed to reload files:', error);
+      setAlert({
+        type: 'error',
+        message: `Failed to reload files: ${error}`,
+      });
+    } finally {
+      setIsLoadingFiles(false);
+    }
+  }, [delegationService]);
   
   const renderNavigation = () => {
     return (
@@ -221,10 +241,31 @@ function App() {
                 </div>
               )}
               
-              {storachaFiles.length > 0 && (
+              {(didCreated && (delegationService.getStorachaCredentials() || delegationService.getReceivedDelegations().length > 0)) && (
                 <div className="w-full max-w-2xl mt-12">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6">Files in Storacha Space</h2>
-                  <div className="space-y-3">
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-2xl font-bold text-gray-900">Files in Storacha Space</h2>
+                    <button
+                      onClick={handleReloadFiles}
+                      disabled={isLoadingFiles}
+                      className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      title="Reload files from Storacha"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isLoadingFiles ? 'animate-spin' : ''}`} />
+                      {isLoadingFiles ? 'Loading...' : 'Reload'}
+                    </button>
+                  </div>
+                  
+                  {storachaFiles.length === 0 && !isLoadingFiles ? (
+                    <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+                      <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">No Files Yet</h3>
+                      <p className="text-gray-500 max-w-sm mx-auto">
+                        Upload your first file to see it here. Files uploaded to this space will appear in this list.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
                     {storachaFiles.map((file, index) => {
                       const gatewayUrl = `https://w3s.link/ipfs/${file.root}`;
                       const isImage = file.root.startsWith('bafkrei'); // Most images use raw codec
@@ -308,7 +349,8 @@ function App() {
                         </div>
                       );
                     })}
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
               

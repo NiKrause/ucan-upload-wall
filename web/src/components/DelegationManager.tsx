@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Share, Copy, Check, Plus, Download, Upload, Shield, Trash2, ArrowRight, User, Clock, Key } from 'lucide-react';
 import { UCANDelegationService, DelegationInfo } from '../lib/ucan-delegation';
 
@@ -34,13 +34,27 @@ export function DelegationManager({ delegationService }: DelegationManagerProps)
 
   // Available capabilities with descriptions
   const availableCapabilities = [
+    // Upload capabilities
     { id: 'space/blob/add', label: 'Upload Files', description: 'Add files to the space', category: 'Upload' },
-    { id: 'space/blob/remove', label: 'Delete Files (Space)', description: 'Remove files from the space', category: 'Delete' },
     { id: 'upload/add', label: 'Upload Files (Alt)', description: 'Alternative upload capability', category: 'Upload' },
+    // List capabilities
+    { id: 'upload/list', label: 'List Uploads', description: 'List all uploaded files', category: 'List' },
+    { id: 'space/blob/list', label: 'List Blobs', description: 'List blobs in the space', category: 'List' },
+    { id: 'store/list', label: 'List Stored Data', description: 'List stored data items', category: 'List' },
+    { id: 'space/info', label: 'Space Info', description: 'Get space information', category: 'List' },
+    // Delete capabilities
+    { id: 'space/blob/remove', label: 'Delete Files (Space)', description: 'Remove files from the space', category: 'Delete' },
     { id: 'upload/remove', label: 'Delete Files (Upload)', description: 'Remove uploaded files', category: 'Delete' },
+    // Store capabilities
     { id: 'store/add', label: 'Store Data', description: 'Store data in the space', category: 'Store' },
     { id: 'store/remove', label: 'Remove Stored Data', description: 'Remove stored data', category: 'Store' }
   ];
+
+  const loadData = useCallback(() => {
+    setCurrentDID(delegationService.getCurrentDID());
+    setCreatedDelegations(delegationService.getCreatedDelegations());
+    setReceivedDelegations(delegationService.getReceivedDelegations());
+  }, [delegationService]);
 
   useEffect(() => {
     loadData();
@@ -51,13 +65,7 @@ export function DelegationManager({ delegationService }: DelegationManagerProps)
       setCredentials(existing);
       setSavedCredentials(true);
     }
-  }, [delegationService]);
-
-  const loadData = () => {
-    setCurrentDID(delegationService.getCurrentDID());
-    setCreatedDelegations(delegationService.getCreatedDelegations());
-    setReceivedDelegations(delegationService.getReceivedDelegations());
-  };
+  }, [delegationService, loadData]);
 
   const handleCredentialChange = (field: keyof typeof credentials, value: string) => {
     setCredentials(prev => ({ ...prev, [field]: value }));
@@ -125,10 +133,15 @@ export function DelegationManager({ delegationService }: DelegationManagerProps)
     try {
       await delegationService.importDelegation(importProof, delegationName || undefined);
       loadData();
+      const delegations = delegationService.getReceivedDelegations();
+      const latestDelegation = delegations[0]; // Most recently added
       setShowImportForm(false);
       setImportProof('');
       setDelegationName(''); // Clear the name field
-      alert('Delegation imported successfully!');
+      
+      // Show format in success message
+      const formatInfo = latestDelegation?.format ? `\n\nFormat detected: ${latestDelegation.format}` : '';
+      alert(`Delegation imported successfully!${formatInfo}`);
     } catch (error) {
       alert(`Failed to import delegation: ${error}`);
     }
@@ -423,7 +436,7 @@ export function DelegationManager({ delegationService }: DelegationManagerProps)
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Group capabilities by category */}
-                {['Upload', 'Delete', 'Store'].map(category => {
+                {['Upload', 'List', 'Delete', 'Store'].map(category => {
                   const categoryCapabilities = availableCapabilities.filter(cap => cap.category === category);
                   if (categoryCapabilities.length === 0) return null;
                   
@@ -431,6 +444,7 @@ export function DelegationManager({ delegationService }: DelegationManagerProps)
                     <div key={category} className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors">
                       <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
                         {category === 'Upload' && <Upload className="h-4 w-4 mr-2 text-green-600" />}
+                        {category === 'List' && <ArrowRight className="h-4 w-4 mr-2 text-blue-600" />}
                         {category === 'Delete' && <Trash2 className="h-4 w-4 mr-2 text-red-600" />}
                         {category === 'Store' && <Shield className="h-4 w-4 mr-2 text-purple-600" />}
                         {category} Capabilities
@@ -475,7 +489,7 @@ export function DelegationManager({ delegationService }: DelegationManagerProps)
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSelectedCapabilities(['space/blob/add', 'upload/add'])}
+                  onClick={() => setSelectedCapabilities(['space/blob/add', 'upload/add', 'upload/list'])}
                   className="px-3 py-1 text-xs bg-green-100 text-green-700 rounded-lg hover:bg-green-200"
                 >
                   Recommended
@@ -563,6 +577,13 @@ export function DelegationManager({ delegationService }: DelegationManagerProps)
               <p className="text-xs text-gray-500 mt-2">
                 💡 Get this token from `storacha delegation create YOUR_DID --base64`
               </p>
+              
+              <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <div className="text-xs text-blue-800">
+                  <strong>✓ Auto-detects format:</strong> Supports Storacha CLI (multibase-base64 with 'm' prefix), 
+                  base64url ('u' prefix), CAR files, and legacy JSON formats. The detected format will be displayed after import.
+                </div>
+              </div>
             </div>
             
             <div className="flex gap-3">
@@ -814,8 +835,15 @@ export function DelegationManager({ delegationService }: DelegationManagerProps)
                       <Key className="h-5 w-5 text-blue-600 mr-2" />
                       <span className="font-semibold text-gray-900">Delegation Chain</span>
                     </div>
-                    <div className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-medium">
-                      Active
+                    <div className="flex items-center gap-2">
+                      {delegation.format && (
+                        <div className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded font-medium" title="Import format">
+                          {delegation.format}
+                        </div>
+                      )}
+                      <div className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-medium">
+                        Active
+                      </div>
                     </div>
                   </div>
                   
@@ -899,6 +927,15 @@ export function DelegationManager({ delegationService }: DelegationManagerProps)
                           {delegation.id.length > 16 ? `${delegation.id.slice(0, 16)}...` : delegation.id}
                         </code>
                       </div>
+                      
+                      {delegation.format && (
+                        <div className="text-sm">
+                          <span className="font-medium text-gray-600">Import Format:</span>
+                          <span className="ml-1 text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded border border-purple-200">
+                            {delegation.format}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     
                     <div>

@@ -128,6 +128,7 @@ export class WebAuthnDIDProvider extends OrbitDBWebAuthnDIDProvider {
       );
 
       return reconstructedCredInfo;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error('Failed to authenticate with existing credential:', error);
 
@@ -208,6 +209,7 @@ export class WebAuthnDIDProvider extends OrbitDBWebAuthnDIDProvider {
 
       console.log('✅ WebAuthn authentication completed successfully');
       return assertion;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error('WebAuthn authentication failed:', error);
 
