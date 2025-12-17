@@ -4,6 +4,20 @@
 
 A browser-only file upload application powered by **WebAuthn DIDs**, **worker-based Ed25519 keystore**, and **UCAN delegations** on Storacha.
 
+## 📑 Table of Contents
+
+- [🌐 Live Demo](#-live-demo)
+- [🏗️ Architecture](#️-architecture)
+- [🚀 Features](#-features)
+- [🔄 How It Works](#-how-it-works)
+- [📦 Setup](#-setup)
+- [🔐 Security](#-security)
+- [🛠️ Technical Details](#️-technical-details)
+- [📝 Notes](#-notes)
+- [🔗 Resources](#-resources)
+- [📚 Project Documentation](#-project-documentation)
+- [📄 License](#-license)
+
 ## 🌐 Live Demo
 
 **[Try it now →](https://bafybeibtfsituy7gxubnoggnhd4qojkg2cyrjgxi3aynytcld2k25a6xfe.ipfs.dweb.link/)**
@@ -91,11 +105,41 @@ This outputs a base64-encoded UCAN delegation proof.
 - Uses delegation with `upload/list` capability
 - Shows CID, upload date, shards
 
-### **6. Create Delegation** *(Untested)*
+### **6. Create Delegation**
 - Create new delegations from your current Ed25519 DID
 - Delegate to another DID with specific capabilities
-- Expiration support
-- **Note:** Needs testing with Storacha network
+- **Delegation chaining supported** - create sub-delegations from received delegations
+- Expiration support (1 hour to 10 years, or never)
+- Works with both Storacha credentials and received delegations
+
+## 🔄 How It Works
+
+### Serverless Architecture
+- **100% browser-based** - No backend server required
+- **Client-side only** - All cryptography happens in browser/web worker
+- **Deployed to IPFS** - Static files served from decentralized storage
+- **WebAuthn + UCAN** - Hardware-backed identity + decentralized authorization
+
+### Browser A (Delegation Creator)
+1. **Authenticate** with WebAuthn → Generate Ed25519 DID
+2. **Add Storacha credentials** (key + proof) OR import delegation from CLI/another browser
+3. **Create delegation** for Browser B's DID with selected capabilities
+4. **Share delegation proof** (base64 string) with Browser B
+
+### Browser B (Delegation Receiver)  
+1. **Authenticate** with WebAuthn → Generate own Ed25519 DID
+2. **Import delegation proof** from Browser A
+3. **Upload/list/delete files** using delegated permissions
+4. **No Storacha credentials needed** - operates entirely through delegated authority!
+
+### Multi-Browser Delegation Chain
+```
+Storacha Console → Browser A → Browser B → Browser C
+                    (creates   (re-delegates
+                    delegation) to Browser C)
+```
+
+Each browser can create sub-delegations from received delegations, enabling flexible permission management across devices and users.
 
 ## 📦 Setup
 
@@ -112,6 +156,8 @@ npm run dev
 ```
 
 ### First-Time Setup
+
+**Option 1: Using Storacha CLI (Recommended for first browser)**
 1. **Authenticate** - Click "Authenticate with Biometric"
 2. **Get Your DID** - Copy your Ed25519 DID from the UI
 3. **Create Delegation** - Use Storacha CLI:
@@ -120,6 +166,19 @@ npm run dev
    ```
 4. **Import Delegation** - Paste the delegation proof
 5. **Upload Files** - Start uploading!
+
+**Option 2: Browser-to-Browser Delegation (No Storacha account needed)**
+1. **Browser A**: Add Storacha credentials or import CLI delegation
+2. **Browser B**: Authenticate → Copy your Ed25519 DID
+3. **Browser A**: Create delegation for Browser B's DID
+4. **Browser A**: Share the delegation proof (copy/paste, QR code, etc.)
+5. **Browser B**: Import delegation proof
+6. **Browser B**: Upload files without Storacha account!
+
+**Option 3: Direct Storacha Credentials (Advanced)**
+1. **Authenticate** - Click "Authenticate with Biometric"
+2. **Add Credentials** - Enter your Storacha private key, space proof, and space DID
+3. **Upload Files** - Start uploading and creating delegations!
 
 ## 🔐 Security
 
@@ -188,6 +247,8 @@ See **[PLANNING.md](./PLANNING.md)** for the complete roadmap and technical deta
 - **Archive Encryption**: Archive encrypted with AES-GCM, decrypted only in worker
 - **Delegation Mismatch**: If DID changes, delegation must be recreated
 - **Worker Persistence**: Worker state lost on page reload; archive restored from localStorage
+- **Delegation Chaining**: Can create sub-delegations from received delegations, enabling permission cascading across browsers/devices
+- **Format Auto-Detection**: Uses ucanto `extract()` first (for app-created delegations), falls back to Storacha `Proof.parse()` (for CLI delegations), maintaining backward compatibility
 - **Base64 Encoding Compatibility**: Handles both standard base64 (Storacha CLI) and base64url formats by detecting the multibase prefix ('m' or 'u') and normalizing accordingly. See [issue #590](https://github.com/storacha/upload-service/issues/590) for background on the encoding challenge.
 
 ## 🔗 Resources
