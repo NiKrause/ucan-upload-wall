@@ -21,7 +21,7 @@ A browser-only file upload application powered by **WebAuthn DIDs**, **worker-ba
 
 ## 🌐 Live Demo
 
-**[Try it now →](https://bafybeibtfsituy7gxubnoggnhd4qojkg2cyrjgxi3aynytcld2k25a6xfe.ipfs.dweb.link/)**
+**[Try it now →](https://dweb.link/ipfs/bafybeih4lnjgfyn6xiqqkw2xm62fcxq3nlahknsysnyhw4zpmksoj2itqa)**
 
 ⚠️ **Demo is for testing only** - do not use with valuable data (see security warnings above)
 
