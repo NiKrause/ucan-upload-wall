@@ -243,7 +243,7 @@ When a user successfully imports a delegation:
 - [Storacha Revocation API](https://github.com/storacha/upload-service/blob/main/packages/upload-api/src/ucan/revoke.js)
 - [Agent Revoke Implementation](https://github.com/storacha/upload-service/blob/main/packages/access-client/src/agent.js#L259)
 - Revocation Registry: `https://up.storacha.network/revocations/`
-- [PLANNING.md - Phase 0](./PLANNING.md#phase-0-ucan-revocation-immediate-priority)
+- [PLANNING.md - Phase 0](../PLANNING.md#phase-0-ucan-revocation-immediate-priority)
 
 ## ✨ Summary
 

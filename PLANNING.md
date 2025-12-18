@@ -4,9 +4,10 @@ This document outlines the planned evolution of the UCAN Upload Wall project tow
 
 ## Overview
 
-The project will evolve through four major phases:
+The project will evolve through five major phases:
 
-0. **UCAN Revocation** - Implement delegation revocation and lifecycle management (PRIORITY)
+0. **UCAN Revocation** - Implement delegation revocation and lifecycle management ✅
+1.5. **Secure Credential Storage** - Move from localStorage to largeBlob + Storacha (PRIORITY)
 1. **P-256 Integration** - Enable hardware-backed WebAuthn signing
 2. **Multi-Device DKG** - Distributed key generation across multiple devices
 3. **Production Hardening** - Security audits and deployment
@@ -81,6 +82,121 @@ This is a **security vulnerability** that must be addressed before any other maj
 - [Storacha Revocation API](https://github.com/storacha/upload-service/blob/main/packages/upload-api/src/ucan/revoke.js)
 - [Agent Revoke Implementation](https://github.com/storacha/upload-service/blob/main/packages/access-client/src/agent.js#L259)
 - Revocation Registry: `https://up.storacha.network/revocations/`
+- [Implementation Details](./docs/REVOCATION_IMPLEMENTATION.md)
+
+---
+
+## Phase 1.5: Secure Credential Storage (High Priority)
+
+**Goal**: Eliminate localStorage vulnerabilities by implementing a hybrid storage architecture using WebAuthn largeBlob and Storacha decentralized storage.
+
+### Why This Comes After Revocation
+
+With revocation in place, we can now safely store credentials in decentralized storage knowing we can revoke access if needed. This phase addresses the **localStorage attack surface** documented in SECURITY.md.
+
+### The Problem
+
+**Current localStorage vulnerabilities:**
+- ❌ XSS attacks can steal all credentials
+- ❌ Browser extensions can read localStorage
+- ❌ No encryption at rest
+- ❌ Code injection → full credential exfiltration
+- ❌ Lost device → credentials exposed
+
+### The Solution: Three-Tier Architecture
+
+```
+Tier 1: WebAuthn largeBlob (Hardware-Protected)
+   ├─ Bootstrap data (< 2KB)
+   ├─ Storacha CID pointer
+   └─ Requires biometric authentication
+        ↓
+Tier 2: Storacha (Decentralized Storage)
+   ├─ Full encrypted credentials
+   ├─ All UCAN delegations
+   └─ Configuration metadata
+        ↓
+Tier 3: localStorage (Cache Only)
+   ├─ Performance optimization
+   └─ Rebuilt from Storacha on demand
+```
+
+### Roadmap
+
+- [ ] **WebAuthn largeBlob Integration**
+  - [ ] Detect largeBlob support (Chrome 92+, Safari 17+)
+  - [ ] Implement largeBlob read/write functions
+  - [ ] Store bootstrap CID in largeBlob
+  - [ ] Handle authentication for largeBlob access
+  - [ ] Fallback to localStorage for unsupported browsers
+
+- [ ] **Storacha Credential Storage**
+  - [ ] Design credential JSON schema
+  - [ ] Encrypt credentials with WebAuthn PRF-derived key
+  - [ ] Upload encrypted credentials to Storacha
+  - [ ] Store resulting CID in largeBlob
+  - [ ] Implement versioning for credential updates
+
+- [ ] **Credential Retrieval**
+  - [ ] Read CID from largeBlob on login
+  - [ ] Fetch encrypted credentials from Storacha
+  - [ ] Decrypt with WebAuthn PRF
+  - [ ] Validate credential integrity
+  - [ ] Handle network failures gracefully
+
+- [ ] **Cache Management**
+  - [ ] Mark localStorage as cache (not source of truth)
+  - [ ] Implement cache invalidation (1-hour TTL)
+  - [ ] Background sync from Storacha
+  - [ ] Handle cache clearing without data loss
+  - [ ] Add "Sync Now" button in UI
+
+- [ ] **Migration Tool**
+  - [ ] Create migration wizard for existing users
+  - [ ] Export from localStorage
+  - [ ] Upload to Storacha
+  - [ ] Store CID in largeBlob
+  - [ ] Verify migration success
+  - [ ] Rollback on failure
+
+- [ ] **Solving the Chicken-and-Egg Problem**
+  - [ ] Option A: Store minimal read-only key in largeBlob
+  - [ ] Option B: Public CID with encryption-only security
+  - [ ] Implement bootstrap key derivation
+  - [ ] Test cross-device recovery
+
+**Timeline**: 8-12 weeks
+
+**Benefits**:
+- 🔒 **Hardware Protection**: Credentials protected by authenticator
+- ✅ **XSS Resistant**: Requires biometric for access
+- 🌐 **Decentralized**: No central credential database
+- 🔄 **Recoverable**: Lost device → fetch from Storacha
+- 💾 **Cross-Device**: largeBlob syncs (some authenticators)
+- 🚀 **Performance**: localStorage cache for speed
+
+**Technical Details**:
+- **largeBlob limit**: 2KB (perfect for CID pointer)
+- **Encryption**: AES-GCM with WebAuthn PRF-derived key
+- **Storage**: Credentials uploaded to Storacha as encrypted JSON
+- **Fallback**: localStorage for browsers without largeBlob support
+- **Recovery**: Authenticator sync or manual Storacha fetch
+
+**Security Improvements**:
+
+| Attack Vector | Before (localStorage) | After (largeBlob + Storacha) |
+|--------------|----------------------|------------------------------|
+| XSS Injection | ❌ Full access | ✅ Requires biometric |
+| Browser Extension | ❌ Can read | ✅ Cannot access largeBlob |
+| Code Injection | ❌ Steal all | ✅ Only cache accessible |
+| Lost Device | ❌ Permanent loss | ✅ Recoverable from Storacha |
+| Physical Access | ❌ Unencrypted | ✅ Encrypted + biometric |
+
+**References**:
+- [W3C WebAuthn Level 3 - largeBlob](https://www.w3.org/TR/webauthn-3/#sctn-large-blob-extension)
+- [Storacha Documentation](https://docs.storacha.network/)
+- [Implementation Guide](./docs/SECURE_CREDENTIAL_STORAGE.md)
+- [SECURITY.md](./SECURITY.md) - Current localStorage vulnerabilities
 
 ---
 
@@ -200,7 +316,10 @@ Device 1 (Browser)     Device 2 (Mobile)
 
 **Timeline**: 6-12 months after Phase 2
 
-**Dependencies**: Should be performed after Phase 0 (Revocation) and ideally after Phase 1 (P-256) or Phase 2 (DKG) depending on which features are implemented first.
+**Dependencies**: Should be performed after:
+- Phase 0 (Revocation) ✅
+- Phase 1.5 (Secure Storage) - Recommended
+- Phase 1 (P-256) or Phase 2 (DKG) - At least one major feature complete
 
 ---
 
@@ -208,12 +327,13 @@ Device 1 (Browser)     Device 2 (Mobile)
 
 Want to help accelerate this roadmap?
 
-1. **🔥 Priority: Implement Revocation** (Phase 0): Help build delegation revocation and validation
-2. **Test the P-256 Fork**: Try [NiKrause/ucanto p256 branch](https://github.com/NiKrause/ucanto/tree/p256)
-3. **Research DKG**: Investigate threshold signature schemes (FROST, GG20, etc.)
-4. **Review Code**: Help audit implementations
-5. **Documentation**: Improve technical documentation and guides
-6. **Integration Work**: Assist with Storacha P-256 integration
+1. **🔥 Current Priority: Secure Storage** (Phase 1.5): Help implement largeBlob + Storacha credential storage
+2. **✅ Completed: Revocation** (Phase 0): UCAN revocation is now implemented and working!
+3. **Test the P-256 Fork**: Try [NiKrause/ucanto p256 branch](https://github.com/NiKrause/ucanto/tree/p256)
+4. **Research DKG**: Investigate threshold signature schemes (FROST, GG20, etc.)
+5. **Review Code**: Help audit implementations
+6. **Documentation**: Improve technical documentation and guides
+7. **Integration Work**: Assist with Storacha P-256 integration
 
 ---
 

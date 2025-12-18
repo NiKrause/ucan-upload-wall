@@ -285,9 +285,17 @@ See **[PLANNING.md](./PLANNING.md)** for the complete roadmap and technical deta
 
 ## 📚 Project Documentation
 
+### Core Documents
 - **[SECURITY.md](./SECURITY.md)** - Security warnings, attack vectors, and limitations
-- **[PLANNING.md](./PLANNING.md)** - Future roadmap and planned features
+- **[PLANNING.md](./PLANNING.md)** - Future roadmap and planned features (5 phases)
 - **[LICENSE](./LICENSE)** - MIT License
+
+### Technical Documentation (docs/)
+- **[SECURE_CREDENTIAL_STORAGE.md](./docs/SECURE_CREDENTIAL_STORAGE.md)** - largeBlob + Storacha architecture (Phase 1.5)
+- **[REVOCATION_IMPLEMENTATION.md](./docs/REVOCATION_IMPLEMENTATION.md)** - UCAN revocation technical details (Phase 0)
+- **[REVOCATION_QUICKSTART.md](./docs/REVOCATION_QUICKSTART.md)** - Revocation testing guide
+- **[UX_IMPROVEMENT_AUTO_NAVIGATION.md](./docs/UX_IMPROVEMENT_AUTO_NAVIGATION.md)** - Auto-navigation UX improvement
+- **[BUGFIX_DID_WEB_REVOCATION.md](./docs/BUGFIX_DID_WEB_REVOCATION.md)** - did:web support bug fixes
 
 ## 📄 License
 
