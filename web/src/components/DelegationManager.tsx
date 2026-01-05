@@ -11,6 +11,7 @@ interface DelegationManagerProps {
 
 export function DelegationManager({ delegationService, onDidCreated, onDelegationImported }: DelegationManagerProps) {
   const [currentDID, setCurrentDID] = useState<string | null>(null);
+  const [isNativeEd25519, setIsNativeEd25519] = useState(false);
   const [createdDelegations, setCreatedDelegations] = useState<DelegationInfo[]>([]);
   const [receivedDelegations, setReceivedDelegations] = useState<DelegationInfo[]>([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -57,6 +58,17 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
     setCurrentDID(delegationService.getCurrentDID());
     setCreatedDelegations(delegationService.getCreatedDelegations());
     setReceivedDelegations(delegationService.getReceivedDelegations());
+    
+    // Check if using native Ed25519 (cannot create delegations)
+    const credInfo = localStorage.getItem('webauthn_credential_info');
+    if (credInfo) {
+      try {
+        const parsed = JSON.parse(credInfo);
+        setIsNativeEd25519(parsed.isNativeEd25519 || false);
+      } catch (e) {
+        console.error('Failed to parse credential info:', e);
+      }
+    }
   }, [delegationService]);
 
   useEffect(() => {
@@ -395,8 +407,32 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
         )}
       </div>
 
+      {/* Info message for native Ed25519 users */}
+      {isNativeEd25519 && (savedCredentials || receivedDelegations.length > 0) && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start">
+            <Shield className="h-5 w-5 text-blue-500 mr-3 mt-0.5" />
+            <div>
+              <h4 className="text-sm font-semibold text-blue-900 mb-1">Delegation Creation Disabled</h4>
+              <p className="text-sm text-blue-800">
+                You're using a hardware-backed native Ed25519 WebAuthn key. While this provides excellent security, 
+                WebAuthn keys cannot sign arbitrary UCAN delegation data. You can still:
+              </p>
+              <ul className="text-sm text-blue-800 mt-2 ml-4 list-disc">
+                <li>Import delegations created by others</li>
+                <li>Use imported delegations to upload files</li>
+                <li>Authenticate securely with biometrics</li>
+              </ul>
+              <p className="text-xs text-blue-700 mt-2">
+                💡 To create delegations, you'll need to use a P-256 key with the worker-based approach.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Create Delegation (show if user has credentials OR received delegations for chaining) */}
-      {(savedCredentials || receivedDelegations.length > 0) && (
+      {(savedCredentials || receivedDelegations.length > 0) && !isNativeEd25519 && (
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center mb-4">
             <Share className="h-6 w-6 text-purple-600 mr-3" />

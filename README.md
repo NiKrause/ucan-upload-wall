@@ -49,7 +49,7 @@ A browser-only file upload application powered by **WebAuthn DIDs**, **worker-ba
 ### **Worker-Based Ed25519 Keystore**
 - Ed25519 keypair generated in a dedicated web worker
 - AES-GCM encryption key derived from WebAuthn PRF seed (deterministic)
-- Private key never leaves the worker
+- Private key never leaves the worker (see Security warnings)
 - DID format: `did:key:z6Mk...` (Ed25519 public key)
 - Used for: UCAN signing, Storacha client principal
 

@@ -24,6 +24,8 @@ export interface WebAuthnCredentialInfo {
   prfInput?: Uint8Array;        // PRF input/salt for deterministic key derivation (safe to store)
   prfSeed?: Uint8Array;         // TRANSIENT: PRF output seed (NEVER stored in localStorage for security)
   prfSource?: 'prf' | 'credentialId';  // Track which method was used
+  keyAlgorithm?: 'Ed25519' | 'P-256';  // Track which key algorithm is used
+  isNativeEd25519?: boolean;    // true if using hardware-backed Ed25519 (can't sign UCANs)
 }
 
 // Storage key for credentials
@@ -324,8 +326,102 @@ export class WebAuthnDIDProvider {
   }
 
   /**
+   * Try to create native Ed25519 WebAuthn credential (hardware-backed)
+   * Returns null if not supported
+   */
+  static async tryCreateNativeEd25519(options: {
+    userId?: string;
+    displayName?: string;
+    domain?: string;
+  }): Promise<WebAuthnCredentialInfo | null> {
+    const {
+      userId = 'ucan-upload-wall-user',
+      displayName = 'UCAN Upload Wall User',
+      domain = window.location.hostname
+    } = options;
+
+    console.log('🔬 Attempting to create native Ed25519 WebAuthn credential...');
+
+    try {
+      const credential = await navigator.credentials.create({
+        publicKey: {
+          challenge: crypto.getRandomValues(new Uint8Array(32)),
+          rp: { name: 'UCAN Upload Wall', id: domain },
+          user: {
+            id: new TextEncoder().encode(userId),
+            name: userId,
+            displayName
+          },
+          pubKeyCredParams: [
+            { type: 'public-key', alg: -8 }  // EdDSA (Ed25519)
+          ],
+          authenticatorSelection: {
+            authenticatorAttachment: 'platform',
+            userVerification: 'required',
+            residentKey: 'preferred'
+          },
+          timeout: 60000
+        }
+      }) as PublicKeyCredential;
+
+      if (!credential) {
+        console.log('❌ Ed25519 credential creation returned null');
+        return null;
+      }
+
+      const rawCredentialId = new Uint8Array(credential.rawId);
+      console.log('✅ Successfully created native Ed25519 credential!');
+      console.log('⚠️ Note: Ed25519 keys cannot sign arbitrary UCAN data via WebAuthn');
+      
+      // Create credential info with Ed25519 marker
+      const credentialInfo: WebAuthnCredentialInfo = {
+        credentialId: credential.id,
+        rawCredentialId,
+        publicKey: {
+          algorithm: -8,  // EdDSA
+          x: rawCredentialId.slice(0, 32),  // Use first 32 bytes as public key
+          y: new Uint8Array(0),   // Ed25519 doesn't use y coordinate
+          keyType: 1,  // OKP (Octet string key pairs)
+          curve: 6     // Ed25519
+        },
+        userId,
+        displayName,
+        keyAlgorithm: 'Ed25519',
+        isNativeEd25519: true
+      };
+
+      // Generate Ed25519 DID from the public key
+      credentialInfo.did = await this.createEd25519DID(credentialInfo.publicKey.x);
+
+      return credentialInfo;
+
+    } catch (error) {
+      console.log('ℹ️ Native Ed25519 not supported or failed:', error instanceof Error ? error.message : String(error));
+      return null;
+    }
+  }
+
+  /**
+   * Create Ed25519 DID from public key
+   */
+  static async createEd25519DID(publicKey: Uint8Array): Promise<string> {
+    // Ed25519 multicodec prefix
+    const ED25519_MULTICODEC = new Uint8Array([0xed, 0x01]);
+    
+    // Concatenate multicodec prefix with public key
+    const multicodecKey = new Uint8Array(ED25519_MULTICODEC.length + publicKey.length);
+    multicodecKey.set(ED25519_MULTICODEC);
+    multicodecKey.set(publicKey, ED25519_MULTICODEC.length);
+    
+    // Encode to base58btc
+    const encoded = base58btc.encode(multicodecKey);
+    
+    return `did:key:${encoded}`;
+  }
+
+  /**
    * Try to authenticate with an existing credential first, create new if none exists
-   * Compatibility method for our existing code
+   * Tries Ed25519 first, falls back to P-256 with PRF
    */
   static async getOrCreateCredential(options: {
     userId?: string;
@@ -364,8 +460,16 @@ export class WebAuthnDIDProvider {
       }
     }
 
-    // Fallback to creating new credential
+    // Try to create native Ed25519 credential first
     console.log('🆕 Creating new WebAuthn credential...');
+    const ed25519Cred = await this.tryCreateNativeEd25519({ userId, displayName, domain });
+    if (ed25519Cred) {
+      console.log('🎉 Using native hardware-backed Ed25519!');
+      return ed25519Cred;
+    }
+
+    // Fallback to P-256 with PRF
+    console.log('📉 Falling back to P-256 with PRF extension...');
     return this.createCredentialWithPRF({ userId, displayName, domain });
   }
 
