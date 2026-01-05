@@ -353,9 +353,37 @@ export class UCANDelegationService {
    * Get a UCAN Signer backed by the worker keystore.
    * Reconstructs Ed25519Signer from encrypted archive stored in localStorage.
    */
+  /**
+   * Check if using native Ed25519 (which cannot sign UCANs)
+   */
+  private isNativeEd25519(): boolean {
+    const credInfo = localStorage.getItem('webauthn_credential_info');
+    if (credInfo) {
+      try {
+        const parsed = JSON.parse(credInfo);
+        return parsed.isNativeEd25519 === true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
   private async getWorkerPrincipal(): Promise<UcanSigner<UcanDID<'key'>>> {
+    // Check if using native Ed25519 (incompatible with worker-based signing)
+    if (this.isNativeEd25519()) {
+      throw new Error(
+        'Native Ed25519 WebAuthn keys cannot sign UCAN data. ' +
+        'Please use P-256 keys or worker-based Ed25519 to create/use delegations.'
+      );
+    }
+
     if (!this.ed25519Keypair || !this.ed25519Archive) {
       await this.initializeEd25519DID();
+    }
+
+    if (!this.ed25519Archive) {
+      throw new Error('Ed25519 archive not available. Cannot create principal.');
     }
 
     // Reconstruct a full Ed25519Signer from the archive produced in the worker.

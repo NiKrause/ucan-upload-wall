@@ -460,16 +460,18 @@ export class WebAuthnDIDProvider {
       }
     }
 
-    // Try to create native Ed25519 credential first
-    console.log('🆕 Creating new WebAuthn credential...');
-    const ed25519Cred = await this.tryCreateNativeEd25519({ userId, displayName, domain });
-    if (ed25519Cred) {
-      console.log('🎉 Using native hardware-backed Ed25519!');
-      return ed25519Cred;
-    }
+    // Native Ed25519 is disabled by default because it cannot sign UCAN data
+    // Only P-256 keys can work with the worker-based Ed25519 signing approach
+    // 
+    // Uncomment below to try native Ed25519 (for experimental/viewing-only use):
+    // const ed25519Cred = await this.tryCreateNativeEd25519({ userId, displayName, domain });
+    // if (ed25519Cred) {
+    //   console.log('🎉 Using native hardware-backed Ed25519! (viewing only)');
+    //   return ed25519Cred;
+    // }
 
-    // Fallback to P-256 with PRF
-    console.log('📉 Falling back to P-256 with PRF extension...');
+    // Create P-256 credential with PRF
+    console.log('🆕 Creating new WebAuthn P-256 credential with PRF extension...');
     return this.createCredentialWithPRF({ userId, displayName, domain });
   }
 

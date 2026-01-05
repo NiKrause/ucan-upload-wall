@@ -191,8 +191,8 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
               {isNativeEd25519 && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                   <p className="text-xs text-yellow-800">
-                    ⚠️ <strong>Note:</strong> Native Ed25519 WebAuthn keys cannot sign arbitrary UCAN data. 
-                    You can import delegations but cannot create new ones from this DID.
+                    ⚠️ <strong>Experimental:</strong> Native Ed25519 WebAuthn keys cannot sign UCAN data. 
+                    This key is for viewing only. To create or use delegations, please reset and use P-256.
                   </p>
                 </div>
               )}
