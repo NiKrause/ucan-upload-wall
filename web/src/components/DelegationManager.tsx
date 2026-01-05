@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Share, Copy, Check, Plus, Download, Upload, Shield, Trash2, ArrowRight, User, Clock, Key, XCircle, Ban } from 'lucide-react';
 import { UCANDelegationService, DelegationInfo } from '../lib/ucan-delegation';
+import { Setup } from './Setup';
 
 interface DelegationManagerProps {
   delegationService: UCANDelegationService;
@@ -215,17 +216,33 @@ export function DelegationManager({ delegationService, onDelegationImported }: D
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-8">
-      <div className="text-center">
-        <h2 className="text-3xl font-bold text-gray-900 mb-3">
-          Setup Your Ed25519 DID & Upload Access
-        </h2>
-        <p className="text-gray-600">
-          Import a UCAN delegation token to get upload access, or add Storacha credentials directly
-        </p>
-      </div>
+      {/* Show Setup component when no DID exists */}
+      {!currentDID && (
+        <Setup 
+          delegationService={delegationService}
+          onSetupComplete={() => {
+            loadData();
+            if (onDidCreated) {
+              onDidCreated();
+            }
+          }}
+        />
+      )}
 
-      {/* Current Ed25519 DID - Most Important! */}
+      {/* Show delegation management when DID exists */}
       {currentDID && (
+        <>
+          <div className="text-center">
+            <h2 className="text-3xl font-bold text-gray-900 mb-3">
+              Setup Your Ed25519 DID & Upload Access
+            </h2>
+            <p className="text-gray-600">
+              Import a UCAN delegation token to get upload access, or add Storacha credentials directly
+            </p>
+          </div>
+
+          {/* Current Ed25519 DID - Most Important! */}
+          {currentDID && (
         <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-300 rounded-lg p-6 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="flex items-center flex-1">
@@ -233,12 +250,13 @@ export function DelegationManager({ delegationService, onDelegationImported }: D
               <div className="flex-1">
                 <h3 className="text-lg font-bold text-blue-900 mb-1">Your Ed25519 DID</h3>
                 <p className="text-sm text-blue-700 mb-2">Share this DID to receive UCAN delegations from Storacha CLI</p>
-                <code className="text-sm text-blue-800 break-all bg-white/60 px-3 py-2 rounded border border-blue-200 block">{currentDID}</code>
+                <code className="text-sm text-blue-800 break-all bg-white/60 px-3 py-2 rounded border border-blue-200 block" data-testid="did-display">{currentDID}</code>
               </div>
             </div>
             <button
               onClick={() => copyToClipboard(currentDID, 'current-did')}
               className="ml-4 flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              data-testid="copy-did-button"
             >
               {copiedField === 'current-did' ? (
                 <><Check className="h-4 w-4 mr-2" /> Copied!</>
@@ -1131,6 +1149,8 @@ export function DelegationManager({ delegationService, onDelegationImported }: D
             </div>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

@@ -71,9 +71,9 @@ test.describe('Basic UI - Happy Path', () => {
     await page.getByRole('button', { name: /delegations/i }).click();
     await page.waitForTimeout(1000);
 
-    // Should see setup/creation UI
-    const setupText = page.getByText(/Ed25519 DID/i);
-    await expect(setupText).toBeVisible({ timeout: 5000 });
+    // Should see setup/creation UI - use heading for specificity
+    const setupHeading = page.getByRole('heading', { name: /Create Ed25519 DID/i });
+    await expect(setupHeading).toBeVisible({ timeout: 5000 });
 
     console.log('✅ Setup screen displayed');
   });
@@ -87,16 +87,17 @@ test.describe('Basic UI - Happy Path', () => {
     await page.getByRole('button', { name: /delegations/i }).click();
     await page.waitForTimeout(1000);
 
-    // Click create DID button
-    const createButton = page.getByRole('button', { name: /create.*did/i }).first();
-    await expect(createButton).toBeVisible({ timeout: 5000 });
+    // Click create DID button using data-testid
+    const createButton = page.getByTestId('create-did-button');
+    await expect(createButton).toBeVisible({ timeout: 10000 });
+    await expect(createButton).toBeEnabled({ timeout: 5000 });
     await createButton.click();
 
     // Wait for DID creation (virtual authenticator handles this automatically)
     await page.waitForTimeout(3000);
 
-    // Verify DID was created - look for "did:key:" text
-    const didElement = page.locator('code').filter({ hasText: /did:key:z6Mk/ });
+    // Verify DID was created using data-testid
+    const didElement = page.getByTestId('did-display');
     await expect(didElement).toBeVisible({ timeout: 10000 });
 
     const did = await didElement.textContent();
@@ -117,7 +118,7 @@ test.describe('Basic UI - Happy Path', () => {
     // Navigate to Delegations
     await delegationsTab.click();
     await page.waitForTimeout(500);
-    await expect(page.getByText(/Ed25519 DID/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: /Create Ed25519 DID/i })).toBeVisible({ timeout: 5000 });
 
     // Navigate back to Upload
     await uploadTab.click();
@@ -135,12 +136,14 @@ test.describe('Basic UI - Happy Path', () => {
     await page.getByRole('button', { name: /delegations/i }).click();
     await page.waitForTimeout(1000);
 
-    const createButton = page.getByRole('button', { name: /create.*did/i }).first();
+    const createButton = page.getByTestId('create-did-button');
+    await expect(createButton).toBeVisible({ timeout: 10000 });
+    await expect(createButton).toBeEnabled({ timeout: 5000 });
     await createButton.click();
     await page.waitForTimeout(3000);
 
-    // Get the DID
-    const didElement = page.locator('code').filter({ hasText: /did:key:z6Mk/ });
+    // Get the DID using data-testid
+    const didElement = page.getByTestId('did-display');
     await expect(didElement).toBeVisible({ timeout: 10000 });
     const originalDid = await didElement.textContent();
 
@@ -155,8 +158,8 @@ test.describe('Basic UI - Happy Path', () => {
     await page.getByRole('button', { name: /delegations/i }).click();
     await page.waitForTimeout(1000);
 
-    // 4. Verify DID is still there
-    const persistedDidElement = page.locator('code').filter({ hasText: /did:key:z6Mk/ });
+    // 4. Verify DID is still there using data-testid
+    const persistedDidElement = page.getByTestId('did-display');
     await expect(persistedDidElement).toBeVisible({ timeout: 10000 });
     const persistedDid = await persistedDidElement.textContent();
 
@@ -173,12 +176,15 @@ test.describe('Basic UI - Happy Path', () => {
     await page.getByRole('button', { name: /delegations/i }).click();
     await page.waitForTimeout(1000);
 
-    await page.getByRole('button', { name: /create.*did/i }).first().click();
+    const createButton = page.getByTestId('create-did-button');
+    await expect(createButton).toBeVisible({ timeout: 10000 });
+    await expect(createButton).toBeEnabled({ timeout: 5000 });
+    await createButton.click();
     await page.waitForTimeout(3000);
 
-    // Look for copy button near the DID
-    const copyButton = page.getByRole('button', { name: /copy/i }).first();
-    await expect(copyButton).toBeVisible({ timeout: 5000 });
+    // Look for copy button using data-testid
+    const copyButton = page.getByTestId('copy-did-button');
+    await expect(copyButton).toBeVisible({ timeout: 10000 });
 
     console.log('✅ Copy button visible');
   });

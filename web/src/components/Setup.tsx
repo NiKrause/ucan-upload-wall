@@ -140,31 +140,36 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
                     <span className="text-green-800 font-medium">Ed25519 DID Created</span>
                   </div>
                 </div>
-                <button
-                  onClick={() => copyToClipboard(currentDID, 'did')}
-                  className="flex items-center text-green-600 hover:text-green-800"
-                >
-                  {copiedField === 'did' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </button>
-              </div>
-              <div className="mt-2">
-                <code className="text-sm text-green-700 bg-green-100 px-2 py-1 rounded break-all">
-                  {currentDID}
-                </code>
-              </div>
-            </div>
-          ) : (
-            <div className="flex gap-3">
               <button
-                onClick={handleCreateDID}
-                disabled={isCreatingDID || !webauthnSupported}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                onClick={() => copyToClipboard(currentDID, 'did')}
+                className="flex items-center text-green-600 hover:text-green-800"
+                data-testid="copy-did-button"
               >
-                <Key className="h-4 w-4 mr-2" />
-                {isCreatingDID ? 'Generating...' : 'Create DID'}
+                {copiedField === 'did' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
               </button>
             </div>
-          )}
+            <div className="mt-2">
+              <code 
+                className="text-sm text-green-700 bg-green-100 px-2 py-1 rounded break-all"
+                data-testid="did-display"
+              >
+                {currentDID}
+              </code>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-3">
+            <button
+              onClick={handleCreateDID}
+              disabled={isCreatingDID || !webauthnSupported}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              data-testid="create-did-button"
+            >
+              <Key className="h-4 w-4 mr-2" />
+              {isCreatingDID ? 'Generating...' : 'Create DID'}
+            </button>
+          </div>
+        )}
         </div>
       </div>
 

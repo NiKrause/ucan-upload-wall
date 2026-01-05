@@ -268,6 +268,17 @@ export class UCANDelegationService {
    * Get current DID (prioritizes Ed25519 > WebAuthn)
    */
   getCurrentDID(): string | null {
+    // Lazily load from localStorage if not in memory
+    if (!this.ed25519Keypair) {
+      const storedKeypair = localStorage.getItem(STORAGE_KEYS.ED25519_KEYPAIR);
+      if (storedKeypair) {
+        try {
+          this.ed25519Keypair = JSON.parse(storedKeypair);
+        } catch (e) {
+          console.error('Failed to parse stored ed25519Keypair:', e);
+        }
+      }
+    }
     return this.ed25519Keypair?.did || this.webauthnProvider?.did || null;
   }
 
