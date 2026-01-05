@@ -77,6 +77,7 @@ export function storeWebAuthnCredential(credential: WebAuthnCredentialInfo, key?
   const storageKey = key || STORAGE_KEY;
   
   // Create a copy without prfSeed (security: don't persist encryption key material)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { prfSeed, ...credentialWithoutSeed } = credential;
   
   localStorage.setItem(storageKey, JSON.stringify(credentialWithoutSeed));

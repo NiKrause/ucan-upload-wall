@@ -1684,10 +1684,10 @@ export class UCANDelegationService {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         id: serviceID as any,
         codec: CAR.outbound,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         channel: HTTP.open({
           url: new URL('https://up.storacha.network'),
           method: 'POST',
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
         }) as any,
       });
       
