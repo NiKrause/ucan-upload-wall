@@ -20,18 +20,30 @@ This directory contains detailed technical documentation for the UCAN Upload Wal
   - invoke import path correction
   - Response array handling
 
+### WebAuthn & Keystore Architecture (✅ Implemented)
+- **[WEBAUTHN_PRF_IMPLEMENTATION.md](./WEBAUTHN_PRF_IMPLEMENTATION.md)** - PRF Extension Guide
+  - WebAuthn PRF extension with fallback to rawCredentialId
+  - Browser support and security benefits
+  - Implementation details and code examples
+  - Storage strategy and migration path
+  
+- **[KEYSTORE_ARCHITECTURE.md](./KEYSTORE_ARCHITECTURE.md)** - Complete Architecture
+  - Web worker-based Ed25519 keystore
+  - PRF seed derivation and storage model
+  - Lifecycle diagrams and security analysis
+  - FAQ and best practices
+
+- **[DOCUMENTATION_UPDATES.md](./DOCUMENTATION_UPDATES.md)** - Change Log
+  - Summary of PRF implementation documentation changes
+  - Before/after comparisons
+  - Security implications clarified
+
 ### Phase 1.5: Secure Credential Storage (📋 Planned)
 - **[SECURE_CREDENTIAL_STORAGE.md](./SECURE_CREDENTIAL_STORAGE.md)** - Architecture design
   - Three-tier hybrid storage (largeBlob + Storacha + localStorage)
   - Solving the chicken-and-egg problem
   - Implementation roadmap and testing strategy
   - Security benefits and browser support
-
-### UX Improvements
-- **[UX_IMPROVEMENT_AUTO_NAVIGATION.md](./UX_IMPROVEMENT_AUTO_NAVIGATION.md)**
-  - Auto-navigation after delegation import
-  - Automatic file reload
-  - Workflow optimization
 
 ## 🗂️ Document Organization
 
@@ -50,9 +62,10 @@ This directory contains detailed technical documentation for the UCAN Upload Wal
 
 ## 📊 Documentation Status
 
-| Phase | Status | Documents |
+| Topic | Status | Documents |
 |-------|--------|-----------|
 | Phase 0: Revocation | ✅ Complete | 3 docs |
+| WebAuthn & Keystore | ✅ Complete | 3 docs |
 | Phase 1.5: Secure Storage | 📋 Planned | 1 design doc |
 | Phase 1: P-256 | 📋 Planned | TBD |
 | Phase 2: Multi-Device DKG | 📋 Planned | TBD |
@@ -61,8 +74,10 @@ This directory contains detailed technical documentation for the UCAN Upload Wal
 ## 🎯 Quick Links
 
 ### For Developers
-- [Phase 0 Implementation](./REVOCATION_IMPLEMENTATION.md)
-- [Phase 1.5 Architecture](./SECURE_CREDENTIAL_STORAGE.md)
+- [WebAuthn PRF Implementation](./WEBAUTHN_PRF_IMPLEMENTATION.md)
+- [Keystore Architecture](./KEYSTORE_ARCHITECTURE.md)
+- [Phase 0 Revocation](./REVOCATION_IMPLEMENTATION.md)
+- [Phase 1.5 Secure Storage](./SECURE_CREDENTIAL_STORAGE.md)
 - [Bug Fix Reference](./BUGFIX_DID_WEB_REVOCATION.md)
 
 ### For Testers
@@ -83,5 +98,8 @@ This documentation is actively maintained. When implementing new features:
 
 ---
 
-**Last Updated:** December 18, 2024  
-**Total Documents:** 5
+**Last Updated:** January 5, 2026  
+**Total Documents:** 9
+
+
+

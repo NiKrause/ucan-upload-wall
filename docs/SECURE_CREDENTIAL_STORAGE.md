@@ -9,20 +9,25 @@ This document outlines the architecture for moving from localStorage-based crede
 ### Current Implementation
 
 All sensitive data is stored in browser localStorage:
-- WebAuthn credential information
-- Encrypted Ed25519 archive
-- Storacha credentials (private key + proof)
-- UCAN delegations (created + received)
-- Revocation cache
+- WebAuthn credential information (metadata only, unencrypted)
+- Ed25519 archive (**encrypted with AES-GCM**)
+- Ed25519 public key + DID (unencrypted)
+- Storacha credentials - private key + proof (**unencrypted**)
+- UCAN delegations - created + received (**unencrypted**)
+- Revocation cache (**unencrypted**)
 
 ### Security Issues
 
 **Vulnerabilities:**
 - ❌ **XSS Attacks**: Any JavaScript on same origin can access localStorage
 - ❌ **Browser Extensions**: Extensions can read localStorage with appropriate permissions
-- ❌ **No Encryption at Rest**: localStorage is stored unencrypted on disk
-- ❌ **Code Injection**: Malicious code can exfiltrate all credentials
-- ❌ **Physical Access**: Anyone with device access can read localStorage
+- ⚠️ **Mixed Encryption at Rest**: 
+  - localStorage itself stores data unencrypted on disk by the browser
+  - Ed25519 private keys ARE encrypted (AES-GCM) before storage
+  - Storacha credentials (key, proof, spaceDID) stored in plain text
+  - UCAN delegations and revocation cache stored in plain text
+- ❌ **Code Injection**: Malicious code can exfiltrate all credentials (encrypted or not)
+- ❌ **Physical Access**: Anyone with device access can read unencrypted localStorage data
 
 **Attack Scenarios:**
 1. XSS vulnerability → attacker steals all credentials
