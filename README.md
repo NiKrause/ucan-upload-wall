@@ -23,7 +23,7 @@ A browser-only file upload application powered by **WebAuthn DIDs**, **worker-ba
 
 ## 🌐 Live Demo
 
-**[Try it now →](https://dweb.link/ipfs/afybeiggnfuyyefu5wph7owubrmpdocojsvx2rddpwstydsvuqofkq3jwe)**
+**[Try it now →](https://dweb.link/ipfs/bafybeic6mefgeb7yrzdzytxlxxg5vngzosv7qxx4svogtmevon2rif2izm)**
 
 ⚠️ **Demo is for testing only** - do not use with valuable data (see security warnings above)
 
@@ -216,41 +216,9 @@ npm run dev
 
 > **⚠️ READ FIRST**: Please review **[SECURITY.md](./SECURITY.md)** for critical security warnings and attack vectors.
 
-### Current Implementation (Not Secure)
-
-- **WebAuthn PRF Seed**: Deterministic seed from WebAuthn credential
-- **AES-GCM Encryption**: Archive encrypted with worker-derived AES key
-- **Worker Isolation**: Private keys never exposed to main thread (but vulnerable to code injection)
-- **Deterministic Salt**: Same PRF seed → same AES key → same Ed25519 DID
-- **Encrypted Storage**: Archive stored encrypted in localStorage (accessible to malicious code)
-
-### ⚠️ Known Vulnerabilities
-
-This architecture is **fundamentally insecure** because:
-- Web Workers do **NOT** provide security isolation from malicious code
-- Injected code can read secrets used for encryption/decryption
-- localStorage is accessible to any code running in the same origin
-- Ed25519 private keys exist in software (JavaScript/WASM) memory
-
-### 🛡️ Secure Alternative (Not Possible with Current Web Standards)
-
-The **most secure approach** would be using **hardware-backed WebAuthn keys** (P-256 or Ed25519) where private keys never leave hardware security modules (TPM/Secure Enclave). 
-
-**However, this is not possible** because:
-- WebAuthn signatures are wrapped in origin-bound format (`authenticatorData || hash(clientDataJSON)`)
-- UCAN requires raw signatures over payload bytes
-- This limitation applies to **both P-256 AND Ed25519** WebAuthn keys
-- No "raw signing mode" exists in [WebAuthn Level 3 specification](https://www.w3.org/TR/webauthn-3/)
-
-We have implemented P-256 signature **verification** in our fork: **[NiKrause/ucanto (p256 branch)](https://github.com/NiKrause/ucanto/tree/p256)**
-
-This would allow Storacha to accept P-256 DIDs, but **does not solve the WebAuthn signature format problem**.
-
-See **[SECURITY.md](./SECURITY.md)** for complete technical details and WebAuthn specification references.
-
 ### 🚀 Future: Multi-Device DKG
 
-A **planned third version** will use **Distributed Key Generation (DKG)** across multiple devices (browser + mobile), where:
+A **planned version** will use **Distributed Key Generation (DKG)** across multiple devices (browser + mobile), where:
 - No single device holds the complete private key
 - Signing requires confirmation from multiple devices (e.g., scan QR code on mobile)
 - Devices communicate via js-libp2p
