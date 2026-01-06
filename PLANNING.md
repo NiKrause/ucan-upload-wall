@@ -4,11 +4,10 @@ This document outlines the planned evolution of the UCAN Upload Wall project tow
 
 ## Overview
 
-The project will evolve through five major phases:
+The project will evolve through four major phases:
 
 0. **UCAN Revocation** - Implement delegation revocation and lifecycle management ✅
-1.5. **Secure Credential Storage** - Move from localStorage to largeBlob + Storacha (PRIORITY)
-1. **P-256 Integration** - Enable hardware-backed WebAuthn signing
+1. **Secure Credential Storage** - Move from localStorage to largeBlob + Storacha (PRIORITY)
 2. **Multi-Device DKG** - Distributed key generation across multiple devices
 3. **Production Hardening** - Security audits and deployment
 
@@ -86,7 +85,7 @@ This is a **security vulnerability** that must be addressed before any other maj
 
 ---
 
-## Phase 1.5: Secure Credential Storage (High Priority)
+## Phase 1: Secure Credential Storage (High Priority)
 
 **Goal**: Eliminate localStorage vulnerabilities by implementing a hybrid storage architecture using WebAuthn largeBlob and Storacha decentralized storage.
 
@@ -200,29 +199,6 @@ Tier 3: localStorage (Cache Only)
 
 ---
 
-## Phase 1: P-256 Integration (Short-term)
-
-**Goal**: Enable pure P-256 WebAuthn signing by integrating P-256 support into Storacha.
-
-### Roadmap
-
-- [ ] Complete testing of [NiKrause/ucanto p256 branch](https://github.com/NiKrause/ucanto/tree/p256)
-- [ ] Submit PR to integrate P-256 into [storacha/upload-service](https://github.com/storacha/upload-service)
-- [ ] Work with Storacha team on P-256 acceptance
-- [ ] Update application to use pure P-256 WebAuthn signing once supported
-- [ ] Remove Ed25519 worker implementation entirely
-- [ ] Security audit of P-256 integration
-
-**Timeline**: 6-12 months (dependent on Storacha acceptance)
-
-**Benefits**:
-- ✅ Hardware-backed signing (no keys in JavaScript)
-- ✅ Eliminates Web Worker attack surface
-- ✅ Simplified architecture
-- ✅ Better security than current Ed25519 approach
-
----
-
 ## Phase 2: Multi-Device DKG Architecture (Long-term)
 
 **Goal**: Implement true multi-device security using Distributed Key Generation (DKG) with threshold cryptography.
@@ -318,8 +294,8 @@ Device 1 (Browser)     Device 2 (Mobile)
 
 **Dependencies**: Should be performed after:
 - Phase 0 (Revocation) ✅
-- Phase 1.5 (Secure Storage) - Recommended
-- Phase 1 (P-256) or Phase 2 (DKG) - At least one major feature complete
+- Phase 1 (Secure Storage) - Recommended
+- Phase 2 (DKG) - Recommended for maximum security
 
 ---
 
@@ -327,13 +303,11 @@ Device 1 (Browser)     Device 2 (Mobile)
 
 Want to help accelerate this roadmap?
 
-1. **🔥 Current Priority: Secure Storage** (Phase 1.5): Help implement largeBlob + Storacha credential storage
+1. **🔥 Current Priority: Secure Storage** (Phase 1): Help implement largeBlob + Storacha credential storage
 2. **✅ Completed: Revocation** (Phase 0): UCAN revocation is now implemented and working!
-3. **Test the P-256 Fork**: Try [NiKrause/ucanto p256 branch](https://github.com/NiKrause/ucanto/tree/p256)
-4. **Research DKG**: Investigate threshold signature schemes (FROST, GG20, etc.)
-5. **Review Code**: Help audit implementations
-6. **Documentation**: Improve technical documentation and guides
-7. **Integration Work**: Assist with Storacha P-256 integration
+3. **Research DKG**: Investigate threshold signature schemes (FROST, GG20, etc.)
+4. **Review Code**: Help audit implementations
+5. **Documentation**: Improve technical documentation and guides
 
 ---
 

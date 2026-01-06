@@ -41,7 +41,6 @@ Worker.prototype.postMessage = function(msg) {
 The encrypted Ed25519 archive is stored in `localStorage`, which is accessible to:
 - Any JavaScript running in the same origin
 - Browser extensions with appropriate permissions
-- Physical access to the device (local storage is not encrypted at rest)
 
 **Even with encryption**, an attacker who can inject code can:
 - Wait for the decryption key to be used
@@ -71,11 +70,11 @@ For more information on Web Worker security limitations:
 
 ---
 
-## 🛡️ Recommended Secure Architecture: Hardware-Backed P-256 DIDs
+## 🛡️ Recommended Secure Architecture: Hardware-Backed WebAuthn Keys
 
-### The Secure Approach
+### The Ideal Approach
 
-The **most secure architecture** for this application would be to exclusively use **P-256 DIDs with WebAuthn**, where:
+The **most secure architecture** for this application would be to exclusively use **hardware-backed WebAuthn keys** (P-256 or Ed25519), where:
 
 ✅ **Private keys never leave hardware**  
 ✅ **Signing operations performed in secure enclaves** (TPM, Secure Element, Trusted Execution Environment)  
@@ -83,9 +82,9 @@ The **most secure architecture** for this application would be to exclusively us
 ✅ **Biometric authentication required for each operation**  
 ✅ **No encrypted keystores in localStorage**  
 
-### Why P-256 + WebAuthn is Superior
+### Why Hardware-Backed WebAuthn is Superior
 
-| Feature | Current (Ed25519 + Worker) | Ideal (P-256 + WebAuthn) |
+| Feature | Current (Ed25519 + Worker) | Ideal (WebAuthn Hardware Keys) |
 |---------|---------------------------|--------------------------|
 | **Private Key Exposure** | ❌ Exists in worker memory | ✅ Never leaves hardware |
 | **Attack Surface** | ❌ Large (JS injection, worker compromise) | ✅ Minimal (hardware isolation) |
@@ -103,115 +102,174 @@ WebAuthn (P-256) → PRF Seed → Worker AES Key → Decrypt Ed25519 Key → Sig
    Hardware Secure                                   Software (Vulnerable)
 ```
 
-**Ideal Implementation (Secure):**
+**Ideal Implementation (If Possible):**
 ```
-WebAuthn (P-256) → Sign UCAN → Done
+WebAuthn (P-256 or Ed25519) → Sign UCAN → Done
       ↑
    Hardware Secure (End-to-End)
 ```
 
----
-
-## 🚧 Current Limitation: Storacha Doesn't Support P-256
-
-### The Problem
-
-Unfortunately, the [Storacha upload service](https://github.com/storacha/upload-service) currently **only supports Ed25519 signatures** for UCAN-based authentication. This forces applications to:
-
-1. Generate Ed25519 keys in software (JavaScript)
-2. Store these keys (even if encrypted)
-3. Expose keys to potential extraction attacks
-
-This architectural limitation **prevents the use of hardware-backed security** that WebAuthn/P-256 provides.
-
-### Our Solution: P-256 Fork
-
-We have implemented P-256 signature support in our fork of the UCAN library:
-
-🔗 **[P-256 Implementation Fork](https://github.com/NiKrause/ucanto/tree/p256)**
-
-This fork adds:
-- P-256 signature verification
-- WebAuthn-compatible signature schemes
-- Hardware-backed UCAN signing
-
-### Path to Production Security
-
-For this application to be production-ready, the following steps are required:
-
-1. ✅ **Complete**: P-256 support implemented in [NiKrause/ucanto](https://github.com/NiKrause/ucanto/tree/p256)
-2. ⏳ **Pending**: Integrate P-256 into [storacha/upload-service](https://github.com/storacha/upload-service)
-3. ⏳ **Pending**: Security audit of integration
-4. ⏳ **Pending**: Deploy to production Storacha infrastructure
-
-**Until Storacha supports P-256**, this application will continue to use the insecure Ed25519-in-worker pattern.
+However, this ideal implementation **is not possible** with current web standards (see next section).
 
 ---
 
-## 🔐 P-256 UCAN Delegation: Challenges and Reality
+## 🚧 Current Limitation: WebAuthn Signature Format Incompatibility
+
+### Why P-256 Support Doesn't Solve This
+
+While P-256 signature **verification** support has been explored (see [experimental fork](https://github.com/NiKrause/ucanto/tree/p256)), adding P-256 to ucanto/Storacha **does not solve the core WebAuthn signature format problem**:
+
+- ❌ Still requires **raw** signatures (not WebAuthn-wrapped)
+- ❌ Does not enable hardware-backed WebAuthn signing
+- ❌ Application must still use software-based key generation
+- ❌ Worker security vulnerability remains
+
+**Reality Check**: P-256 and Ed25519 are both affected equally by the WebAuthn signature format incompatibility. Using P-256 instead of Ed25519 would **not** improve security - both would still require software-based keys in web workers.
+
+---
+
+## 🔐 WebAuthn UCAN Signing: Why It's Not Possible
 
 ### The WebAuthn Signature Format Problem
 
-While WebAuthn uses P-256 (ES256) for signatures, it doesn't sign arbitrary data directly. Instead, it creates signatures over a specific structure:
+**WebAuthn supports both P-256 (ES256) and Ed25519 (EdDSA) algorithms**, but **neither can be used for UCAN signing** due to the WebAuthn signature format.
+
+> **Note**: Ed25519 (EdDSA) support in WebAuthn was added in the [WebAuthn Level 3 specification](https://www.w3.org/TR/webauthn-3/) finalized in 2025. Browser and hardware support is still rolling out. However, **even with Ed25519 support, the WebAuthn signature format limitation remains** - you still cannot produce raw Ed25519 signatures for UCAN signing.
+
+According to the **[W3C WebAuthn Level 3 Specification](https://www.w3.org/TR/webauthn-3/)**, WebAuthn doesn't sign arbitrary data directly. Instead, it creates signatures over a specific structure (§6.5.5):
 
 ```
-signature = sign_P256(authenticatorData || sha256(clientDataJSON))
+signature = sign(authenticatorData || sha256(clientDataJSON))
 ```
 
-Where `clientDataJSON` wraps your data:
+Where `clientDataJSON` wraps your data (§6.5):
 ```json
 {
   "type": "webauthn.get",
   "challenge": "base64url(yourData)",
-  "origin": "https://your-domain.com"
+  "origin": "https://your-domain.com",
+  "crossOrigin": false
 }
 ```
 
-**This is fundamentally different from what UCAN needs:**
+**This is fundamentally incompatible with what UCAN requires:**
 ```
-signature = sign_P256(rawUcanPayloadBytes)
+signature = sign(rawUcanPayloadBytes)
 ```
 
-### What P-256 Support Enables
-
-Our [P-256 fork](https://github.com/NiKrause/ucanto/tree/p256) adds P-256 signature **verification** to ucanto, which means:
-
-✅ Ucanto can verify P-256 signatures  
-✅ Storacha could accept P-256 DIDs  
-✅ UCAN tokens can use P-256 keys  
-
-**However**, this still requires **raw P-256 signatures**, not WebAuthn-wrapped assertions.
+This limitation applies **equally to P-256 AND Ed25519** keys in WebAuthn - the problem is not the cryptographic algorithm, but the signature format specification.
 
 ### The Missing Piece
 
 To achieve true hardware-backed UCAN signing, we would need:
 
-1. **Raw P-256 signing capability** (not WebAuthn-wrapped)
-2. **Hardware-backed keys** (TPM/Secure Enclave)
+1. **Raw signature capability** (not WebAuthn-wrapped) - **Missing**
+2. **Hardware-backed keys** (TPM/Secure Enclave) - **✅ Available via WebAuthn**
 3. **Both simultaneously** ← This is what WebAuthn doesn't provide today
 
 WebAuthn provides #2 but not #1. You can have hardware security **OR** raw UCAN-compatible signatures, but not both with current web standards.
 
+This limitation applies equally to:
+- ❌ WebAuthn P-256 keys
+- ❌ WebAuthn Ed25519 keys  
+- ❌ WebCrypto API P-256 keys (not hardware-backed)
+- ❌ WebCrypto API Ed25519 keys (not hardware-backed)
+
 ### Why the Current Architecture Exists
 
-The Ed25519-in-worker approach is a **pragmatic compromise** given:
+The Ed25519-in-worker approach is a **pragmatic compromise** given the constraints:
 
-- WebAuthn can't produce raw signatures for UCAN
-- UCAN ecosystem expects standard signature formats
-- Pure hardware-backed delegation isn't feasible with current web APIs
-- Storacha requires working signatures today (not in 2+ years)
+1. **WebAuthn Limitation**: Neither P-256 nor Ed25519 keys in WebAuthn can produce raw signatures for UCAN
+2. **UCAN Ecosystem**: Expects standard signature formats (raw ECDSA/EdDSA), not WebAuthn-wrapped assertions
+3. **Storacha Requirement**: Only accepts Ed25519 signatures
+4. **Browser-Only Goal**: Must work entirely in browser without native applications
+5. **Immediate Functionality**: Requires working signatures today, not in 2-5 years
 
 This architectural limitation is **not a design flaw** but rather **the reality of current web cryptography standards**.
 
+### WebAuthn Specification References
+
+The signature format limitation is defined in:
+
+- **[WebAuthn Level 3 § 6.5.5](https://www.w3.org/TR/webauthn-3/#sctn-op-get-assertion)** - Generating an Authentication Assertion
+- **[WebAuthn Level 3 § 6.5](https://www.w3.org/TR/webauthn-3/#dictdef-collectedclientdata)** - CollectedClientData Structure
+
+Key points from the specification:
+
+> "Let signature be the assertion signature of the concatenation `authenticatorData || hash`..."
+
+Where `hash = SHA-256(UTF-8 encoding of clientDataJSON)`, and `clientDataJSON` is origin-bound.
+
+This means:
+- ❌ Signatures cannot be verified independently of the web origin
+- ❌ Signatures include ceremony type (`webauthn.get` vs `webauthn.create`)
+- ❌ Data is double-hashed (challenge → clientDataJSON → SHA-256 → signed)
+- ❌ No "raw signing mode" exists in WebAuthn Level 3
+
 ### Future Possibilities
 
-True hardware-backed P-256 UCAN delegation would require:
+True hardware-backed UCAN signing would require **one of these approaches**:
 
-1. **WebAuthn Level 3+** with raw signing capabilities (not currently standardized)
-2. **Platform-specific APIs** (Apple CryptoKit, Windows CNG) outside the browser
-3. **Native applications** with direct hardware access (defeats the browser-only goal)
+1. **WebAuthn Extension** for raw signing (not proposed for Level 3+)
+2. **New Web Standard** for hardware-backed cryptographic operations
+3. **Platform-specific APIs** (Apple CryptoKit, Windows CNG) outside the browser
+4. **Native applications** with direct hardware access (defeats browser-only goal)
+5. **Custom UCAN Verifier** accepting WebAuthn signature format (breaks ecosystem compatibility)
 
 **Timeline**: Any web standard solution is likely 2-5 years away, if it happens at all.
+
+**Workaround Used**: Generate Ed25519 keys in software (web worker), derive encryption key from WebAuthn PRF, encrypt and store keys. This provides WebAuthn-gated access to Ed25519 keys but **does not** provide hardware-backed key security.
+
+---
+
+## 🔮 Future Solution: Multi-Device Distributed Key Generation
+
+While the WebAuthn signature format limitation cannot be solved with current standards, there is a **long-term solution** that eliminates the web worker security vulnerability entirely: **Distributed Key Generation (DKG)** with threshold cryptography.
+
+### The Concept
+
+Instead of storing a complete Ed25519 key on a single device (vulnerable to extraction), **split the key across multiple devices**:
+
+```
+Device 1 (Browser)     Device 2 (Mobile)
+      ↓                       ↓
+  Key Share 1            Key Share 2
+  (hardware-backed)      (hardware-backed)
+      ↓                       ↓
+      └─────────┬─────────────┘
+                ↓
+         Combined Signature
+         (BOTH devices required)
+```
+
+### How It Solves the Security Problem
+
+**Key Security Benefits:**
+
+- ✅ **No complete key on any device** - compromising one device doesn't expose the private key
+- ✅ **Multi-device authentication** - requires biometric approval on both devices for signing
+- ✅ **Hardware-backed shares** - each key share protected by WebAuthn on its device
+- ✅ **No key material in JavaScript** - only combined during threshold signing protocol
+- ✅ **Eliminates worker vulnerability** - no complete key exists in web worker memory
+
+**Attack Mitigation:**
+
+| Attack Vector | Current (Ed25519 in Worker) | DKG (Multi-Device) |
+|--------------|----------------------------|-------------------|
+| Code Injection | ❌ Can steal complete key | ✅ Only gets one share (useless alone) |
+| Worker Compromise | ❌ Full key exposed | ✅ Incomplete key share |
+| Lost/Stolen Device | ❌ Full key compromised | ✅ Requires both devices |
+| Memory Dumping | ❌ Can extract full key | ✅ Only partial key share |
+
+### Implementation Status
+
+This is a **Phase 2 long-term goal** (12-24 months). For full technical details including:
+- Threshold signature protocols (FROST)
+- Device communication (js-libp2p)
+- QR code signing flow
+- Cross-device authentication
+
+See **[Phase 2 in PLANNING.md](./PLANNING.md#phase-2-multi-device-dkg-architecture-long-term)**.
 
 ---
 
@@ -283,11 +341,11 @@ Before using this application, ensure:
 
 Want to help make this architecture secure? Here's how:
 
-1. **Test the P-256 Fork**: Try [NiKrause/ucanto p256 branch](https://github.com/NiKrause/ucanto/tree/p256)
-2. **Review Code**: Help audit the P-256 implementation
-3. **Integration Work**: Assist with integrating P-256 into [storacha/upload-service](https://github.com/storacha/upload-service)
+1. **Research DKG**: Investigate threshold signature schemes (FROST, GG20) for multi-device security
+2. **Secure Storage**: Help implement Phase 1 (largeBlob + Storacha credential storage)
+3. **Review Code**: Help audit cryptographic implementations
 4. **Documentation**: Improve security documentation and best practices
-5. **Roadmap**: See [PLANNING.md](./PLANNING.md) for future features and how to contribute
+5. **Roadmap**: See [PLANNING.md](./PLANNING.md) for detailed features and priorities
 
 ---
 
@@ -304,7 +362,7 @@ If you discover a security vulnerability, please:
 
 ## 🚀 Future Plans
 
-For detailed roadmap and future planning, including P-256 integration and multi-device DKG architecture, see:
+For detailed roadmap and future planning, including secure credential storage and multi-device DKG architecture, see:
 
 **[PLANNING.md](./PLANNING.md) - Future Planning & Roadmap**
 
