@@ -70,9 +70,9 @@ export class UCANDelegationService {
    * Always tries to load existing first unless force=true
    */
   async initializeEd25519DID(force = false): Promise<Ed25519KeyPair> {
-    // If we already have a keypair and not forcing, return it
-    if (this.ed25519Keypair && !force) {
-      console.log('Using cached Ed25519 keypair');
+    // If we already have BOTH keypair AND archive (and not forcing), return it
+    if (this.ed25519Keypair && this.ed25519Archive && !force) {
+      console.log('Using cached Ed25519 keypair and archive');
       return this.ed25519Keypair;
     }
 
@@ -530,6 +530,18 @@ export class UCANDelegationService {
       // Use worker-backed Ed25519 principal (WebAuthn PRF → keystore)
       const principal = await this.getWorkerPrincipal();
 
+      console.log('📋 Principal DID:', principal.did());
+      console.log('📋 Delegation audience (should match):', delegationInfo.toAudience);
+      
+      // CRITICAL: Verify the delegation is for this principal
+      if (principal.did() !== delegationInfo.toAudience) {
+        const errorMsg = `❌ DID Mismatch!\n\nThe delegation is for: ${delegationInfo.toAudience}\nBut your current DID is: ${principal.did()}\n\nPlease delete the stored keys and reimport the delegation.`;
+        console.error(errorMsg);
+        throw new Error(errorMsg);
+      }
+      
+      console.log('✅ DID matches - delegation is for this principal');
+
       const store = new StoreMemory();
       const client = await Client.create({
         principal,
@@ -542,8 +554,10 @@ export class UCANDelegationService {
           try {
             const space = await client.addSpace(delegation);
             await client.setCurrentSpace(space.did());
+            console.log('✅ Space set successfully for delete operation');
           } catch (spaceError) {
-            console.warn('Failed to set current space:', (spaceError as Error).message);
+            console.error('❌ Failed to set current space:', (spaceError as Error).message);
+            throw spaceError;
           }
         }
       }
@@ -747,6 +761,18 @@ export class UCANDelegationService {
       // Use worker-backed Ed25519 principal (WebAuthn PRF → keystore)
       const principal = await this.getWorkerPrincipal();
 
+      console.log('📋 Principal DID:', principal.did());
+      console.log('📋 Delegation audience (should match):', delegationInfo.toAudience);
+      
+      // CRITICAL: Verify the delegation is for this principal
+      if (principal.did() !== delegationInfo.toAudience) {
+        const errorMsg = `❌ DID Mismatch!\n\nThe delegation is for: ${delegationInfo.toAudience}\nBut your current DID is: ${principal.did()}\n\nThis happened because:\n1. Your WebAuthn PRF changed (fell back to rawCredentialId)\n2. This generated a different encryption key\n3. The decrypted archive contains a different Ed25519 keypair\n\nSolution:\n- Delete the stored archive and regenerate your Ed25519 DID\n- Or request a new delegation for your current DID`;
+        console.error(errorMsg);
+        throw new Error(errorMsg);
+      }
+      
+      console.log('✅ DID matches - delegation is for this principal');
+
       // Create Storacha client with the Ed25519 principal
       const store = new StoreMemory();
       const client = await Client.create({
@@ -761,8 +787,10 @@ export class UCANDelegationService {
           try {
             const space = await client.addSpace(delegation);
             await client.setCurrentSpace(space.did());
+            console.log('✅ Space set successfully:', space.did());
           } catch (spaceError) {
-            console.warn('Failed to set current space:', (spaceError as Error).message);
+            console.error('❌ Failed to set current space:', (spaceError as Error).message);
+            throw spaceError; // Don't continue if space setup fails
           }
         }
       }
@@ -1811,6 +1839,18 @@ export class UCANDelegationService {
   }
 
   /**
+   * Clear Ed25519 keys and archive
+   * Use this when there's a DID mismatch or corrupted archive
+   */
+  clearEd25519Keys(): void {
+    localStorage.removeItem(STORAGE_KEYS.ED25519_KEYPAIR);
+    localStorage.removeItem(STORAGE_KEYS.ED25519_ARCHIVE_ENCRYPTED);
+    this.ed25519Keypair = null;
+    this.ed25519Archive = null;
+    console.log('✅ Cleared Ed25519 keys and archive');
+  }
+
+  /**
    * Clear all stored data
    */
   clearAll(): void {
@@ -1819,6 +1859,8 @@ export class UCANDelegationService {
     });
     this.webauthnProvider = null;
     this.storachaClient = null;
+    this.ed25519Keypair = null;
+    this.ed25519Archive = null;
     console.log('✅ Cleared all stored data');
   }
 

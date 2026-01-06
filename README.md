@@ -40,6 +40,9 @@ A browser-only file upload application powered by **WebAuthn DIDs**, **worker-ba
 
 ## 🏗️ Architecture
 
+> **📊 For detailed visual diagrams and flow charts, see [ARCHITECTURE_FLOW.md](./docs/ARCHITECTURE_FLOW.md)**  
+> Includes sequence diagrams for WebAuthn, Ed25519 keystore, delegation flows, and complete end-to-end scenarios with Mermaid visualizations.
+
 ### **WebAuthn DID (P-256)**
 - Hardware-secured identity using device biometrics (Face ID, Touch ID, Windows Hello)
 - P-256 elliptic curve cryptography
@@ -292,7 +295,20 @@ See **[PLANNING.md](./PLANNING.md)** for the complete roadmap and technical deta
 - **[PLANNING.md](./PLANNING.md)** - Future roadmap and planned features (5 phases)
 - **[LICENSE](./LICENSE)** - MIT License
 
+### Architecture & Flow Diagrams
+- **[ARCHITECTURE_FLOW.md](./docs/ARCHITECTURE_FLOW.md)** - 🆕 Complete visual architecture with detailed Mermaid diagrams:
+  - High-level system architecture
+  - WebAuthn PRF authentication flow
+  - Ed25519 keystore worker operations
+  - DID generation (P-256 & Ed25519)
+  - UCAN delegation creation & import
+  - File upload with delegations
+  - Revocation system
+  - End-to-end multi-browser flow
+
 ### Technical Documentation (docs/)
+- **[WEBAUTHN_PRF_IMPLEMENTATION.md](./docs/WEBAUTHN_PRF_IMPLEMENTATION.md)** - WebAuthn PRF extension implementation details
+- **[KEYSTORE_ARCHITECTURE.md](./docs/KEYSTORE_ARCHITECTURE.md)** - Web worker-based Ed25519 keystore architecture
 - **[SECURE_CREDENTIAL_STORAGE.md](./docs/SECURE_CREDENTIAL_STORAGE.md)** - largeBlob + Storacha architecture (Phase 1.5)
 - **[REVOCATION_IMPLEMENTATION.md](./docs/REVOCATION_IMPLEMENTATION.md)** - UCAN revocation technical details (Phase 0)
 - **[REVOCATION_QUICKSTART.md](./docs/REVOCATION_QUICKSTART.md)** - Revocation testing guide
