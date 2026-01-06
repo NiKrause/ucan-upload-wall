@@ -91,16 +91,26 @@ This is a **security vulnerability** that must be addressed before any other maj
 
 ### Why This Comes After Revocation
 
-With revocation in place, we can now safely store credentials in decentralized storage knowing we can revoke access if needed. This phase addresses the **localStorage attack surface** documented in SECURITY.md.
+With revocation in place, we can now safely store credentials in decentralized storage knowing we can revoke access if needed. While the current implementation **already encrypts** data in localStorage, Phase 1 provides:
+
+1. **Hardware isolation**: Move encrypted credentials behind WebAuthn largeBlob (requires biometric per access)
+2. **Reduced attack surface**: No credentials in localStorage at all (not even encrypted)
+3. **Cross-device sync**: Credentials backed up to Storacha for recovery
+4. **Defense in depth**: Even if same-origin code is injected after unlock, credentials aren't in localStorage
+
+The current system protects against **external attackers** (XSS, extensions stealing localStorage), but Phase 1 additionally protects against **same-origin code injection** that could access worker memory after the initial unlock.
 
 ### The Problem
 
-**Current localStorage vulnerabilities:**
-- ❌ XSS attacks can steal all credentials
-- ❌ Browser extensions can read localStorage
-- ❌ No encryption at rest
-- ❌ Code injection → full credential exfiltration
-- ❌ Lost device → credentials exposed
+**Current localStorage characteristics:**
+- ✅ **Encrypted at rest**: Ed25519 archives encrypted with AES-GCM before localStorage
+- ✅ **Hardware-derived key**: Encryption key derived from WebAuthn PRF (never stored)
+- ✅ **Biometric-gated**: Decryption requires WebAuthn authentication on every page load
+- ⚠️ **XSS can steal encrypted data**: But cannot decrypt without WebAuthn credential
+- ⚠️ **Browser extensions can read**: But only get encrypted ciphertext + IV
+- ⚠️ **Lost device**: Encrypted archives accessible but require biometric to decrypt
+- ❌ **Same-origin code injection**: Can access Web Worker memory after initial unlock
+- ❌ **No hardware key isolation**: Ed25519 keys in JavaScript memory (not in TPM/Secure Enclave)
 
 ### The Solution: Three-Tier Architecture
 
@@ -183,13 +193,14 @@ Tier 3: localStorage (Cache Only)
 
 **Security Improvements**:
 
-| Attack Vector | Before (localStorage) | After (largeBlob + Storacha) |
-|--------------|----------------------|------------------------------|
-| XSS Injection | ❌ Full access | ✅ Requires biometric |
-| Browser Extension | ❌ Can read | ✅ Cannot access largeBlob |
-| Code Injection | ❌ Steal all | ✅ Only cache accessible |
-| Lost Device | ❌ Permanent loss | ✅ Recoverable from Storacha |
-| Physical Access | ❌ Unencrypted | ✅ Encrypted + biometric |
+| Attack Vector | Current (localStorage + Worker) | After (largeBlob + Storacha) |
+|--------------|--------------------------------|------------------------------|
+| XSS Injection | ⚠️ Gets encrypted data only | ✅ No credentials in localStorage at all |
+| Browser Extension | ⚠️ Can read encrypted archives | ✅ Cannot access largeBlob |
+| Code Injection (same-origin) | ❌ Can access worker memory after unlock | ✅ largeBlob requires biometric per access |
+| Lost Device | ⚠️ Encrypted but no recovery | ✅ Recoverable from Storacha |
+| Physical Access | ✅ Encrypted + requires biometric | ✅ Same, but with decentralized backup |
+| Offline Access | ✅ Full functionality | ⚠️ Initial load requires network |
 
 **References**:
 - [W3C WebAuthn Level 3 - largeBlob](https://www.w3.org/TR/webauthn-3/#sctn-large-blob-extension)
