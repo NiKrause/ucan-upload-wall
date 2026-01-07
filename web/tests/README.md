@@ -26,6 +26,33 @@ npm run test:e2e -- basic-ui
 
 **Duration:** ~2 minutes for all tests
 
+### `delegation-upload-flow.spec.ts` ✅ **ACTIVE**
+
+**Focus:** Complete UCAN delegation and upload workflow
+
+**Tests:**
+- ✅ Full delegation flow: create space → DID → delegate → import → upload → persist
+- ✅ Delegation format compatibility (multibase-base64, base64url, plain-base64)
+- ✅ File persistence after page reload
+- ✅ In-memory upload service integration
+
+**Run:**
+```bash
+npm run test:e2e -- delegation-upload-flow
+```
+
+**Prerequisites:**
+```bash
+npm install --save-dev @storacha/upload-api @storacha/capabilities @ucanto/server
+```
+
+**Duration:** ~3-5 minutes (includes upload service setup)
+
+**Architecture:**
+- Uses in-memory Storacha upload service (no external dependencies)
+- Combines backend (UCANTO protocol) with frontend (Playwright UI)
+- Tests end-to-end delegation chain and file upload persistence
+
 ### `archive/` ⚠️ **ARCHIVED**
 
 Contains old/complex tests that were:
@@ -187,8 +214,9 @@ test('should show error when network is offline', async () => {
 
 ## Next Steps
 
-- [ ] Add tests for upload functionality
-- [ ] Add tests for delegation creation
+- [x] Add tests for upload functionality
+- [x] Add tests for delegation creation
+- [ ] Add tests for delegation revocation flow (Issue #2)
 - [ ] Add tests for error boundaries
 - [ ] Add visual regression tests
 - [ ] Integrate into CI/CD pipeline

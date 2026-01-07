@@ -1,7 +1,5 @@
 # ⚠️ SECURITY WARNING
 
-## 🚨 Critical Notice: Not Production Ready
-
 **THIS CODE HAS NOT UNDERGONE A SECURITY AUDIT AND SHOULD NOT BE USED IN PRODUCTION ENVIRONMENTS.**
 
 This project is an experimental proof-of-concept for WebAuthn-based UCAN delegations. It has not been reviewed by security professionals and may contain critical vulnerabilities. Use at your own risk for testing and educational purposes only.
