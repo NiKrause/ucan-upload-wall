@@ -24,6 +24,13 @@ function App() {
     return localStorage.getItem('security_notice_dismissed') === 'true';
   });
   
+  // NEW: Track signing mode for security warnings
+  const [signingMode, setSigningMode] = useState<{
+    mode: 'hardware' | 'worker';
+    did: string | null;
+    secure: boolean;
+  } | null>(null);
+  
   useEffect(() => {
     // Check if DID is available
     const hasDID = !!delegationService.getCurrentDID();
@@ -31,6 +38,10 @@ function App() {
     
     // Check delete capability
     setHasDeleteCapability(delegationService.hasDeleteCapability());
+    
+    // NEW: Check signing mode
+    const mode = delegationService.getSigningMode();
+    setSigningMode(mode);
   }, [delegationService]);
   
   // Separate effect to load files only when DID is ready
@@ -70,10 +81,16 @@ function App() {
       if (hasDID !== didCreated) {
         setDidCreated(hasDID);
       }
+      
+      // NEW: Also check signing mode changes
+      const mode = delegationService.getSigningMode();
+      if (JSON.stringify(mode) !== JSON.stringify(signingMode)) {
+        setSigningMode(mode);
+      }
     }, 1000);
     
     return () => clearInterval(interval);
-  }, [didCreated, delegationService]);
+  }, [didCreated, signingMode, delegationService]);
 
   const handleFileSelect = useCallback(async (file: File) => {
     const result = await uploadFile(file);
@@ -252,28 +269,66 @@ function App() {
         return (
           <div className="max-w-7xl mx-auto px-6 py-12">
             <div className="flex flex-col items-center">
-              {/* Security Warning - Dismissible */}
-              {!securityNoticeDismissed && (
-                <div className="w-full max-w-3xl mb-8 bg-yellow-50 border-2 border-yellow-200 rounded-lg p-4 relative">
+              {/* Security Warning - Conditional based on signing mode */}
+              {!securityNoticeDismissed && signingMode && (
+                <div className={`w-full max-w-3xl mb-8 border-2 rounded-lg p-4 relative ${
+                  signingMode.mode === 'hardware' 
+                    ? 'bg-green-50 border-green-200' 
+                    : 'bg-yellow-50 border-yellow-200'
+                }`}>
                   <button
                     onClick={handleDismissSecurityNotice}
-                    className="absolute top-3 right-3 text-yellow-600 hover:text-yellow-800 transition-colors"
+                    className={`absolute top-3 right-3 transition-colors ${
+                      signingMode.mode === 'hardware'
+                        ? 'text-green-600 hover:text-green-800'
+                        : 'text-yellow-600 hover:text-yellow-800'
+                    }`}
                     aria-label="Dismiss security notice"
                   >
                     <X className="w-5 h-5" />
                   </button>
                   <div className="flex items-start gap-3 pr-8">
                     <div className="flex-shrink-0">
-                      <svg className="w-6 h-6 text-yellow-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                      </svg>
+                      {signingMode.mode === 'hardware' ? (
+                        <svg className="w-6 h-6 text-green-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                      ) : (
+                        <svg className="w-6 h-6 text-yellow-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      )}
                     </div>
                     <div className="flex-1">
-                      <h3 className="text-sm font-semibold text-yellow-900 mb-1">⚠️ Security Notice</h3>
-                      <p className="text-sm text-yellow-800">
-                        This app has <strong>not been security audited</strong>. Malicious browser extensions can potentially steal key material from the web worker even the hardware key is protected and can't be extracted. 
-                        <strong className="block mt-1">→ Reduce risk: Use browsers with no extensions installed, or use on mobile devices.</strong>
-                      </p>
+                      {signingMode.mode === 'hardware' ? (
+                        <>
+                          <h3 className="text-sm font-semibold text-green-900 mb-1">🔐 Hardware-Backed Security Active</h3>
+                          <p className="text-sm text-green-800">
+                            Your browser supports <strong>hardware-backed WebAuthn Ed25519</strong> signing! 
+                            Your private keys are stored in secure hardware (TPM/Secure Enclave) and <strong>cannot be extracted</strong> by malicious extensions or XSS attacks.
+                            <strong className="block mt-1">✅ Biometric authentication is required for each UCAN signature.</strong>
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <h3 className="text-sm font-semibold text-yellow-900 mb-1">⚠️ Worker Mode Security Notice</h3>
+                          <p className="text-sm text-yellow-800">
+                            This app uses <strong>web worker key storage</strong> (hardware mode not supported by your browser). 
+                            While keys are encrypted, <strong>malicious browser extensions can potentially access key material</strong> from the worker memory.
+                            <strong className="block mt-2">🛡️ Recommended actions to reduce risk:</strong>
+                          </p>
+                          <ul className="text-sm text-yellow-800 ml-6 mt-1 space-y-0.5">
+                            <li>• Use a browser with <strong>NO extensions</strong> installed</li>
+                            <li>• Use a <strong>dedicated browser profile</strong> for this app</li>
+                            <li>• <strong>Avoid unknown or untrusted addons</strong></li>
+                            <li>• Consider using <strong>mobile devices</strong> (better isolation)</li>
+                            <li>• <strong>Update to Chrome 108+, Edge 108+, or Safari 17+</strong> for hardware mode</li>
+                          </ul>
+                          <p className="text-sm text-yellow-800 mt-2">
+                            <strong>Note:</strong> This app has <strong>not been security audited</strong>.
+                          </p>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
