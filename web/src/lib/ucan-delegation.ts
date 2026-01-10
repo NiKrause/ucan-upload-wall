@@ -2,7 +2,12 @@
  * UCAN Delegation Service
  * 
  * Handles delegation creation, storage, and management for Storacha integration
- * Uses P-256 keys from WebAuthn DID for delegation signatures
+ * 
+ * SIGNING MODES:
+ * 1. Hardware Mode (Preferred): Uses WebAuthn Ed25519 with hardware-backed keys
+ * 2. Worker Mode (Fallback): Uses P-256 + PRF + Worker-based Ed25519
+ * 
+ * The service automatically detects browser support and uses hardware mode when available.
  */
 
 import * as Client from '@storacha/client';
@@ -17,6 +22,8 @@ import {
   encryptArchive,
   decryptArchive
 } from './secure-ed25519-did';
+import { HardwareUCANDelegationService } from './hardware-ucan-service';
+import { checkEd25519Support } from './webauthn-ed25519-signer';
 
 // Storage keys for localStorage
 const STORAGE_KEYS = {
@@ -64,12 +71,108 @@ export class UCANDelegationService {
   private ed25519Keypair: Ed25519KeyPair | null = null;
   private storachaClient: Client.Client | null = null;
   private ed25519Archive: { id: string; keys: Record<string, Uint8Array> } | null = null;
+  
+  // Hardware mode support (NEW)
+  private hardwareService: HardwareUCANDelegationService | null = null;
+  private useHardwareMode = false;
+  private hardwareModeChecked = false;
 
   /**
+   * Check and initialize hardware mode if supported
+   * Returns true if hardware mode is active
+   */
+  private async checkAndInitializeHardwareMode(): Promise<boolean> {
+    if (this.hardwareModeChecked) {
+      return this.useHardwareMode;
+    }
+    
+    this.hardwareModeChecked = true;
+    
+    try {
+      console.log('🔍 Checking for hardware-backed Ed25519 support...');
+      
+      // Check browser support
+      const supported = await checkEd25519Support();
+      if (!supported) {
+        console.log('ℹ️ Hardware Ed25519 not supported, will use worker mode');
+        return false;
+      }
+      
+      console.log('✅ Hardware Ed25519 supported! Attempting to use hardware mode...');
+      
+      // Try to initialize hardware service
+      this.hardwareService = new HardwareUCANDelegationService();
+      
+      // Try to initialize (this will load existing or create new)
+      const initialized = await this.hardwareService.initializeHardwareSigner(
+        'user@ucan-upload-wall.app',
+        'UCAN User'
+      );
+      
+      if (initialized) {
+        this.useHardwareMode = true;
+        const did = this.hardwareService.getHardwareDID();
+        console.log('🎉 Hardware mode ACTIVE!');
+        console.log('   Hardware DID:', did);
+        console.log('   Security: Keys stored in secure hardware (TPM/Secure Enclave)');
+        console.log('   Biometric: Required for each delegation');
+        return true;
+      } else {
+        console.log('⚠️ Hardware initialization failed, falling back to worker mode');
+        return false;
+      }
+    } catch (error) {
+      console.warn('⚠️ Hardware mode initialization error:', error);
+      console.log('   Falling back to worker mode');
+      return false;
+    }
+  }
+  
+  /**
+   * Get signing mode information
+   */
+  getSigningMode(): { mode: 'hardware' | 'worker'; did: string | null; secure: boolean } {
+    if (this.useHardwareMode && this.hardwareService) {
+      return {
+        mode: 'hardware',
+        did: this.hardwareService.getHardwareDID(),
+        secure: true
+      };
+    } else if (this.ed25519Keypair) {
+      return {
+        mode: 'worker',
+        did: this.ed25519Keypair.did,
+        secure: false
+      };
+    }
+    return {
+      mode: 'worker',
+      did: null,
+      secure: false
+    };
+  }
+  
+  /**
    * Initialize or load existing Ed25519 DID
+   * Automatically tries hardware mode first, falls back to worker mode
    * Always tries to load existing first unless force=true
    */
   async initializeEd25519DID(force = false): Promise<Ed25519KeyPair> {
+    // Check for hardware mode first (unless we already have worker credentials)
+    if (!force && !this.ed25519Keypair) {
+      const hardwareEnabled = await this.checkAndInitializeHardwareMode();
+      if (hardwareEnabled) {
+        // Create a compatible Ed25519KeyPair object for backward compatibility
+        const hardwareDID = this.hardwareService!.getHardwareDID()!;
+        this.ed25519Keypair = {
+          publicKey: '', // Not needed for hardware mode
+          privateKey: '', // Not accessible in hardware mode
+          did: hardwareDID
+        };
+        console.log('✅ Using hardware mode for Ed25519 operations');
+        return this.ed25519Keypair;
+      }
+    }
     // If we already have BOTH keypair AND archive (and not forcing), return it
     if (this.ed25519Keypair && this.ed25519Archive && !force) {
       console.log('Using cached Ed25519 keypair and archive');
@@ -920,14 +1023,69 @@ export class UCANDelegationService {
 
   /**
    * Create a UCAN delegation to another DID
-   * Supports two modes:
+   * 
+   * ROUTING LOGIC:
+   * - If hardware mode is active: Uses hardware-backed signing (secure)
+   * - If worker mode: Uses existing worker-based signing (legacy)
+   * 
+   * Supports two sources:
    * 1. Direct delegation from Storacha credentials (if available)
    * 2. Delegation chaining from a received UCAN delegation (if no credentials)
+   * 
    * @param toDid Target DID to delegate to
    * @param capabilities Array of capability strings to delegate
    * @param expirationHours Number of hours until delegation expires (default: 24, null = no expiration)
    */
   async createDelegation(toDid: string, capabilities: string[] = ['space/blob/add', 'space/blob/list', 'space/blob/remove', 'store/add', 'store/list', 'store/remove', 'upload/add', 'upload/list', 'upload/remove'], expirationHours: number | null = 24): Promise<string> {
+    // HARDWARE MODE: Route through hardware service
+    if (this.useHardwareMode && this.hardwareService) {
+      console.log('🔐 Creating delegation with HARDWARE-BACKED signing...');
+      
+      const credentials = this.getStorachaCredentials();
+      if (!credentials) {
+        throw new Error('Hardware mode requires Storacha credentials. Delegation chaining not yet supported in hardware mode.');
+      }
+      
+      try {
+        const proof = await this.hardwareService.createHardwareDelegation(
+          toDid,
+          credentials.spaceDid,
+          capabilities,
+          expirationHours
+        );
+        
+        // Store in created delegations
+        const delegationInfo: DelegationInfo = {
+          id: `hw-${Date.now()}`, // Hardware mode delegation
+          fromIssuer: this.hardwareService.getHardwareDID()!,
+          toAudience: toDid,
+          proof,
+          capabilities,
+          createdAt: new Date().toISOString(),
+          expiresAt: expirationHours !== null
+            ? new Date(Date.now() + expirationHours * 60 * 60 * 1000).toISOString()
+            : undefined,
+          format: 'hardware-varsig'
+        };
+        
+        const createdDelegations = this.getCreatedDelegations();
+        createdDelegations.unshift(delegationInfo);
+        localStorage.setItem(STORAGE_KEYS.CREATED_DELEGATIONS, JSON.stringify(createdDelegations));
+        
+        console.log('✅ Hardware delegation created successfully!');
+        console.log('   Mode: Hardware-backed Ed25519');
+        console.log('   Security: Maximum (keys in secure hardware)');
+        
+        return proof;
+      } catch (error) {
+        console.error('❌ Hardware delegation failed:', error);
+        throw error;
+      }
+    }
+    
+    // WORKER MODE: Use existing logic (fallback)
+    console.log('📝 Creating delegation with worker mode...');
+    
     if (!this.webauthnProvider) {
       throw new Error('WebAuthn provider not initialized');
     }
@@ -1109,11 +1267,83 @@ export class UCANDelegationService {
 
   /**
    * Import a UCAN delegation from another browser/DID
+   * 
+   * ROUTING LOGIC:
+   * - If delegation is hardware-varsig format: Uses hardware verification
+   * - Otherwise: Uses existing worker-based verification
+   * 
    * @param delegationProof The delegation proof string (multibase encoded)
    * @param name Optional user-friendly name for this delegation
    */
   async importDelegation(delegationProof: string, name?: string): Promise<void> {
     try {
+      // Check if this is a hardware-varsig delegation
+      const cleanedProof = delegationProof.trim().replace(/\s+/g, '').replace(/[\r\n]/g, '');
+      
+      // Try hardware verification first if we have hardware mode
+      if (this.hardwareService) {
+        try {
+          console.log('🔍 Attempting hardware varsig verification...');
+          
+          // Decode the proof
+          let tokenBytes: Uint8Array;
+          if (cleanedProof.startsWith('m')) {
+            const base64Part = cleanedProof.substring(1);
+            const binary = atob(base64Part);
+            tokenBytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+              tokenBytes[i] = binary.charCodeAt(i);
+            }
+          } else if (cleanedProof.startsWith('u')) {
+            const base64urlPart = cleanedProof.substring(1);
+            const standardBase64 = this.base64urlToBase64(base64urlPart);
+            const binary = atob(standardBase64);
+            tokenBytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+              tokenBytes[i] = binary.charCodeAt(i);
+            }
+          } else {
+            tokenBytes = new TextEncoder().encode(cleanedProof);
+          }
+          
+          // Try to verify as hardware delegation
+          const result = await this.hardwareService.verifyHardwareDelegation(
+            cleanedProof,
+            window.location.origin
+          );
+          
+          if (result.valid) {
+            console.log('✅ Hardware varsig verification succeeded!');
+            
+            // Create delegation info
+            const delegationInfo: DelegationInfo = {
+              id: `hw-import-${Date.now()}`,
+              name,
+              fromIssuer: result.issuer,
+              toAudience: result.audience,
+              proof: cleanedProof,
+              capabilities: result.capabilities,
+              createdAt: new Date().toISOString(),
+              expiresAt: result.expiration ? new Date(result.expiration * 1000).toISOString() : undefined,
+              format: 'hardware-varsig'
+            };
+            
+            const receivedDelegations = this.getReceivedDelegations();
+            receivedDelegations.unshift(delegationInfo);
+            localStorage.setItem(STORAGE_KEYS.RECEIVED_DELEGATIONS, JSON.stringify(receivedDelegations));
+            
+            console.log('✅ Hardware delegation imported successfully');
+            return;
+          }
+        } catch (hardwareError) {
+          console.log('ℹ️ Not a hardware delegation, trying worker mode:', hardwareError);
+          // Fall through to worker mode
+        }
+      }
+      
+      // WORKER MODE: Use existing verification logic
+      console.log('📝 Using worker mode verification...');
+      
       // Ensure we have a DID before verifying audience
       if (!this.webauthnProvider) {
         console.log('🔑 Initializing WebAuthn DID before import...');
@@ -1126,8 +1356,7 @@ export class UCANDelegationService {
 
       console.log('Importing delegation...');
       
-      // Clean the input: remove whitespace, line breaks, etc.
-      const cleanedProof = delegationProof.trim().replace(/\s+/g, '').replace(/[\r\n]/g, '');
+      // Note: cleanedProof is already defined above, reuse it
       console.log('Original length:', delegationProof.length, 'Cleaned length:', cleanedProof.length);
       console.log('First chars:', cleanedProof.substring(0, 20));
       
