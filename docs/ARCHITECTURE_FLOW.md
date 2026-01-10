@@ -7,7 +7,15 @@ This document provides a detailed visual representation of the entire UCAN Uploa
 - [UCAN Upload Wall - Complete Architecture Flow](#ucan-upload-wall---complete-architecture-flow)
   - [Table of Contents](#table-of-contents)
   - [High-Level Architecture](#high-level-architecture)
-  - [WebAuthn Authentication \& PRF Flow](#webauthn-authentication--prf-flow)
+    - [Current Architecture (Two Modes)](#current-architecture-two-modes)
+      - [Mode 1: Worker-Based (Current/Legacy - Vulnerable)](#mode-1-worker-based-currentlegacy---vulnerable)
+      - [Mode 2: Hardware-Backed (New - Secure) ⭐](#mode-2-hardware-backed-new---secure-)
+  - [Hardware-Backed WebAuthn Ed25519 Flow ⭐ NEW](#hardware-backed-webauthn-ed25519-flow--new)
+    - [Overview](#overview)
+    - [WebAuthn Ed25519 Credential Creation](#webauthn-ed25519-credential-creation)
+    - [Hardware-Backed UCAN Delegation Creation](#hardware-backed-ucan-delegation-creation)
+    - [Hardware-Backed Delegation Verification](#hardware-backed-delegation-verification)
+  - [WebAuthn Authentication \& PRF Flow (Worker Mode)](#webauthn-authentication--prf-flow-worker-mode)
   - [Ed25519 Keystore Worker Flow](#ed25519-keystore-worker-flow)
   - [DID Generation Flow](#did-generation-flow)
   - [UCAN Delegation Creation Flow](#ucan-delegation-creation-flow)
@@ -16,21 +24,33 @@ This document provides a detailed visual representation of the entire UCAN Uploa
   - [Revocation Flow](#revocation-flow)
   - [Complete End-to-End Flow](#complete-end-to-end-flow)
   - [Key Security Points](#key-security-points)
-    - [🔐 WebAuthn Security](#-webauthn-security)
+    - [🔐 Hardware-Backed Security (NEW MODE) ⭐](#-hardware-backed-security-new-mode-)
+    - [🔒 Worker Isolation (LEGACY MODE)](#-worker-isolation-legacy-mode)
     - [🔒 Worker Isolation](#-worker-isolation)
     - [⚠️ Known Limitations](#️-known-limitations)
     - [🛡️ UCAN Security](#️-ucan-security)
+    - [📊 Security Comparison Table](#-security-comparison-table)
+    - [🎯 Recommendation](#-recommendation)
   - [Technology Stack](#technology-stack)
     - [Core Libraries](#core-libraries)
     - [Cryptography](#cryptography)
+    - [Signing Methods Comparison](#signing-methods-comparison)
     - [Storage](#storage)
     - [Development](#development)
+    - [New Modules (Hardware Mode)](#new-modules-hardware-mode)
   - [References](#references)
+    - [Specifications](#specifications)
+    - [Project Documentation](#project-documentation)
+    - [Browser Support](#browser-support)
   - [License](#license)
 
 ---
 
 ## High-Level Architecture
+
+### Current Architecture (Two Modes)
+
+#### Mode 1: Worker-Based (Current/Legacy - Vulnerable)
 
 ```mermaid
 graph TB
@@ -39,8 +59,8 @@ graph TB
         LocalStorage[(localStorage<br/>Encrypted Archives<br/>Delegations)]
     end
     
-    subgraph "WebAuthn Layer"
-        Passkey[WebAuthn Passkey<br/>P-256 Key<br/>Biometric]
+    subgraph "WebAuthn Layer (Worker Mode)"
+        PasskeyP256[WebAuthn Passkey<br/>P-256 Key<br/>Biometric]
         PRF[PRF Extension<br/>Pseudo-Random Function]
         P256DID[P-256 DID<br/>did:key:zDna...]
     end
@@ -67,8 +87,8 @@ graph TB
     end
 
     %% Connections
-    UI -->|User Action| Passkey
-    Passkey -->|PRF Seed| PRF
+    UI -->|User Action| PasskeyP256
+    PasskeyP256 -->|PRF Seed| PRF
     PRF -->|Seed Material| Worker
     Worker -->|HKDF| HKDF
     HKDF -->|AES Key| AES
@@ -77,7 +97,7 @@ graph TB
     AES -->|Encrypt/Decrypt| LocalStorage
     LocalStorage -->|Restore| Worker
     
-    Passkey -->|Public Key| P256DID
+    PasskeyP256 -->|Public Key| P256DID
     Ed25519Gen -->|Public Key| Ed25519DID
     
     Signer -->|Principal| DelegationService
@@ -89,15 +109,206 @@ graph TB
     
     UI -->|Operations| DelegationService
 
-    style Passkey fill:#e1f5ff
+    style PasskeyP256 fill:#ffe1e1
     style Worker fill:#fff4e1
-    style Ed25519DID fill:#e1ffe1
-    style StorachaAPI fill:#ffe1e1
+    style Ed25519DID fill:#ffe1e1
+    style StorachaAPI fill:#e1f5ff
+```
+
+#### Mode 2: Hardware-Backed (New - Secure) ⭐
+
+```mermaid
+graph TB
+    subgraph "Browser (Main Thread)"
+        UI[User Interface<br/>React Components]
+        HardwareService[Hardware UCAN Service<br/>hardware-ucan-service.ts]
+    end
+    
+    subgraph "WebAuthn Layer (Hardware Mode)"
+        PasskeyEd25519[WebAuthn Ed25519<br/>Hardware-Backed<br/>Biometric Per-Op]
+        Ed25519Hardware[Ed25519 in Secure Hardware<br/>TPM/Secure Enclave]
+        Ed25519DIDHw[Ed25519 DID<br/>did:key:z6Mk...]
+    end
+    
+    subgraph "Varsig Layer"
+        VarsigEncoder[Varsig Encoder<br/>webauthn-varsig/encoder.ts]
+        VarsigDecoder[Varsig Decoder<br/>webauthn-varsig/decoder.ts]
+        VarsigVerifier[Varsig Verifier<br/>webauthn-varsig/verifier.ts]
+    end
+    
+    subgraph "UCAN Layer"
+        UcantoCore2[ucanto/core<br/>Delegation Logic]
+    end
+    
+    subgraph "Storacha Services"
+        StorachaClient2[storacha/client<br/>Upload Client]
+        StorachaAPI2[Storacha API<br/>up.storacha.network]
+        RevocationRegistry2[Revocation Registry]
+        IPFS2[IPFS/Filecoin<br/>Decentralized Storage]
+    end
+
+    %% Connections
+    UI -->|Create Delegation| HardwareService
+    HardwareService -->|Request Signature| PasskeyEd25519
+    PasskeyEd25519 -->|Biometric Prompt| Ed25519Hardware
+    Ed25519Hardware -->|Sign in Hardware| PasskeyEd25519
+    PasskeyEd25519 -->|WebAuthn Assertion| VarsigEncoder
+    VarsigEncoder -->|Varsig Bytes| HardwareService
+    
+    HardwareService -->|Verify| VarsigDecoder
+    VarsigDecoder -->|Components| VarsigVerifier
+    VarsigVerifier -->|Valid| HardwareService
+    
+    PasskeyEd25519 -->|Public Key| Ed25519DIDHw
+    Ed25519DIDHw -->|Identity| HardwareService
+    
+    HardwareService -->|Create/Import| UcantoCore2
+    HardwareService -->|Upload/List| StorachaClient2
+    StorachaClient2 -->|API Calls| StorachaAPI2
+    StorachaAPI2 -->|Store Files| IPFS2
+    HardwareService -->|Check/Revoke| RevocationRegistry2
+    
+    UI -->|Operations| HardwareService
+
+    style PasskeyEd25519 fill:#e1ffe1
+    style Ed25519Hardware fill:#e1ffe1
+    style VarsigEncoder fill:#e1f5ff
+    style Ed25519DIDHw fill:#e1ffe1
+    style StorachaAPI2 fill:#e1f5ff
 ```
 
 ---
 
-## WebAuthn Authentication & PRF Flow
+## Hardware-Backed WebAuthn Ed25519 Flow ⭐ NEW
+
+### Overview
+
+The hardware-backed approach eliminates the web worker vulnerability by signing UCANs directly with WebAuthn Ed25519 credentials stored in secure hardware (TPM/Secure Enclave).
+
+### WebAuthn Ed25519 Credential Creation
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as React UI
+    participant HardwareService as HardwareUCANDelegationService
+    participant Browser as Browser WebAuthn API
+    participant Hardware as Secure Hardware<br/>(TPM/Secure Enclave)
+
+    User->>UI: Click "Use Hardware Signing"
+    UI->>HardwareService: initializeHardwareSigner()
+    
+    HardwareService->>Browser: navigator.credentials.create({<br/>  pubKeyCredParams: [<br/>    { type: 'public-key', alg: -8 }  // EdDSA<br/>  ]<br/>})
+    Browser->>Hardware: Create Ed25519 key in secure hardware
+    Hardware->>User: Show biometric prompt<br/>(Face ID/Touch ID/Windows Hello)
+    User->>Hardware: Provide biometric
+    Hardware->>Hardware: Generate Ed25519 keypair<br/>PRIVATE KEY NEVER LEAVES HARDWARE
+    Hardware-->>Browser: PublicKeyCredential {<br/>  id, rawId,<br/>  attestationObject (contains public key)<br/>}
+    Browser-->>HardwareService: credential
+    
+    HardwareService->>HardwareService: Extract Ed25519 public key (32 bytes)<br/>from attestation object
+    HardwareService->>HardwareService: Create DID: did:key:z6Mk...
+    HardwareService->>HardwareService: Store credential info (NOT private key)
+    
+    HardwareService-->>UI: WebAuthnEd25519Signer {<br/>  did: "did:key:z6Mk...",<br/>  credentialId,<br/>  publicKey<br/>}
+    UI->>User: ✅ Hardware signer ready!
+```
+
+### Hardware-Backed UCAN Delegation Creation
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as DelegationManager UI
+    participant HardwareService as HardwareUCANDelegationService
+    participant Browser as WebAuthn API
+    participant Hardware as Secure Hardware
+    participant VarsigEncoder as Varsig Encoder
+    participant Ucanto as @ucanto/core
+
+    User->>UI: Click "Create Delegation"<br/>(target DID, capabilities, expiration)
+    UI->>HardwareService: createHardwareDelegation(...)
+    
+    HardwareService->>Ucanto: Build UCAN payload
+    Ucanto-->>HardwareService: payload bytes
+    
+    HardwareService->>HardwareService: Hash payload → challenge
+    HardwareService->>Browser: navigator.credentials.get({<br/>  challenge: sha256(payload)<br/>})
+    
+    Browser->>Hardware: Request signature
+    Hardware->>User: 🔐 Biometric prompt<br/>"Sign UCAN delegation?"
+    User->>Hardware: Provide biometric
+    
+    Hardware->>Hardware: Sign with Ed25519 private key:<br/>signature = Ed25519.sign(<br/>  authenticatorData || sha256(clientDataJSON)<br/>)
+    Hardware-->>Browser: WebAuthn Assertion {<br/>  authenticatorData,<br/>  clientDataJSON,<br/>  signature (64 bytes)<br/>}
+    
+    Browser-->>HardwareService: assertion
+    
+    HardwareService->>VarsigEncoder: encodeWebAuthnVarsig({<br/>  authenticatorData,<br/>  clientDataJSON,<br/>  signature<br/>}, 'Ed25519')
+    
+    VarsigEncoder->>VarsigEncoder: Encode as varsig:<br/>[0x2ed1][len][authData][len][clientData][sig]
+    VarsigEncoder-->>HardwareService: varsig bytes
+    
+    HardwareService->>Ucanto: Create delegation with varsig
+    Ucanto->>Ucanto: Archive to CAR format
+    Ucanto-->>HardwareService: CAR bytes
+    
+    HardwareService->>HardwareService: Encode as multibase base64url
+    HardwareService-->>UI: delegation proof string
+    
+    UI->>UI: Display proof
+    UI->>User: ✅ Delegation created!<br/>Share this proof with recipient
+```
+
+### Hardware-Backed Delegation Verification
+
+```mermaid
+sequenceDiagram
+    participant RecipientUI as Recipient UI
+    participant HardwareService as HardwareUCANDelegationService
+    participant VarsigDecoder as Varsig Decoder
+    participant VarsigVerifier as Varsig Verifier
+    participant Ucanto as @ucanto/core
+    participant WebCrypto as Web Crypto API
+
+    RecipientUI->>HardwareService: verifyHardwareDelegation(proof, origin)
+    
+    HardwareService->>HardwareService: Decode multibase proof
+    HardwareService->>Ucanto: extract(tokenBytes)
+    Ucanto-->>HardwareService: delegation
+    
+    HardwareService->>HardwareService: Extract signature from delegation
+    HardwareService->>VarsigDecoder: decodeWebAuthnVarsig(signature)
+    
+    VarsigDecoder->>VarsigDecoder: Read multicodec (0x2ed1)
+    VarsigDecoder->>VarsigDecoder: Extract authenticatorData
+    VarsigDecoder->>VarsigDecoder: Extract clientDataJSON
+    VarsigDecoder->>VarsigDecoder: Extract signature (64 bytes)
+    VarsigDecoder-->>HardwareService: decoded components
+    
+    HardwareService->>VarsigVerifier: verifyWebAuthnAssertion({<br/>  expectedOrigin,<br/>  expectedChallenge<br/>})
+    
+    VarsigVerifier->>VarsigVerifier: Parse clientDataJSON
+    VarsigVerifier->>VarsigVerifier: Verify origin matches
+    VarsigVerifier->>VarsigVerifier: Verify challenge matches payload
+    VarsigVerifier->>VarsigVerifier: Check authenticator flags<br/>(UP=User Present, UV=User Verified)
+    VarsigVerifier-->>HardwareService: structure valid ✅
+    
+    HardwareService->>VarsigVerifier: reconstructSignedData()
+    VarsigVerifier->>VarsigVerifier: signedData = authenticatorData ||<br/>                 sha256(clientDataJSON)
+    VarsigVerifier-->>HardwareService: signedData
+    
+    HardwareService->>HardwareService: Extract public key from issuer DID
+    HardwareService->>WebCrypto: crypto.subtle.verify(<br/>  'Ed25519',<br/>  publicKey,<br/>  signature,<br/>  signedData<br/>)
+    WebCrypto-->>HardwareService: signature valid ✅
+    
+    HardwareService-->>RecipientUI: {<br/>  valid: true,<br/>  issuerDid,<br/>  audienceDid<br/>}
+    RecipientUI->>RecipientUI: ✅ Delegation verified!<br/>Can now use for uploads
+```
+
+---
+
+## WebAuthn Authentication & PRF Flow (Worker Mode)
 
 ```mermaid
 sequenceDiagram
@@ -805,7 +1016,42 @@ sequenceDiagram
 
 ## Key Security Points
 
-### 🔐 WebAuthn Security
+### 🔐 Hardware-Backed Security (NEW MODE) ⭐
+
+**Mode 2: WebAuthn Ed25519 with Varsig**
+
+✅ **Private keys NEVER leave hardware**
+- Ed25519 keys generated in TPM/Secure Enclave
+- Signing operations performed in secure hardware
+- Cryptographically impossible to extract keys
+- Even with full code injection, keys are safe
+
+✅ **Biometric authentication per operation**
+- Each UCAN delegation creation requires biometric
+- No cached credentials or PRF seeds
+- User always in control of signing operations
+- Matches security model of Apple Pay, password managers
+
+✅ **No localStorage vulnerability**
+- No encrypted archives to protect
+- No keys stored anywhere in browser
+- Only public information (DID, credential ID) stored
+- XSS cannot access private keys (they don't exist in JavaScript)
+
+✅ **Zero memory exposure**
+- Private keys never in worker memory
+- No AES encryption keys to protect
+- Memory dumping attacks are useless
+- No key material exists outside secure hardware
+
+✅ **Origin-bound signatures**
+- WebAuthn signatures include origin verification
+- Prevents signature replay across domains
+- Built into WebAuthn specification
+
+### 🔒 Worker Isolation (LEGACY MODE)
+
+**Mode 1: P-256 + PRF + Worker Ed25519**
 - **Private keys never leave hardware**: P-256 keys stay in TPM/Secure Enclave
 - **Biometric-gated**: Every authentication requires biometric verification
 - **PRF deterministic**: Same credential + same input = same PRF output
@@ -818,10 +1064,23 @@ sequenceDiagram
 - **Re-authentication required**: Every page load requires WebAuthn to decrypt
 
 ### ⚠️ Known Limitations
-- **Worker not true isolation**: Malicious code in same origin can access worker
-- **localStorage accessible**: Same-origin scripts can read encrypted archives
-- **JavaScript/WASM memory**: Private keys exist in software memory (not hardware)
-- **No security audit**: This is a proof-of-concept, not production-ready
+
+**Worker Mode (Legacy):**
+- ❌ Ed25519 keys exist in worker memory (extractable via XSS)
+- ❌ Encrypted archive in localStorage (vulnerable if PRF seed stolen)
+- ❌ Single biometric for PRF, not per-operation
+- ❌ Worker provides isolation, not true sandboxing
+
+**Hardware Mode (New):**
+- ⚠️ Biometric prompt for every delegation (UX trade-off for security)
+- ⚠️ Requires WebAuthn Ed25519 support (Chrome 108+, Safari 17+)
+- ⚠️ Origin-bound signatures (cannot be used across different domains)
+- ⚠️ Larger signature size (~200-300 bytes vs 64 bytes)
+
+**Both Modes:**
+- ⚠️ JavaScript/WASM execution (no native code)
+- ⚠️ Browser security as foundation
+- ⚠️ No security audit yet (proof-of-concept)
 
 ### 🛡️ UCAN Security
 - **Cryptographic signatures**: All delegations signed with Ed25519
@@ -829,6 +1088,31 @@ sequenceDiagram
 - **Expiration support**: Time-limited delegations
 - **Revocation registry**: Immediate revocation via Storacha service
 - **Delegation chains**: Transitive trust with proof verification
+
+### 📊 Security Comparison Table
+
+| Security Feature | Worker Mode (Legacy) | Hardware Mode (New) |
+|-----------------|---------------------|-------------------|
+| **Private Key Location** | ❌ Worker memory | ✅ Secure hardware (TPM/SE) |
+| **XSS Protection** | ❌ Keys extractable | ✅ Keys cannot be extracted |
+| **Code Injection Protection** | ❌ Vulnerable | ✅ Protected |
+| **localStorage Attack** | ❌ Encrypted archive vulnerable | ✅ No keys stored |
+| **Memory Dumping** | ❌ Keys in memory | ✅ Keys never in memory |
+| **Per-Operation Auth** | ❌ One-time PRF unlock | ✅ Biometric per signature |
+| **Worker Compromise** | ❌ Full key exposure | ✅ No keys in worker |
+| **Algorithm** | ✅ Ed25519 | ✅ Ed25519 |
+| **UCAN Compatibility** | ✅ Standard format | ✅ Varsig format |
+| **Browser Support** | ✅ All modern browsers | ⚠️ Chrome 108+, Safari 17+ |
+| **UX Friction** | ✅ One biometric | ⚠️ Biometric per delegation |
+| **Signature Size** | ✅ 64 bytes | ⚠️ ~200-300 bytes |
+| **Setup Complexity** | Medium (PRF + Worker) | Low (Direct WebAuthn) |
+| **Security Rating** | ⚠️ Medium | ✅ High |
+
+### 🎯 Recommendation
+
+- **For Maximum Security**: Use Hardware Mode (WebAuthn Ed25519 + Varsig)
+- **For Maximum Compatibility**: Use Worker Mode (P-256 + PRF + Worker Ed25519)
+- **Best Practice**: Detect support and prefer Hardware Mode, fallback to Worker Mode
 
 ---
 
@@ -841,9 +1125,29 @@ sequenceDiagram
 - **multiformats** - Multicodec, multibase, CID handling
 
 ### Cryptography
-- **Web Crypto API** - Ed25519, AES-GCM, HKDF
+
+**Worker Mode (Legacy):**
+- **Web Crypto API** - Ed25519 (software), AES-GCM, HKDF
 - **WebAuthn API** - P-256, PRF extension
-- **Hardware authenticators** - TPM, Secure Enclave, Windows Hello
+- **Hardware authenticators** - TPM, Secure Enclave (for P-256 only)
+
+**Hardware Mode (New):** ⭐
+- **WebAuthn API** - Ed25519 (hardware-backed)
+- **Web Crypto API** - Ed25519 signature verification only
+- **Hardware authenticators** - TPM, Secure Enclave (for Ed25519)
+- **Varsig encoding** - Custom multiformat signature encoding
+
+### Signing Methods Comparison
+
+| Aspect | Worker Mode | Hardware Mode |
+|--------|------------|---------------|
+| **Signing Key** | Software Ed25519 | Hardware Ed25519 |
+| **Key Generation** | crypto.subtle.generateKey() | WebAuthn credential |
+| **Key Storage** | Encrypted in localStorage | Secure hardware |
+| **Signing API** | crypto.subtle.sign() | navigator.credentials.get() |
+| **Signature Format** | Raw Ed25519 (64 bytes) | Varsig (200-300 bytes) |
+| **Biometric** | Once for unlock | Per signature |
+| **Security** | Medium | High |
 
 ### Storage
 - **localStorage** - Encrypted archives, delegations
@@ -854,20 +1158,42 @@ sequenceDiagram
 - **React** - UI framework
 - **TypeScript** - Type-safe development
 - **Vite** - Build tool and dev server
-- **Web Workers** - Isolated keystore execution
+- **Web Workers** - Isolated keystore execution (Worker Mode only)
+- **Vitest** - Unit testing framework (for Varsig module)
+- **Playwright** - E2E testing framework
+
+### New Modules (Hardware Mode)
+- **webauthn-varsig** - Varsig encoding/decoding library
+- **webauthn-ed25519-signer** - Hardware-backed signer
+- **hardware-ucan-service** - Hardware signing integration
 
 ---
 
 ## References
 
+### Specifications
 - [WebAuthn Level 3 Specification](https://www.w3.org/TR/webauthn-3/)
 - [UCAN Specification](https://github.com/ucan-wg/spec)
 - [Storacha Documentation](https://docs.storacha.network/)
-- [ucanto Library](https://github.com/web3-storage/ucanto)
 - [did:key Method](https://w3c-ccg.github.io/did-method-key/)
 - [Multicodec Table](https://github.com/multiformats/multicodec/blob/master/table.csv)
 - [HKDF (RFC 5869)](https://tools.ietf.org/html/rfc5869)
 - [CAR Format](https://ipld.io/specs/transport/car/)
+- [Varsig Specification](https://github.com/multiformats/multicodec)
+
+### Project Documentation
+- [ucanto Library](https://github.com/web3-storage/ucanto)
+- [Security Analysis](../SECURITY.md)
+- [Keystore Architecture](./KEYSTORE_ARCHITECTURE.md)
+- [WebAuthn Varsig README](../web/src/lib/webauthn-varsig/README.md) ⭐ NEW
+- [Integration Guide](../INTEGRATION_GUIDE.md) ⭐ NEW
+- [Implementation Summary](../IMPLEMENTATION_SUMMARY.md) ⭐ NEW
+- [Completion Report](../COMPLETION_REPORT.md) ⭐ NEW
+
+### Browser Support
+- [WebAuthn Ed25519 Support](https://caniuse.com/webauthn) (Chrome 108+, Safari 17+)
+- [Web Crypto API](https://caniuse.com/cryptography)
+- [Platform Authenticator Availability](https://www.w3.org/TR/webauthn-3/#sctn-isUserVerifyingPlatformAuthenticatorAvailable)
 
 ---
 
