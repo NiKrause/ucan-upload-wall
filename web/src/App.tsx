@@ -304,9 +304,14 @@ function App() {
                         <>
                           <h3 className="text-sm font-semibold text-green-900 mb-1">🔐 Hardware-Backed Security Active</h3>
                           <p className="text-sm text-green-800">
-                            Your browser supports <strong>hardware-backed WebAuthn Ed25519</strong> signing! 
+                            Your browser supports <strong>hardware-backed WebAuthn {signingMode.algorithm || 'Ed25519'}</strong> signing! 
                             Your private keys are stored in secure hardware (TPM/Secure Enclave) and <strong>cannot be extracted</strong> by malicious extensions or XSS attacks.
                             <strong className="block mt-1">✅ Biometric authentication is required for each UCAN signature.</strong>
+                            {signingMode.algorithm === 'P-256' && (
+                              <span className="block mt-1 text-green-700">
+                                ℹ️ Using P-256 with ucanto fork (Ed25519 not supported by this hardware).
+                              </span>
+                            )}
                           </p>
                         </>
                       ) : (

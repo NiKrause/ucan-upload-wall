@@ -1,11 +1,11 @@
 /**
  * UCAN Delegation Service Extensions for WebAuthn Varsig
  * 
- * Adds hardware-backed UCAN signing using WebAuthn Ed25519 with varsig encoding
+ * Adds hardware-backed UCAN signing using WebAuthn Ed25519 or P-256 with varsig encoding
  */
 
-import { WebAuthnEd25519Signer, createWebAuthnEd25519Credential, checkEd25519Support, type WebAuthnCredentialOptions } from './webauthn-ed25519-signer.js';
-import { decodeWebAuthnVarsig, verifyWebAuthnAssertion, reconstructSignedData, verifyEd25519Signature } from './webauthn-varsig/index.js';
+import { WebAuthnEd25519Signer, WebAuthnP256Signer, createWebAuthnEd25519Credential, checkEd25519Support, type WebAuthnCredentialOptions } from './webauthn-ed25519-signer.js';
+import { decodeWebAuthnVarsig, verifyWebAuthnAssertion, reconstructSignedData, verifyEd25519Signature, verifyP256Signature } from './webauthn-varsig/index.js';
 
 /**
  * Storage key for hardware-backed credential
@@ -19,6 +19,7 @@ interface HardwareSignerInfo {
   credentialId: string;
   did: string;
   publicKey: string; // hex encoded
+  algorithm: 'Ed25519' | 'P-256'; // Track which algorithm is used
   created: string;
 }
 
@@ -26,7 +27,7 @@ interface HardwareSignerInfo {
  * Enhanced UCANDelegationService with hardware-backed signing
  */
 export class HardwareUCANDelegationService {
-  private hardwareSigner: WebAuthnEd25519Signer | null = null;
+  private hardwareSigner: WebAuthnEd25519Signer | WebAuthnP256Signer | null = null;
   
   /**
    * Check if hardware-backed Ed25519 is supported
@@ -90,6 +91,13 @@ export class HardwareUCANDelegationService {
   }
   
   /**
+   * Get hardware signer algorithm
+   */
+  getHardwareAlgorithm(): 'Ed25519' | 'P-256' | null {
+    return this.hardwareSigner?.algorithm || null;
+  }
+  
+  /**
    * Create delegation using hardware-backed signer
    * Returns varsig-encoded UCAN
    */
@@ -103,7 +111,8 @@ export class HardwareUCANDelegationService {
       throw new Error('Hardware signer not initialized');
     }
     
-    console.log('🔐 Creating delegation with hardware-backed Ed25519...');
+    const algorithm = this.hardwareSigner.algorithm;
+    console.log(`🔐 Creating delegation with hardware-backed ${algorithm}...`);
     
     // Import ucanto modules
     const { delegate } = await import('@ucanto/core/delegation');
@@ -138,7 +147,7 @@ export class HardwareUCANDelegationService {
       facts: []
     });
     
-    console.log('✅ Delegation created with hardware signature');
+    console.log(`✅ Delegation created with hardware ${algorithm} signature`);
     console.log('   Issuer:', this.hardwareSigner.did);
     console.log('   Audience:', toDid);
     console.log('   Capabilities:', capabilities.length);
@@ -221,14 +230,28 @@ export class HardwareUCANDelegationService {
         const signedData = await reconstructSignedData(decoded);
         const publicKey = await this.extractPublicKeyFromDid(delegation.issuer.did());
         
-        const signatureValid = await verifyEd25519Signature(
-          signedData,
-          decoded.signature,
-          publicKey
-        );
+        // Determine algorithm from multicodec in varsig
+        const algorithm = decoded.algorithm; // 'Ed25519' or 'P-256'
+        
+        let signatureValid: boolean;
+        if (algorithm === 'Ed25519') {
+          signatureValid = await verifyEd25519Signature(
+            signedData,
+            decoded.signature,
+            publicKey
+          );
+        } else if (algorithm === 'P-256') {
+          signatureValid = await verifyP256Signature(
+            signedData,
+            decoded.signature,
+            publicKey
+          );
+        } else {
+          return { valid: false, error: `Unsupported algorithm: ${algorithm}` };
+        }
         
         if (!signatureValid) {
-          return { valid: false, error: 'Ed25519 signature verification failed' };
+          return { valid: false, error: `${algorithm} signature verification failed` };
         }
         
         return {
@@ -257,11 +280,12 @@ export class HardwareUCANDelegationService {
   /**
    * Store hardware signer info
    */
-  private async storeHardwareSigner(signer: WebAuthnEd25519Signer): Promise<void> {
+  private async storeHardwareSigner(signer: WebAuthnEd25519Signer | WebAuthnP256Signer): Promise<void> {
     const info: HardwareSignerInfo = {
       credentialId: btoa(String.fromCharCode(...new Uint8Array(signer['credentialId'] as ArrayBuffer))),
       did: signer.did,
       publicKey: Array.from(signer.publicKey).map(b => b.toString(16).padStart(2, '0')).join(''),
+      algorithm: signer.algorithm,
       created: new Date().toISOString()
     };
     
@@ -290,12 +314,22 @@ export class HardwareUCANDelegationService {
         credentialId[i] = binaryString.charCodeAt(i);
       }
       
-      // Recreate signer
-      this.hardwareSigner = new WebAuthnEd25519Signer(
-        credentialId.buffer,
-        info.did,
-        publicKey
-      );
+      // Recreate signer based on algorithm
+      const algorithm = info.algorithm || 'Ed25519'; // Default to Ed25519 for backward compatibility
+      
+      if (algorithm === 'P-256') {
+        this.hardwareSigner = new WebAuthnP256Signer(
+          credentialId.buffer,
+          info.did,
+          publicKey
+        );
+      } else {
+        this.hardwareSigner = new WebAuthnEd25519Signer(
+          credentialId.buffer,
+          info.did,
+          publicKey
+        );
+      }
       
       return true;
     } catch (error) {
@@ -305,7 +339,7 @@ export class HardwareUCANDelegationService {
   }
   
   /**
-   * Extract Ed25519 public key from did:key
+   * Extract public key from did:key (supports Ed25519 and P-256)
    */
   private async extractPublicKeyFromDid(did: string): Promise<Uint8Array> {
     if (!did.startsWith('did:key:z')) {
@@ -321,7 +355,18 @@ export class HardwareUCANDelegationService {
     // Decode base58btc
     const multikey = base58btc.decode(encoded);
     
-    // Skip multicodec prefix (0xed, 0x01)
-    return multikey.slice(2);
+    // Check multicodec prefix to determine key type
+    // Ed25519: [0xed, 0x01]
+    // P-256: [0x80, 0x24] (0x1200 in varint)
+    
+    if (multikey[0] === 0xed && multikey[1] === 0x01) {
+      // Ed25519: skip 2-byte prefix
+      return multikey.slice(2);
+    } else if (multikey[0] === 0x80 && multikey[1] === 0x24) {
+      // P-256: skip 2-byte prefix
+      return multikey.slice(2);
+    } else {
+      throw new Error(`Unsupported DID key type: ${multikey[0]}, ${multikey[1]}`);
+    }
   }
 }

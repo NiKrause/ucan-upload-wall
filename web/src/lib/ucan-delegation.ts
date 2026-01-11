@@ -136,18 +136,25 @@ export class UCANDelegationService {
   /**
    * Get signing mode information
    */
-  getSigningMode(): { mode: 'hardware' | 'worker'; did: string | null; secure: boolean } {
+  getSigningMode(): { 
+    mode: 'hardware' | 'worker'; 
+    did: string | null; 
+    secure: boolean;
+    algorithm?: 'Ed25519' | 'P-256';
+  } {
     if (this.useHardwareMode && this.hardwareService) {
       return {
         mode: 'hardware',
         did: this.hardwareService.getHardwareDID(),
-        secure: true
+        secure: true,
+        algorithm: this.hardwareService.getHardwareAlgorithm() || undefined
       };
     } else if (this.ed25519Keypair) {
       return {
         mode: 'worker',
         did: this.ed25519Keypair.did,
-        secure: false
+        secure: false,
+        algorithm: 'Ed25519'
       };
     }
     return {
@@ -1052,15 +1059,24 @@ export class UCANDelegationService {
     if (this.useHardwareMode && this.hardwareService) {
       console.log('🔐 Creating delegation with HARDWARE-BACKED signing...');
       
+      // Check if we have Storacha credentials or use hardware DID as space
       const credentials = this.getStorachaCredentials();
-      if (!credentials) {
-        throw new Error('Hardware mode requires Storacha credentials. Delegation chaining not yet supported in hardware mode.');
+      const spaceDid = credentials?.spaceDid || this.hardwareService.getHardwareDID();
+      
+      if (!spaceDid) {
+        throw new Error('No space DID available. Hardware signer not initialized.');
       }
+      
+      const issuerDid = this.hardwareService.getHardwareDID();
+      console.log('   Space DID:', spaceDid);
+      console.log('   Issuer DID:', issuerDid);
+      console.log('   Target DID:', toDid);
+      console.log('   Algorithm:', this.hardwareService.getHardwareAlgorithm());
       
       try {
         const proof = await this.hardwareService.createHardwareDelegation(
           toDid,
-          credentials.spaceDid,
+          spaceDid,  // Use either Storacha spaceDid or hardware DID for chaining
           capabilities,
           expirationHours
         );

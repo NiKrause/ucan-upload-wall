@@ -159,7 +159,7 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
                 signingMode.mode === 'hardware' ? 'text-green-900' : 'text-yellow-900'
               }`}>
                 {signingMode.mode === 'hardware' ? (
-                  <>🔐 Hardware-Backed Security Active</>
+                  <>🔐 Hardware-Backed Security Active ({signingMode.algorithm || 'Ed25519'})</>
                 ) : (
                   <>⚠️ Worker Mode Active (Less Secure)</>
                 )}
@@ -172,6 +172,11 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
                     <li>• Biometric authentication required for each signature</li>
                     <li>• Keys cannot be extracted by malicious extensions</li>
                     <li>• XSS attacks cannot steal key material</li>
+                    {signingMode.algorithm === 'P-256' && (
+                      <li className="text-green-700 font-medium">
+                        • Using P-256 with ucanto fork (Ed25519 not available on this hardware)
+                      </li>
+                    )}
                   </ul>
                 </div>
               ) : (
