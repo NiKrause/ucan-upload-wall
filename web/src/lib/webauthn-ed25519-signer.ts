@@ -33,7 +33,9 @@ export class WebAuthnEd25519Signer {
    */
   async sign(payload: Uint8Array): Promise<Uint8Array> {
     // Hash payload to create challenge
-    const challengeHash = await crypto.subtle.digest('SHA-256', payload);
+    // Ensure we have a regular Uint8Array with ArrayBuffer (not SharedArrayBuffer)
+    const payloadCopy = new Uint8Array(payload);
+    const challengeHash = await crypto.subtle.digest('SHA-256', payloadCopy);
     const challenge = new Uint8Array(challengeHash);
     
     console.log('🔐 Requesting WebAuthn signature (biometric required)...');
@@ -133,7 +135,9 @@ export async function createWebAuthnEd25519Credential(
           displayName
         },
         pubKeyCredParams: [
-          { type: 'public-key', alg: -8 }  // EdDSA (Ed25519)
+          { type: 'public-key', alg: -8 },   // EdDSA (Ed25519) - PREFERRED
+          { type: 'public-key', alg: -7 },   // ES256 (P-256) - fallback
+          { type: 'public-key', alg: -257 }  // RS256 (RSA) - broad compatibility
         ],
         authenticatorSelection: {
           authenticatorAttachment: 'platform',
@@ -157,6 +161,12 @@ export async function createWebAuthnEd25519Credential(
     );
     
     if (!publicKey) {
+      console.log('💡 Authenticator does not support Ed25519. This is expected on most devices.');
+      console.log('   Supported browsers/devices:');
+      console.log('   • Chrome 108+ on Windows 11 22H2+ (TPM 2.0)');
+      console.log('   • Safari 17+ on macOS 14+ / iOS 17+ (Secure Enclave)');
+      console.log('   • Edge 108+ on Windows 11 22H2+ (TPM 2.0)');
+      console.log('   Worker mode (with PRF encryption) will be used instead.');
       throw new Error('Failed to extract Ed25519 public key from credential');
     }
     
@@ -174,7 +184,19 @@ export async function createWebAuthnEd25519Credential(
       publicKey
     );
   } catch (error) {
-    console.error('❌ Failed to create WebAuthn Ed25519 credential:', error);
+    if (error instanceof Error) {
+      if (error.name === 'NotAllowedError') {
+        console.log('⚠️ WebAuthn credential creation was cancelled or timed out');
+      } else if (error.message.includes('Not an OKP key type') || 
+                 error.message.includes('Not an EdDSA algorithm') ||
+                 error.message.includes('Not Ed25519 curve')) {
+        // Already logged detailed info above
+      } else {
+        console.error('❌ Failed to create WebAuthn Ed25519 credential:', error);
+      }
+    } else {
+      console.error('❌ Failed to create WebAuthn Ed25519 credential:', error);
+    }
     return null;
   }
 }
@@ -187,8 +209,10 @@ async function extractEd25519PublicKey(attestationObject: Uint8Array): Promise<U
     // Dynamically import cbor-web
     const CBOR = await import('cbor-web');
     
-    // Decode attestation object
-    const decoded = CBOR.decode(attestationObject.buffer);
+    // Decode attestation object - ensure we have an ArrayBuffer (not SharedArrayBuffer)
+    const attestationCopy = new Uint8Array(attestationObject);
+    const buffer = attestationCopy.buffer as ArrayBuffer;
+    const decoded = CBOR.decode(buffer);
     
     // Get authData
     const authData = new Uint8Array(decoded.authData);
@@ -222,7 +246,9 @@ async function extractEd25519PublicKey(attestationObject: Uint8Array): Promise<U
     
     // Remaining bytes are COSE public key (CBOR encoded)
     const coseKeyBytes = authData.slice(offset);
-    const coseKey = CBOR.decode(coseKeyBytes.buffer);
+    const coseKeyCopy = new Uint8Array(coseKeyBytes);
+    const coseKeyBuffer = coseKeyCopy.buffer as ArrayBuffer;
+    const coseKey = CBOR.decode(coseKeyBuffer);
     
     // COSE key format for Ed25519:
     // kty (1): 1 (OKP)
@@ -230,15 +256,40 @@ async function extractEd25519PublicKey(attestationObject: Uint8Array): Promise<U
     // crv (-1): 6 (Ed25519)
     // x (-2): public key bytes (32 bytes)
     
-    if (coseKey.get(1) !== 1) {
+    // Extract key parameters for diagnostics
+    const kty = coseKey.get(1);
+    const alg = coseKey.get(3);
+    const crv = coseKey.get(-1);
+    
+    // Log what the authenticator actually returned
+    console.log('🔍 Authenticator returned COSE key:', {
+      kty,
+      ktyName: kty === 1 ? 'OKP' : kty === 2 ? 'EC2' : kty === 3 ? 'RSA' : `Unknown (${kty})`,
+      alg,
+      algName: alg === -8 ? 'EdDSA' : alg === -7 ? 'ES256' : alg === -257 ? 'RS256' : `Unknown (${alg})`,
+      crv,
+      crvName: crv === 6 ? 'Ed25519' : crv === 1 ? 'P-256' : `Unknown (${crv})`
+    });
+    
+    // Validate that it's Ed25519
+    if (kty !== 1) {
+      const keyTypeName = kty === 2 ? 'EC2 (P-256)' : kty === 3 ? 'RSA' : `type ${kty}`;
+      console.warn(`⚠️ Authenticator used ${keyTypeName} instead of OKP (Ed25519)`);
+      console.log('💡 This authenticator does not support Ed25519. Falling back to worker mode.');
       throw new Error('Not an OKP key type');
     }
     
-    if (coseKey.get(3) !== -8) {
+    if (alg !== -8) {
+      const algName = alg === -7 ? 'ES256 (P-256)' : alg === -257 ? 'RS256 (RSA)' : `algorithm ${alg}`;
+      console.warn(`⚠️ Authenticator used ${algName} instead of EdDSA`);
+      console.log('💡 This authenticator does not support EdDSA. Falling back to worker mode.');
       throw new Error('Not an EdDSA algorithm');
     }
     
-    if (coseKey.get(-1) !== 6) {
+    if (crv !== 6) {
+      const curveName = crv === 1 ? 'P-256' : `curve ${crv}`;
+      console.warn(`⚠️ Authenticator used ${curveName} instead of Ed25519`);
+      console.log('💡 This authenticator does not support Ed25519 curve. Falling back to worker mode.');
       throw new Error('Not Ed25519 curve');
     }
     
@@ -247,6 +298,8 @@ async function extractEd25519PublicKey(attestationObject: Uint8Array): Promise<U
     if (publicKeyBytes.length !== 32) {
       throw new Error(`Invalid Ed25519 public key length: ${publicKeyBytes.length}`);
     }
+    
+    console.log('✅ Successfully extracted Ed25519 public key (32 bytes)');
     
     return publicKeyBytes;
   } catch (error) {
