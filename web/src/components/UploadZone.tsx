@@ -29,20 +29,20 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
     setCurrentDID(did);
   }, [delegationService]);
 
-  const handleCreateDID = async () => {
+  const handleCreateDID = async (authenticatorType?: 'platform' | 'cross-platform') => {
     setIsCreatingDID(true);
     try {
       // Use encrypted keystore if supported, fallback to unencrypted
       if (encryptionSupported) {
         try {
-          await delegationService.initializeEd25519DID(false);
+          await delegationService.initializeEd25519DID(false, authenticatorType);
         } catch (encryptionError: unknown) {
           // Safari doesn't support encryption extensions - fall back to unencrypted
           console.warn('Hardware encryption failed, using unencrypted:', encryptionError instanceof Error ? encryptionError.message : String(encryptionError));
-          await delegationService.initializeEd25519DID(false);
+          await delegationService.initializeEd25519DID(false, authenticatorType);
         }
       } else {
-        await delegationService.initializeEd25519DID(false);
+        await delegationService.initializeEd25519DID(false, authenticatorType);
       }
       
       const did = delegationService.getCurrentDID();
@@ -162,19 +162,57 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
           
           <div className="space-y-4">
             <p className="text-gray-600">
-              {encryptionSupported 
-                ? '🔐 Generate a hardware-protected Ed25519 DID with biometric authentication.'
-                : '⚠️ Generate an Ed25519 DID (hardware encryption not supported on this device).'}
+              Choose how to create your secure identity:
             </p>
             
-            <button
-              onClick={handleCreateDID}
-              disabled={isCreatingDID}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-            >
-              {encryptionSupported ? <Lock className="h-4 w-4 mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
-              {isCreatingDID ? 'Generating...' : encryptionSupported ? '🔐 Create Secure DID' : 'Create DID'}
-            </button>
+            {/* Two-button choice for authenticator type */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Platform Authenticator (Touch ID / Face ID) */}
+              <button
+                onClick={() => handleCreateDID('platform')}
+                disabled={isCreatingDID}
+                className="bg-blue-600 text-white px-6 py-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors border-2 border-transparent hover:border-blue-800 text-left"
+              >
+                <div className="flex items-start">
+                  <Lock className="h-5 w-5 mr-3 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <div className="font-semibold mb-1">🔒 Touch ID / Face ID</div>
+                    <div className="text-sm text-blue-100 opacity-90">
+                      Built-in biometric security with additional verification
+                    </div>
+                  </div>
+                </div>
+              </button>
+
+              {/* Cross-platform Authenticator (USB/NFC Keys) */}
+              <button
+                onClick={() => handleCreateDID('cross-platform')}
+                disabled={isCreatingDID}
+                className="bg-green-600 text-white px-6 py-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors border-2 border-transparent hover:border-green-800 text-left"
+              >
+                <div className="flex items-start">
+                  <Shield className="h-5 w-5 mr-3 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <div className="font-semibold mb-1">🔑 Security Key</div>
+                    <div className="text-sm text-green-100 opacity-90">
+                      Ledger, YubiKey, or other USB/NFC device
+                    </div>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {isCreatingDID && (
+              <div className="text-center text-gray-600 py-2">
+                <div className="inline-block animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-2"></div>
+                Generating secure identity...
+              </div>
+            )}
+
+            <div className="text-xs text-gray-500 mt-2 p-3 bg-gray-50 rounded">
+              <strong>Note:</strong> Choose the option that matches your available hardware. 
+              Both methods create a secure Ed25519 DID with hardware-backed protection.
+            </div>
           </div>
         </div>
       ) : (

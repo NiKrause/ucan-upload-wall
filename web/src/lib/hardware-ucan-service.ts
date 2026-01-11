@@ -4,7 +4,7 @@
  * Adds hardware-backed UCAN signing using WebAuthn Ed25519 with varsig encoding
  */
 
-import { WebAuthnEd25519Signer, createWebAuthnEd25519Credential, checkEd25519Support } from './webauthn-ed25519-signer.js';
+import { WebAuthnEd25519Signer, createWebAuthnEd25519Credential, checkEd25519Support, type WebAuthnCredentialOptions } from './webauthn-ed25519-signer.js';
 import { decodeWebAuthnVarsig, verifyWebAuthnAssertion, reconstructSignedData, verifyEd25519Signature } from './webauthn-varsig/index.js';
 
 /**
@@ -38,8 +38,16 @@ export class HardwareUCANDelegationService {
   /**
    * Initialize hardware-backed signer
    * Try to load existing credential, or create new one
+   * 
+   * @param userId - User identifier for new credentials
+   * @param displayName - Display name for new credentials
+   * @param options - WebAuthn credential options (authenticator type preference)
    */
-  async initializeHardwareSigner(userId?: string, displayName?: string): Promise<boolean> {
+  async initializeHardwareSigner(
+    userId?: string, 
+    displayName?: string,
+    options?: WebAuthnCredentialOptions
+  ): Promise<boolean> {
     try {
       // Try to load existing signer
       const loaded = await this.loadHardwareSigner();
@@ -52,7 +60,8 @@ export class HardwareUCANDelegationService {
       console.log('🔑 Creating new hardware-backed Ed25519 credential...');
       const signer = await createWebAuthnEd25519Credential(
         userId || 'user@example.com',
-        displayName || 'UCAN User'
+        displayName || 'UCAN User',
+        options
       );
       
       if (!signer) {

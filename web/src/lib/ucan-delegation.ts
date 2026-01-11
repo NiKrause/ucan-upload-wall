@@ -80,8 +80,12 @@ export class UCANDelegationService {
   /**
    * Check and initialize hardware mode if supported
    * Returns true if hardware mode is active
+   * 
+   * @param authenticatorType - Preferred authenticator type (platform/cross-platform)
    */
-  private async checkAndInitializeHardwareMode(): Promise<boolean> {
+  private async checkAndInitializeHardwareMode(
+    authenticatorType?: 'platform' | 'cross-platform'
+  ): Promise<boolean> {
     if (this.hardwareModeChecked) {
       return this.useHardwareMode;
     }
@@ -106,7 +110,8 @@ export class UCANDelegationService {
       // Try to initialize (this will load existing or create new)
       const initialized = await this.hardwareService.initializeHardwareSigner(
         'user@ucan-upload-wall.app',
-        'UCAN User'
+        'UCAN User',
+        authenticatorType ? { authenticatorType } : undefined
       );
       
       if (initialized) {
@@ -156,11 +161,17 @@ export class UCANDelegationService {
    * Initialize or load existing Ed25519 DID
    * Automatically tries hardware mode first, falls back to worker mode
    * Always tries to load existing first unless force=true
+   * 
+   * @param force - Force creation of new DID even if one exists
+   * @param authenticatorType - Preferred authenticator type for hardware mode
    */
-  async initializeEd25519DID(force = false): Promise<Ed25519KeyPair> {
+  async initializeEd25519DID(
+    force = false,
+    authenticatorType?: 'platform' | 'cross-platform'
+  ): Promise<Ed25519KeyPair> {
     // Check for hardware mode first (unless we already have worker credentials)
     if (!force && !this.ed25519Keypair) {
-      const hardwareEnabled = await this.checkAndInitializeHardwareMode();
+      const hardwareEnabled = await this.checkAndInitializeHardwareMode(authenticatorType);
       if (hardwareEnabled) {
         // Create a compatible Ed25519KeyPair object for backward compatibility
         const hardwareDID = this.hardwareService!.getHardwareDID()!;

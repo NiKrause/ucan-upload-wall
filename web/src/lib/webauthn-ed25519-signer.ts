@@ -100,17 +100,32 @@ export class WebAuthnEd25519Signer {
 }
 
 /**
+ * Options for WebAuthn credential creation
+ */
+export interface WebAuthnCredentialOptions {
+  /** Preferred authenticator type: 'platform' (Touch ID) or 'cross-platform' (USB keys) */
+  authenticatorType?: 'platform' | 'cross-platform' | 'any';
+}
+
+/**
  * Create WebAuthn Ed25519 credential for hardware-backed UCAN signing
  * 
  * @param userId - User identifier
  * @param displayName - User display name
+ * @param options - Optional configuration for authenticator preferences
  * @returns Signer instance or null if creation failed
  */
 export async function createWebAuthnEd25519Credential(
   userId: string,
-  displayName: string
+  displayName: string,
+  options: WebAuthnCredentialOptions = {}
 ): Promise<WebAuthnEd25519Signer | null> {
+  const { authenticatorType = 'any' } = options;
+  
   console.log('🔑 Creating WebAuthn Ed25519 credential (hardware-backed)...');
+  if (authenticatorType !== 'any') {
+    console.log(`   Preference: ${authenticatorType === 'platform' ? '🔒 Platform (Touch ID/Windows Hello)' : '🔑 External USB/NFC Security Key'}`);
+  }
   
   try {
     // Check browser support for Ed25519
@@ -140,10 +155,11 @@ export async function createWebAuthnEd25519Credential(
           { type: 'public-key', alg: -257 }  // RS256 (RSA) - broad compatibility
         ],
         authenticatorSelection: {
-          // Removed 'platform' requirement to allow external authenticators
-          // (Ledger, YubiKey, etc.) which may support Ed25519
-          // authenticatorAttachment: 'platform',
-          userVerification: 'preferred', // Changed from 'required' to allow more devices
+          // Set authenticator attachment based on user preference
+          ...(authenticatorType !== 'any' && { authenticatorAttachment: authenticatorType }),
+          // For external USB keys (Ledger, YubiKey): discourage extra biometric
+          // For platform (Touch ID): prefer biometric for extra security
+          userVerification: authenticatorType === 'cross-platform' ? 'discouraged' : 'preferred',
           residentKey: 'preferred'
         },
         timeout: 60000
