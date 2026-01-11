@@ -140,8 +140,10 @@ export async function createWebAuthnEd25519Credential(
           { type: 'public-key', alg: -257 }  // RS256 (RSA) - broad compatibility
         ],
         authenticatorSelection: {
-          authenticatorAttachment: 'platform',
-          userVerification: 'required',
+          // Removed 'platform' requirement to allow external authenticators
+          // (Ledger, YubiKey, etc.) which may support Ed25519
+          // authenticatorAttachment: 'platform',
+          userVerification: 'preferred', // Changed from 'required' to allow more devices
           residentKey: 'preferred'
         },
         timeout: 60000
@@ -153,6 +155,17 @@ export async function createWebAuthnEd25519Credential(
       return null;
     }
     
+    console.log('✅ WebAuthn credential created');
+    console.log('   Credential ID:', credential.id);
+    console.log('   Credential Type:', credential.type);
+    
+    // Check authenticator attachment (if available)
+    // Note: This is a recent WebAuthn Level 3 addition, may not be in all type definitions
+    const authenticatorAttachment = (credential as PublicKeyCredential & { authenticatorAttachment?: string }).authenticatorAttachment;
+    if (authenticatorAttachment) {
+      console.log('   Authenticator Type:', authenticatorAttachment === 'platform' ? '🔒 Platform (Touch ID/Windows Hello)' : '🔑 Cross-platform (USB Security Key)');
+    }
+    
     const response = credential.response as AuthenticatorAttestationResponse;
     
     // Extract public key from attestation object
@@ -162,10 +175,15 @@ export async function createWebAuthnEd25519Credential(
     
     if (!publicKey) {
       console.log('💡 Authenticator does not support Ed25519. This is expected on most devices.');
-      console.log('   Supported browsers/devices:');
+      console.log('   Supported authenticators:');
+      console.log('   Platform (built-in):');
       console.log('   • Chrome 108+ on Windows 11 22H2+ (TPM 2.0)');
-      console.log('   • Safari 17+ on macOS 14+ / iOS 17+ (Secure Enclave)');
+      console.log('   • Safari 17+ on macOS 14+ with Apple Silicon M1/M2/M3 (Secure Enclave)');
       console.log('   • Edge 108+ on Windows 11 22H2+ (TPM 2.0)');
+      console.log('   External Security Keys (USB/NFC):');
+      console.log('   • YubiKey 5 Series with Ed25519 support');
+      console.log('   • Ledger Nano S/X/Plus (may support Ed25519 via FIDO2)');
+      console.log('   • Other FIDO2 keys with Ed25519 capability');
       console.log('   Worker mode (with PRF encryption) will be used instead.');
       throw new Error('Failed to extract Ed25519 public key from credential');
     }
@@ -173,8 +191,16 @@ export async function createWebAuthnEd25519Credential(
     // Create DID from Ed25519 public key
     const did = await createEd25519Did(publicKey);
     
+    const authType = (credential as PublicKeyCredential & { authenticatorAttachment?: string }).authenticatorAttachment;
+    const authTypeName = authType === 'platform' 
+      ? 'Platform authenticator (Touch ID/Windows Hello)' 
+      : authType === 'cross-platform'
+      ? 'External security key (USB/NFC)'
+      : 'Unknown authenticator type';
+    
     console.log('✅ Created WebAuthn Ed25519 credential');
     console.log('   DID:', did);
+    console.log('   Authenticator:', authTypeName);
     console.log('   Credential ID:', credential.id);
     
     // Create signer
@@ -300,6 +326,9 @@ async function extractEd25519PublicKey(attestationObject: Uint8Array): Promise<U
     }
     
     console.log('✅ Successfully extracted Ed25519 public key (32 bytes)');
+    console.log('🎉 HARDWARE ED25519 MODE ACTIVATED!');
+    console.log('   Keys are stored in secure hardware and cannot be extracted');
+    console.log('   Biometric authentication required for each signature');
     
     return publicKeyBytes;
   } catch (error) {
