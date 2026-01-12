@@ -19,6 +19,7 @@ A browser-only file upload application powered by **WebAuthn DIDs**, **worker-ba
 - [📝 Notes](#-notes)
 - [🔗 Resources](#-resources)
 - [📚 Project Documentation](#-project-documentation)
+- [🔗 Related Projects](#-related-projects)
 - [📄 License](#-license)
 
 ## 🌐 Live Demo
@@ -302,6 +303,45 @@ See **[SECURITY.md § WebAuthn UCAN Signing](./SECURITY.md#-webauthn-ucan-signin
 - **[REVOCATION_QUICKSTART.md](./docs/REVOCATION_QUICKSTART.md)** - Revocation testing guide
 - **[UX_IMPROVEMENT_AUTO_NAVIGATION.md](./docs/UX_IMPROVEMENT_AUTO_NAVIGATION.md)** - Auto-navigation UX improvement
 - **[BUGFIX_DID_WEB_REVOCATION.md](./docs/BUGFIX_DID_WEB_REVOCATION.md)** - did:web support bug fixes
+
+## 🔗 Related Projects
+
+### Passkey Storage & WebAuthn Extensions
+
+#### **[Lighthouse Passkey Demo](https://www.lighthouse.storage/blogs/Passkey%20Demo%20App%20with%20WebAuthn%20and%20Ethereum)**
+- Demo app combining WebAuthn passkeys with Ethereum and Lighthouse storage
+- Shows integration of biometric authentication with decentralized storage
+- **Potential Integration**: Investigate Lighthouse SDK compatibility with our modular signer architecture (`@ucan-upload-wall/signer-interface`)
+- Could enable multi-storage backend support (Storacha + Lighthouse)
+
+#### **[Nydia Passkey Holder](https://github.com/NiKrause/Nydia-Passkey-Holder)**
+- Browser extension that emulates a hardware wallet by injecting into the WebAuthn API
+- Enables decentralized passkey storage on the Sia network
+- **Planned Enhancement**: Fork and upgrade to support Storacha UCANs
+- Could serve as a bridge between traditional WebAuthn apps and UCAN delegation systems
+- Potential to integrate with our `@ucan-upload-wall/signer-webauthn` package
+
+### Secret Sharing & Encryption
+
+#### **[SecretShare](https://github.com/Nkovaturient/SecretShare)**
+- Securely delegate time-limited, usage-bound access to secrets (API keys, credentials, vault notes) via UCANs
+- Currently uses Lit Protocol for encryption
+- **Research Opportunity**: Investigate replacing Lit Protocol with WebAuthn hardware-protected keys + PRF extension
+- Could leverage our worker-based Ed25519 keystore architecture for deterministic encryption keys
+- Potential integration path:
+  1. Use `@ucan-upload-wall/signer-webauthn` for PRF-derived encryption keys
+  2. Replace Lit Protocol's key management with WebAuthn PRF + worker-based key derivation
+  3. Maintain UCAN-based delegation for access control
+  4. Benefits: Hardware-backed security without external key management service
+
+### Integration Roadmap
+
+These projects share common goals around decentralized identity, hardware-backed security, and UCAN authorization. Our modular architecture (see monorepo design above) is specifically designed to support:
+
+- **Pluggable Signers**: Easy to add Lighthouse-specific or Nydia-compatible signers
+- **Storage Backends**: Abstract storage interface allows Lighthouse, Sia, or Storacha
+- **Encryption Providers**: PRF-based key derivation can replace centralized services like Lit Protocol
+- **UCAN Compatibility**: Shared delegation format enables cross-project interoperability
 
 ## 📄 License
 

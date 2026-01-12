@@ -7,8 +7,13 @@
 
 import {
   encodeWebAuthnVarsig,
+  decodeWebAuthnVarsig,
+  reconstructSignedData,
+  verifyEd25519Signature,
+  verifyP256Signature,
   type WebAuthnAssertion
 } from './webauthn-varsig/index.js';
+import * as UcantoPrincipal from '@ucanto/principal'; // Resolved to custom @le-space version via package.json overrides
 
 /**
  * WebAuthn Ed25519 signer for UCAN
@@ -86,17 +91,52 @@ export class WebAuthnEd25519Signer {
   }
   
   /**
+   * Verify a varsig-encoded signature
+   * @param data - The original data that was signed
+   * @param signature - The varsig-encoded signature
+   * @returns True if signature is valid
+   */
+  async verify(data: Uint8Array, signature: Uint8Array): Promise<boolean> {
+    try {
+      // Decode varsig
+      const decoded = decodeWebAuthnVarsig(signature);
+      
+      // Reconstruct the data that was actually signed by WebAuthn
+      const signedData = await reconstructSignedData(decoded);
+      
+      // Verify the Ed25519 signature
+      return await verifyEd25519Signature(signedData, decoded.signature, this.publicKey);
+    } catch (error) {
+      console.error('Varsig verification failed:', error);
+      return false;
+    }
+  }
+
+  /**
    * Convert to ucanto-compatible signer interface
+   * Uses custom ucanto with WebAuthn varsig support
    */
   toUcantoSigner() {
-    return {
-      did: () => this.did,
-      sign: async (data: Uint8Array) => this.sign(data),
-      // WebAuthn doesn't support key export
-      export: () => {
-        throw new Error('Cannot export WebAuthn hardware-backed keys');
-      }
-    };
+    // Convert credential ID to base64 for ucanto
+    let credentialIdBase64: string;
+    if (this.credentialId instanceof ArrayBuffer) {
+      credentialIdBase64 = btoa(String.fromCharCode(...new Uint8Array(this.credentialId)));
+    } else if (ArrayBuffer.isView(this.credentialId)) {
+      credentialIdBase64 = btoa(String.fromCharCode(...new Uint8Array(this.credentialId.buffer)));
+    } else {
+      throw new Error('Invalid credentialId type');
+    }
+    
+    // Create ucanto WebAuthn signer with varsig support
+    console.log('✨ Creating ucanto WebAuthn signer with varsig support');
+    console.log('UcantoPrincipal:', UcantoPrincipal);
+    console.log('WebAuthnEd25519:', UcantoPrincipal.WebAuthnEd25519);
+    
+    if (!UcantoPrincipal.WebAuthnEd25519) {
+      throw new Error('WebAuthnEd25519 not available in ucanto principal');
+    }
+    
+    return UcantoPrincipal.WebAuthnEd25519.create(credentialIdBase64, this.publicKey, this.did);
   }
 }
 
@@ -176,16 +216,58 @@ export class WebAuthnP256Signer {
   }
   
   /**
+   * Verify a varsig-encoded signature
+   * @param data - The original data that was signed
+   * @param signature - The varsig-encoded signature
+   * @returns True if signature is valid
+   */
+  async verify(data: Uint8Array, signature: Uint8Array): Promise<boolean> {
+    try {
+      // Decode varsig
+      const decoded = decodeWebAuthnVarsig(signature);
+      
+      // Reconstruct the data that was actually signed by WebAuthn
+      const signedData = await reconstructSignedData(decoded);
+      
+      // Verify the P-256 signature
+      return await verifyP256Signature(signedData, decoded.signature, this.publicKey);
+    } catch (error) {
+      console.error('P-256 varsig verification failed:', error);
+      return false;
+    }
+  }
+  
+  /**
    * Convert to ucanto-compatible signer interface
    */
   toUcantoSigner() {
+    const self = this;
     return {
       did: () => this.did,
-      sign: async (data: Uint8Array) => this.sign(data),
+      sign: async (data: Uint8Array) => {
+        const signature = await self.sign(data);
+        // Ensure we return a proper Uint8Array, not a serialized object
+        return signature instanceof Uint8Array ? signature : new Uint8Array(Object.values(signature));
+      },
+      // Verify varsig-encoded signature
+      verify: async (data: Uint8Array, signature: Uint8Array) => self.verify(data, signature),
       // WebAuthn doesn't support key export
       export: () => {
         throw new Error('Cannot export WebAuthn hardware-backed keys');
-      }
+      },
+      // Storacha client needs toArchive for persistence
+      toArchive: () => ({
+        id: self.did,
+        keys: {
+          // Store minimal info - actual signing happens via WebAuthn
+          [self.did]: self.publicKey
+        }
+      }),
+      // Encode method for serialization (returns the public key)
+      encode: () => self.publicKey,
+      // Signature algorithm identifier  
+      signatureCode: 0x1200, // P-256 multicodec
+      signatureAlgorithm: 'ES256'
     };
   }
 }
@@ -242,7 +324,8 @@ export async function createWebAuthnEd25519Credential(
           displayName
         },
         pubKeyCredParams: [
-          { type: 'public-key', alg: -8 },   // EdDSA (Ed25519) - PREFERRED
+          { type: 'public-key', alg: -50 },  // Ed25519 (RFC 9864) - PREFERRED (fully-specified)
+          { type: 'public-key', alg: -8 },   // EdDSA (legacy polymorphic) - fallback
           { type: 'public-key', alg: -7 },   // ES256 (P-256) - fallback
           { type: 'public-key', alg: -257 }  // RS256 (RSA) - broad compatibility
         ],
@@ -432,7 +515,7 @@ async function extractEd25519PublicKey(attestationObject: Uint8Array): Promise<U
       kty,
       ktyName: kty === 1 ? 'OKP' : kty === 2 ? 'EC2' : kty === 3 ? 'RSA' : `Unknown (${kty})`,
       alg,
-      algName: alg === -8 ? 'EdDSA' : alg === -7 ? 'ES256' : alg === -257 ? 'RS256' : `Unknown (${alg})`,
+      algName: alg === -50 ? 'Ed25519 (RFC 9864)' : alg === -8 ? 'EdDSA (legacy)' : alg === -7 ? 'ES256' : alg === -257 ? 'RS256' : `Unknown (${alg})`,
       crv,
       crvName: crv === 6 ? 'Ed25519' : crv === 1 ? 'P-256' : `Unknown (${crv})`
     });
@@ -445,10 +528,10 @@ async function extractEd25519PublicKey(attestationObject: Uint8Array): Promise<U
       throw new Error('Not an OKP key type');
     }
     
-    if (alg !== -8) {
+    if (alg !== -50 && alg !== -8) {
       const algName = alg === -7 ? 'ES256 (P-256)' : alg === -257 ? 'RS256 (RSA)' : `algorithm ${alg}`;
-      console.warn(`⚠️ Authenticator used ${algName} instead of EdDSA`);
-      console.log('💡 This authenticator does not support EdDSA. Falling back to worker mode.');
+      console.warn(`⚠️ Authenticator used ${algName} instead of Ed25519 (-50) or EdDSA (-8)`);
+      console.log('💡 This authenticator does not support Ed25519. Falling back to worker mode.');
       throw new Error('Not an EdDSA algorithm');
     }
     

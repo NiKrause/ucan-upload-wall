@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Secure Enclave WebAuthn Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      max-width: 1000px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 10px;
+    }
+    .system-info {
+      background: #e8f4fd;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 20px 0;
+      border-left: 4px solid #0066cc;
+    }
+    button {
+      background: #0066cc;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 10px 10px 0;
+    }
+    button:hover {
+      background: #0052a3;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .result {
+      margin: 20px 0;
+      padding: 15px;
+      border-radius: 8px;
+      border-left: 4px solid #28a745;
+      background: #e8f5e9;
+    }
+    .result.error {
+      border-color: #dc3545;
+      background: #f8d7da;
+    }
+    .result.warning {
+      border-color: #ffc107;
+      background: #fff3cd;
+    }
+    .algo-test {
+      margin: 15px 0;
+      padding: 12px;
+      background: #f8f9fa;
+      border-radius: 6px;
+    }
+    pre {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 15px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .supported {
+      color: #28a745;
+      font-weight: bold;
+    }
+    .not-supported {
+      color: #dc3545;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔐 Secure Enclave WebAuthn Test</h1>
+    <p>Test what cryptographic algorithms your Mac's Secure Enclave supports for WebAuthn</p>
+
+    <div class="system-info">
+      <strong>System Information:</strong>
+      <div id="systemInfo">Detecting...</div>
+    </div>
+
+    <h2>Algorithm Support Tests</h2>
+    <p>Click each button to test if your hardware supports the algorithm:</p>
+
+    <button onclick="testAlgorithm(-8, 'EdDSA (Ed25519 - legacy)')">Test Ed25519 (-8)</button>
+    <button onclick="testAlgorithm(-50, 'Ed25519 (RFC 9864 - new)')">Test Ed25519 (-50)</button>
+    <button onclick="testAlgorithm(-7, 'ES256 (P-256)')">Test P-256 (-7)</button>
+    <button onclick="testAlgorithm(-257, 'RS256 (RSA)')">Test RSA (-257)</button>
+    <br><br>
+    <button onclick="testAllSequentially()">🧪 Test All Algorithms</button>
+    <button onclick="clearResults()">Clear Results</button>
+
+    <div id="results"></div>
+
+    <div id="capabilities" style="margin-top: 30px;"></div>
+  </div>
+
+  <script>
+    // Display system info
+    async function displaySystemInfo() {
+      const info = document.getElementById('systemInfo');
+      let html = '<ul style="margin: 10px 0; padding-left: 20px;">';
+      
+      html += `<li>User Agent: ${navigator.userAgent}</li>`;
+      html += `<li>Platform: ${navigator.platform}</li>`;
+      
+      if (window.PublicKeyCredential) {
+        html += '<li class="supported">✅ WebAuthn Supported</li>';
+        
+        try {
+          const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+          if (available) {
+            html += '<li class="supported">✅ Platform Authenticator Available (Touch ID/Secure Enclave)</li>';
+          } else {
+            html += '<li class="not-supported">❌ No Platform Authenticator</li>';
+          }
+        } catch (e) {
+          html += '<li class="not-supported">❌ Could not check platform authenticator</li>';
+        }
+      } else {
+        html += '<li class="not-supported">❌ WebAuthn NOT Supported</li>';
+      }
+      
+      html += '</ul>';
+      info.innerHTML = html;
+    }
+
+    displaySystemInfo();
+
+    const algorithmNames = {
+      '-8': 'EdDSA (Ed25519 - legacy polymorphic)',
+      '-50': 'Ed25519 (RFC 9864 - fully specified)',
+      '-7': 'ES256 (P-256)',
+      '-257': 'RS256 (RSA)'
+    };
+
+    async function testAlgorithm(alg, name) {
+      const resultsDiv = document.getElementById('results');
+      const testDiv = document.createElement('div');
+      testDiv.className = 'algo-test';
+      testDiv.innerHTML = `<strong>Testing ${name} (${alg})...</strong> 🔄`;
+      resultsDiv.appendChild(testDiv);
+
+      try {
+        const challenge = new Uint8Array(32);
+        crypto.getRandomValues(challenge);
+
+        const credential = await navigator.credentials.create({
+          publicKey: {
+            challenge,
+            rp: {
+              name: 'Secure Enclave Test',
+              id: window.location.hostname
+            },
+            user: {
+              id: new Uint8Array([1, 2, 3, 4]),
+              name: 'test@example.com',
+              displayName: 'Test User'
+            },
+            pubKeyCredParams: [
+              { type: 'public-key', alg: alg }
+            ],
+            authenticatorSelection: {
+              authenticatorAttachment: 'platform',
+              userVerification: 'required',
+              residentKey: 'discouraged'
+            },
+            timeout: 60000,
+            attestation: 'direct'
+          }
+        });
+
+        if (credential) {
+          const response = credential.response;
+          const attestationObject = response.attestationObject;
+          
+          // Parse attestation to get algorithm details
+          const details = await parseAttestation(attestationObject);
+          
+          testDiv.className = 'result';
+          testDiv.innerHTML = `
+            <strong class="supported">✅ ${name} SUPPORTED!</strong>
+            <pre>${JSON.stringify(details, null, 2)}</pre>
+          `;
+
+          // Clean up - try to delete the credential
+          try {
+            // Note: There's no standard API to delete credentials, 
+            // but we can at least document this was a test
+            console.log('Test credential created:', credential.id);
+          } catch (e) {
+            // Ignore
+          }
+        }
+      } catch (error) {
+        testDiv.className = 'result error';
+        testDiv.innerHTML = `
+          <strong class="not-supported">❌ ${name} NOT SUPPORTED</strong>
+          <p>Error: ${error.message}</p>
+          <details>
+            <summary>Full Error Details</summary>
+            <pre>${error.stack || error.toString()}</pre>
+          </details>
+        `;
+      }
+    }
+
+    async function parseAttestation(attestationObject) {
+      try {
+        // Import CBOR decoder if available
+        const CBOR = await import('https://cdn.jsdelivr.net/npm/cbor-web@9.0.1/+esm');
+        const decoded = CBOR.decode(attestationObject);
+        
+        const authData = new Uint8Array(decoded.authData);
+        
+        // Parse COSE key from authData
+        let offset = 37; // Skip rpIdHash + flags + signCount
+        offset += 16;    // Skip AAGUID
+        
+        const credIdLen = (authData[offset] << 8) | authData[offset + 1];
+        offset += 2 + credIdLen;
+        
+        const coseKeyBytes = authData.slice(offset);
+        const coseKey = CBOR.decode(coseKeyBytes.buffer);
+        
+        const kty = coseKey.get(1);
+        const alg = coseKey.get(3);
+        const crv = coseKey.get(-1);
+        
+        const keyTypes = {
+          1: 'OKP (Octet Key Pair)',
+          2: 'EC2 (Elliptic Curve)',
+          3: 'RSA'
+        };
+        
+        const algorithms = {
+          '-8': 'EdDSA',
+          '-50': 'Ed25519',
+          '-7': 'ES256',
+          '-35': 'ES384',
+          '-36': 'ES512',
+          '-257': 'RS256'
+        };
+        
+        const curves = {
+          1: 'P-256',
+          2: 'P-384',
+          3: 'P-521',
+          6: 'Ed25519',
+          7: 'Ed448'
+        };
+        
+        return {
+          keyType: `${kty} (${keyTypes[kty] || 'Unknown'})`,
+          algorithm: `${alg} (${algorithms[String(alg)] || 'Unknown'})`,
+          curve: crv !== undefined ? `${crv} (${curves[crv] || 'Unknown'})` : 'N/A',
+          authenticatorType: 'platform',
+          secureEnclave: 'T2 or Apple Silicon SEP',
+          fmt: decoded.fmt
+        };
+      } catch (e) {
+        return {
+          error: 'Could not parse attestation details',
+          message: e.message
+        };
+      }
+    }
+
+    async function testAllSequentially() {
+      clearResults();
+      const algorithms = [
+        [-50, 'Ed25519 (RFC 9864 - new)'],
+        [-8, 'EdDSA (Ed25519 - legacy)'],
+        [-7, 'ES256 (P-256)'],
+        [-257, 'RS256 (RSA)']
+      ];
+
+      for (const [alg, name] of algorithms) {
+        await testAlgorithm(alg, name);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      // Display summary
+      const capDiv = document.getElementById('capabilities');
+      capDiv.innerHTML = `
+        <div class="result">
+          <h3>✨ Summary</h3>
+          <p>Your Mac's Secure Enclave capabilities have been tested. 
+          Check the results above to see which algorithms are supported by your hardware.</p>
+          <p><strong>Note:</strong> The T2 chip typically supports:</p>
+          <ul>
+            <li>✅ <strong>P-256 (ES256)</strong> - Always supported</li>
+            <li>⚠️ <strong>Ed25519</strong> - Depends on macOS version and Safari/Chrome version</li>
+            <li>✅ <strong>RSA</strong> - Usually supported but not recommended (slower)</li>
+          </ul>
+        </div>
+      `;
+    }
+
+    function clearResults() {
+      document.getElementById('results').innerHTML = '';
+      document.getElementById('capabilities').innerHTML = '';
+    }
+  </script>
+</body>
+</html>

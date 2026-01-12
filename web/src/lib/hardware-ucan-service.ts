@@ -84,6 +84,13 @@ export class HardwareUCANDelegationService {
   }
   
   /**
+   * Get hardware signer instance
+   */
+  getSigner(): WebAuthnEd25519Signer | WebAuthnP256Signer | null {
+    return this.hardwareSigner;
+  }
+  
+  /**
    * Get hardware signer DID
    */
   getHardwareDID(): string | null {

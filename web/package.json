@@ -21,11 +21,8 @@
     "playwright:install": "playwright install chromium"
   },
   "dependencies": {
+    "@le-space/ucanto-principal": "file:../../../../tmp/le-space-ucanto-principal-9.1.1.tgz",
     "@storacha/client": "^1.8.21",
-    "@ucanto/client": "^9.0.2",
-    "@ucanto/core": "^10.4.6",
-    "@ucanto/interface": "^11.0.1",
-    "@ucanto/principal": "^9.0.3",
     "@ucanto/transport": "^9.2.1",
     "cbor-web": "^9.0.1",
     "lucide-react": "^0.344.0",
@@ -58,5 +55,11 @@
     "vite": "^5.4.2",
     "vite-plugin-node-polyfills": "^0.24.0",
     "vitest": "^4.0.16"
+  },
+  "overrides": {
+    "@ucanto/interface": "file:/tmp/le-space-ucanto-interface-11.1.1.tgz",
+    "@ucanto/core": "file:/tmp/le-space-ucanto-core-10.5.1.tgz",
+    "@ucanto/principal": "file:/tmp/le-space-ucanto-principal-9.1.1.tgz",
+    "@ucanto/client": "file:/tmp/le-space-ucanto-client-9.1.1.tgz"
   }
 }

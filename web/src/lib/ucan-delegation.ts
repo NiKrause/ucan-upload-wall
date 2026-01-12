@@ -490,6 +490,24 @@ export class UCANDelegationService {
     return false;
   }
 
+  /**
+   * Get appropriate principal based on current mode (hardware or worker)
+   */
+  private async getPrincipal(): Promise<UcanSigner<UcanDID<'key'>>> {
+    // Hardware mode: use hardware signer
+    if (this.useHardwareMode && this.hardwareService) {
+      const hardwareSigner = this.hardwareService.getSigner();
+      if (!hardwareSigner) {
+        throw new Error('Hardware signer not initialized');
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return hardwareSigner.toUcantoSigner() as any;
+    }
+    
+    // Worker mode: use worker-based Ed25519
+    return this.getWorkerPrincipal();
+  }
+
   private async getWorkerPrincipal(): Promise<UcanSigner<UcanDID<'key'>>> {
     // Check if using native Ed25519 (incompatible with worker-based signing)
     if (this.isNativeEd25519()) {
@@ -648,8 +666,8 @@ export class UCANDelegationService {
       const Client = await import('@storacha/client');
       const { StoreMemory } = await import('@storacha/client/stores/memory');
 
-      // Use worker-backed Ed25519 principal (WebAuthn PRF → keystore)
-      const principal = await this.getWorkerPrincipal();
+      // Use appropriate principal (hardware or worker mode)
+      const principal = await this.getPrincipal();
 
       console.log('📋 Principal DID:', principal.did());
       console.log('📋 Delegation audience (should match):', delegationInfo.toAudience);
@@ -879,8 +897,8 @@ export class UCANDelegationService {
       const Client = await import('@storacha/client');
       const { StoreMemory } = await import('@storacha/client/stores/memory');
 
-      // Use worker-backed Ed25519 principal (WebAuthn PRF → keystore)
-      const principal = await this.getWorkerPrincipal();
+      // Use appropriate principal (hardware or worker mode)
+      const principal = await this.getPrincipal();
 
       console.log('📋 Principal DID:', principal.did());
       console.log('📋 Delegation audience (should match):', delegationInfo.toAudience);
@@ -940,6 +958,32 @@ export class UCANDelegationService {
         }
       } catch (listError) {
         console.error('Failed to list uploads:', listError);
+        
+        // Extract detailed error information
+        const error = listError as any;
+        if (error) {
+          console.error('❌ Error Details:');
+          console.error('  Type:', error.constructor?.name || typeof error);
+          console.error('  Message:', error.message || error.toString());
+          
+          // Check for HTTP response details
+          if (error.response) {
+            console.error('  HTTP Status:', error.response.status);
+            console.error('  HTTP StatusText:', error.response.statusText);
+            console.error('  Response Data:', error.response.data || error.response.body);
+          }
+          
+          // Check for ucanto error details
+          if (error.cause) {
+            console.error('  Cause:', error.cause);
+          }
+          if (error.errors) {
+            console.error('  Errors:', error.errors);
+          }
+          
+          // Full error object for debugging
+          console.error('  Full Error Object:', error);
+        }
       }
       
       console.log(`\u2705 Found ${uploads.length} uploads via delegation`);
@@ -975,8 +1019,8 @@ export class UCANDelegationService {
       const Client = await import('@storacha/client');
       const { StoreMemory } = await import('@storacha/client/stores/memory');
 
-      // Use worker-backed Ed25519 principal (WebAuthn PRF → keystore)
-      const principal = await this.getWorkerPrincipal();
+      // Use appropriate principal (hardware or worker mode)
+      const principal = await this.getPrincipal();
 
       console.log('Using principal DID:', principal.did());
       console.log('Delegation audience (should match):', delegationInfo.toAudience);
@@ -1171,9 +1215,9 @@ export class UCANDelegationService {
         throw new Error('Received delegation has no capabilities');
       }
       
-      // Use worker principal (Ed25519) as issuer for chained delegation
-      issuer = await this.getWorkerPrincipal();
-      console.log('Using worker Ed25519 principal as issuer for chained delegation:', issuer.did());
+      // Use appropriate principal (Ed25519) as issuer for chained delegation
+      issuer = await this.getPrincipal();
+      console.log('Using Ed25519 principal as issuer for chained delegation:', issuer.did());
     } else {
       throw new Error('No Storacha credentials or received delegations found. Cannot create delegation without either credentials or a delegation to chain from.');
     }
@@ -1371,16 +1415,6 @@ export class UCANDelegationService {
       // WORKER MODE: Use existing verification logic
       console.log('📝 Using worker mode verification...');
       
-      // Ensure we have a DID before verifying audience
-      if (!this.webauthnProvider) {
-        console.log('🔑 Initializing WebAuthn DID before import...');
-        await this.initializeWebAuthnDID();
-      }
-      if (!this.getCurrentDID()) {
-        console.log('🔐 Authenticating to finalize DID before import...');
-        await this.webauthnProvider!.authenticate();
-      }
-
       console.log('Importing delegation...');
       
       // Note: cleanedProof is already defined above, reuse it
@@ -1476,6 +1510,10 @@ export class UCANDelegationService {
         console.log('Delegation audience:', audienceDid);
         console.log('Our DID:', ourDid);
         
+        if (!ourDid) {
+          throw new Error(`Cannot import delegation: No DID found.\n\nYou need to set up your DID first before importing delegations.\nThis delegation is intended for: ${audienceDid}`);
+        }
+        
         if (audienceDid !== ourDid) {
           throw new Error(`This delegation is not for your current DID.\n\nExpected: ${ourDid}\nGot: ${audienceDid}\n\nPlease create a delegation for the correct DID.`);
         }
@@ -1535,6 +1573,10 @@ export class UCANDelegationService {
         
         console.log('Delegation audience:', audienceDid);
         console.log('Our DID:', ourDid);
+        
+        if (!ourDid) {
+          throw new Error(`Cannot import delegation: No DID found.\n\nYou need to set up your DID first before importing delegations.\nThis delegation is intended for: ${audienceDid}`);
+        }
         
         if (audienceDid !== ourDid) {
           throw new Error(`This delegation is not for your current DID.\n\nExpected: ${ourDid}\nGot: ${audienceDid}\n\nPlease create a delegation for the correct DID.`);
@@ -1626,6 +1668,10 @@ export class UCANDelegationService {
                       ? delegation.issuer.did()
                       : delegation.issuer;
                     
+                    if (!ourDid) {
+                      throw new Error(`Cannot import delegation: No DID found.\n\nYou need to set up your DID first before importing delegations.\nThis delegation is intended for: ${audienceDid}`);
+                    }
+                    
                     if (audienceDid !== ourDid) {
                       throw new Error(`This delegation is not for your current DID. Expected: ${ourDid}, Got: ${audienceDid}`);
                     }
@@ -1663,6 +1709,11 @@ export class UCANDelegationService {
           else if (jsonDelegation.issuer && jsonDelegation.audience && jsonDelegation.capabilities) {
             // Verify this delegation is for our DID
             const ourDid = this.getCurrentDID();
+            
+            if (!ourDid) {
+              throw new Error(`Cannot import delegation: No DID found.\n\nYou need to set up your DID first before importing delegations.\nThis delegation is intended for: ${jsonDelegation.audience}`);
+            }
+            
             if (jsonDelegation.audience !== ourDid) {
               throw new Error('This delegation is not for your current DID');
             }
@@ -1716,6 +1767,10 @@ export class UCANDelegationService {
             const issuerDid = typeof delegation.issuer.did === 'function'
               ? delegation.issuer.did()
               : delegation.issuer;
+            
+            if (!ourDid) {
+              throw new Error(`Cannot import delegation: No DID found.\n\nYou need to set up your DID first before importing delegations.\nThis delegation is intended for: ${audienceDid}`);
+            }
             
             if (audienceDid !== ourDid) {
               throw new Error(`This delegation is not for your current DID. Expected: ${ourDid}, Got: ${audienceDid}`);
@@ -1957,7 +2012,7 @@ export class UCANDelegationService {
       const parsedDelegation = await this.parseDelegationProof(delegation.proof) as any;
       
       // Get the issuer principal (who created the delegation)
-      const issuer = await this.getWorkerPrincipal();
+      const issuer = await this.getPrincipal();
       
       console.log(`Issuer DID: ${issuer.did()}`);
       console.log(`Delegation CID: ${parsedDelegation.cid.toString()}`);
