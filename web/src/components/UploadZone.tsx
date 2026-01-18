@@ -172,6 +172,7 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
                 onClick={() => handleCreateDID('platform')}
                 disabled={isCreatingDID}
                 className="bg-blue-600 text-white px-6 py-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors border-2 border-transparent hover:border-blue-800 text-left"
+                data-testid="create-did-button"
               >
                 <div className="flex items-start">
                   <Lock className="h-5 w-5 mr-3 mt-0.5 flex-shrink-0" />
@@ -189,6 +190,7 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
                 onClick={() => handleCreateDID('cross-platform')}
                 disabled={isCreatingDID}
                 className="bg-green-600 text-white px-6 py-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors border-2 border-transparent hover:border-green-800 text-left"
+                data-testid="create-did-button"
               >
                 <div className="flex items-start">
                   <Shield className="h-5 w-5 mr-3 mt-0.5 flex-shrink-0" />
