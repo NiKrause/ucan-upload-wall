@@ -9,7 +9,7 @@ import * as Client from '@storacha/client';
 import * as Proof from '@storacha/client/proof';
 import { StoreMemory } from '@storacha/client/stores/memory';
 import * as Ed25519Principal from '@ucanto/principal/ed25519';
-import type { Signer as UcanSigner, DID as UcanDID } from '@ucanto/interface';
+import type { Signer as UcanSigner, DID as UcanDID, Transport } from '@ucanto/interface';
 import { WebAuthnDIDProvider, WebAuthnCredentialInfo, storeWebAuthnCredential } from './webauthn-did';
 import { getServiceConfig } from './service-config';
 import {
@@ -38,6 +38,10 @@ interface Ed25519KeyPair {
   privateKey: string; // hex encoded  
   did: string;
 }
+
+type ClientServiceConf = NonNullable<
+  NonNullable<Parameters<typeof Client.create>[0]>['serviceConf']
+>;
 
 export interface StorachaCredentials {
   key: string;
@@ -76,21 +80,22 @@ export class UCANDelegationService {
     const { CAR, HTTP } = await import('@ucanto/transport');
     const { Verifier } = await import('@ucanto/principal');
 
-    const resolvedServiceDid = await this.resolveServiceDid(
+    const resolvedServiceDid = (await this.resolveServiceDid(
       serviceConfig.uploadServiceDid,
       serviceConfig.uploadServiceUrl
-    );
-    const serviceID = Verifier.parse(resolvedServiceDid).withDID(
-      serviceConfig.uploadServiceDid
-    );
+    )) as UcanDID;
+    const uploadServiceDid = serviceConfig.uploadServiceDid as UcanDID;
+    const serviceID = Verifier.parse(resolvedServiceDid).withDID(uploadServiceDid);
+
+    const channel = HTTP.open({
+      url: new URL(serviceConfig.uploadServiceUrl),
+      method: 'POST',
+    }) as Transport.Channel<Record<string, unknown>>;
 
     return UcantoClient.connect({
       id: serviceID,
       codec: CAR.outbound,
-      channel: HTTP.open({
-        url: new URL(serviceConfig.uploadServiceUrl),
-        method: 'POST',
-      }),
+      channel,
     });
   }
 
@@ -160,7 +165,7 @@ export class UCANDelegationService {
     };
   }
 
-  private async createClient(principal: UcanSigner) {
+  private async createClient(principal: UcanSigner<UcanDID<'key'>>) {
     const store = new StoreMemory();
     const serviceConfig = getServiceConfig();
     const connection = await this.createServiceConnection();
@@ -169,14 +174,16 @@ export class UCANDelegationService {
       const receiptsUrl =
         serviceConfig.receiptsUrl ??
         new URL('/receipt/', serviceConfig.uploadServiceUrl).toString();
+      const serviceConf: ClientServiceConf = {
+        access: connection,
+        upload: connection,
+        filecoin: connection,
+        gateway: connection,
+      } as unknown as ClientServiceConf;
       return Client.create({
         principal,
         store,
-        serviceConf: {
-          access: connection,
-          upload: connection,
-          filecoin: connection,
-        },
+        serviceConf,
         receiptsEndpoint: new URL(receiptsUrl),
       });
     }
@@ -1832,7 +1839,7 @@ export class UCANDelegationService {
       
       // Parse the service DID properly
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const serviceID = Verifier.parse(revocationDid) as any;
+      const serviceID = Verifier.parse(revocationDid as UcanDID);
       
       // Create the revocation invocation
       // Following Storacha's agent.js pattern
