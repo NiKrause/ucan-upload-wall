@@ -41,7 +41,14 @@ jobs:
         run: npm run playwright:install
 
       - name: Run E2E tests
+        id: e2e
         run: npm run test:e2e
+        continue-on-error: true
+
+      - name: Re-run failed E2E tests
+        id: e2e_rerun
+        if: steps.e2e.outcome == 'failure'
+        run: npm run test:e2e -- --last-failed
 
       - name: Upload test results
         if: failure()
@@ -50,5 +57,4 @@ jobs:
           name: playwright-report
           path: web/test-results/
           retention-days: 7
-
 

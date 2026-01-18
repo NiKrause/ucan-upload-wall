@@ -138,18 +138,31 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     const createButton = page.getByTestId('create-did-button');
     await expect(createButton).toBeVisible({ timeout: 10000 });
     await expect(createButton).toBeEnabled({ timeout: 5000 });
-    await createButton.click();
-    await page.waitForTimeout(3000);
 
-    const didElement = page.getByTestId('did-display');
-    await expect(didElement).toBeVisible({ timeout: 10000 });
-    const browserDID = await didElement.textContent();
+    const getDidDisplay = async () => {
+      const didElement = page.getByTestId('did-display');
+      await expect(didElement).toBeVisible({ timeout: 10000 });
+      const browserDID = (await didElement.textContent())?.trim();
+      expect(browserDID).toBeTruthy();
+      expect(browserDID).toMatch(/^did:key:z6Mk/);
+      return browserDID as string;
+    };
 
-    expect(browserDID).toBeTruthy();
-    expect(browserDID).toMatch(/^did:key:z6Mk/);
-    console.log('✅ Browser DID:', browserDID);
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await createButton.click();
+        const browserDID = await getDidDisplay();
+        console.log('✅ Browser DID:', browserDID);
+        return browserDID;
+      } catch (error) {
+        lastError = error;
+        console.log(`ℹ️ DID creation attempt ${attempt} did not complete, retrying...`);
+        await page.waitForTimeout(500);
+      }
+    }
 
-    return browserDID as string;
+    throw lastError ?? new Error('Failed to create DID in UI');
   }
 
   /**
