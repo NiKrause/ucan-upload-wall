@@ -1,3 +1,6 @@
+import type { Libp2p } from 'libp2p';
+import type { CID } from 'multiformats/cid';
+
 const IPFS_GATEWAYS = [
   'https://dweb.link/ipfs/',
   'https://w3s.link/ipfs/',
@@ -21,27 +24,21 @@ type Libp2pConnectionLike = {
   remotePeer?: { toString?: () => string };
 };
 
-type Libp2pLike = {
-  dial: (peerId: unknown) => Promise<unknown>;
-  getConnections?: () => Libp2pConnectionLike[];
-  peerStore: {
-    patch: (peerId: unknown, options: { multiaddrs: unknown[] }) => Promise<void>;
-  };
-};
+type Libp2pLike = Pick<Libp2p, 'dial' | 'getConnections' | 'peerStore'>;
 
 type HeliaClient = {
   libp2p: Libp2pLike;
 };
 
 type UnixFsLike = {
-  cat: (cid: unknown) => AsyncIterable<Uint8Array>;
+  cat: (cid: CID) => AsyncIterable<Uint8Array>;
 };
 
 let heliaPromise: Promise<{ helia: HeliaClient; fs: UnixFsLike }> | null = null;
 const HELIA_DIAL_TIMEOUT_MS = 10000;
 
 function logHeliaConnections(libp2p: Libp2pLike | undefined, context: string): void {
-  const connections = libp2p?.getConnections?.() ?? [];
+  const connections: Libp2pConnectionLike[] = libp2p?.getConnections?.() ?? [];
   const peers = new Set(
     connections.map((connection) => connection?.remotePeer?.toString?.() ?? 'unknown')
   );
@@ -113,7 +110,7 @@ async function getHeliaClient(): Promise<{ helia: HeliaClient; fs: UnixFsLike }>
       return { helia, fs };
     })();
   }
-  return heliaPromise;
+  return heliaPromise!;
 }
 
 function concatBytes(chunks: Uint8Array[]): Uint8Array {
@@ -209,7 +206,7 @@ export async function loadIpfsBlobUrl(
   try {
     const bytes = await fetchFromHelia(cid);
     const type = expectImage ? detectImageMime(bytes) : undefined;
-    const url = URL.createObjectURL(new Blob([bytes], { type }));
+    const url = URL.createObjectURL(new Blob([Uint8Array.from(bytes)], { type }));
     (globalThis as GlobalHeliaOverrides).__LAST_IPFS_BLOB_URL__ = url;
     console.log(`🟣 Helia blob URL created for ${cid}`);
     return { url, source: 'helia' };
@@ -223,7 +220,7 @@ export async function loadIpfsBlobUrl(
 
   const { bytes, contentType, gateway } = await fetchFromGateways(cid);
   const type = expectImage ? detectImageMime(bytes) ?? contentType : contentType;
-  const url = URL.createObjectURL(new Blob([bytes], { type }));
+  const url = URL.createObjectURL(new Blob([Uint8Array.from(bytes)], { type }));
   return { url, source: 'gateway', gateway };
 }
 

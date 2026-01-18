@@ -14,7 +14,7 @@ import * as Client from '@storacha/client';
 import * as Proof from '@storacha/client/proof';
 import { StoreMemory } from '@storacha/client/stores/memory';
 import * as Ed25519Principal from '@ucanto/principal/ed25519';
-import type { Signer as UcanSigner, DID as UcanDID } from '@ucanto/interface';
+import type { Signer as UcanSigner, DID as UcanDID, Transport } from '@ucanto/interface';
 import { WebAuthnDIDProvider, WebAuthnCredentialInfo, storeWebAuthnCredential } from './webauthn-did';
 import {
   initEd25519KeystoreWithPrfSeed,
@@ -45,6 +45,10 @@ interface Ed25519KeyPair {
   privateKey: string; // hex encoded  
   did: string;
 }
+
+type ClientServiceConf = NonNullable<
+  NonNullable<Parameters<typeof Client.create>[0]>['serviceConf']
+>;
 
 export interface StorachaCredentials {
   key: string;
@@ -77,6 +81,127 @@ export class UCANDelegationService {
   private hardwareService: HardwareUCANDelegationService | null = null;
   private useHardwareMode = false;
   private hardwareModeChecked = false;
+
+  private async createServiceConnection() {
+    const serviceConfig = getServiceConfig();
+    if (!serviceConfig.uploadServiceUrl || !serviceConfig.uploadServiceDid) {
+      return null;
+    }
+
+    const UcantoClient = await import('@ucanto/client');
+    const { CAR, HTTP } = await import('@ucanto/transport');
+    const { Verifier } = await import('@ucanto/principal');
+
+    const resolvedServiceDid = (await this.resolveServiceDid(
+      serviceConfig.uploadServiceDid,
+      serviceConfig.uploadServiceUrl
+    )) as UcanDID;
+    const uploadServiceDid = serviceConfig.uploadServiceDid as UcanDID;
+    const serviceID = Verifier.parse(resolvedServiceDid).withDID(uploadServiceDid);
+
+    const channel = HTTP.open({
+      url: new URL(serviceConfig.uploadServiceUrl),
+      method: 'POST',
+    }) as Transport.Channel<Record<string, unknown>>;
+
+    return UcantoClient.connect({
+      id: serviceID,
+      codec: CAR.outbound,
+      channel,
+    });
+  }
+
+  private async resolveServiceDid(did: string, serviceUrl?: string): Promise<string> {
+    if (!did.startsWith('did:web:')) {
+      return did;
+    }
+
+    try {
+      const { didKey } = await this.resolveDidWebToDidKey(did, serviceUrl);
+      return didKey ?? did;
+    } catch (error) {
+      console.warn(`Failed to resolve ${did} to did:key`, error);
+      return did;
+    }
+  }
+
+  private async resolveDidWebToDidKey(
+    did: string,
+    serviceUrl?: string
+  ): Promise<{ didKey?: string }> {
+    const didWebPrefix = 'did:web:';
+    const identifier = did.replace(didWebPrefix, '');
+    const parts = identifier.split(':');
+    const domain = parts[0];
+    const pathSegments = parts.slice(1);
+
+    const getDidJsonUrl = () => {
+      if (serviceUrl) {
+        const base = new URL(serviceUrl);
+        if (pathSegments.length > 0) {
+          return new URL(`/${pathSegments.join('/')}/did.json`, base.origin);
+        }
+        return new URL('/.well-known/did.json', base.origin);
+      }
+
+      const base = `https://${domain}`;
+      if (pathSegments.length > 0) {
+        return new URL(`/${pathSegments.join('/')}/did.json`, base);
+      }
+      return new URL('/.well-known/did.json', base);
+    };
+
+    const url = getDidJsonUrl();
+    const response = await fetch(url.toString(), {
+      headers: { Accept: 'application/json' },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch DID document ${url}: ${response.status}`);
+    }
+
+    const didDoc = (await response.json()) as {
+      verificationMethod?: Array<{ publicKeyMultibase?: string }>;
+    };
+
+    const publicKeyMultibase = didDoc.verificationMethod?.find(
+      (method) => typeof method.publicKeyMultibase === 'string'
+    )?.publicKeyMultibase;
+
+    if (!publicKeyMultibase) {
+      throw new Error(`No publicKeyMultibase found in DID document ${url}`);
+    }
+
+    return {
+      didKey: `did:key:${publicKeyMultibase}`,
+    };
+  }
+
+  private async createClient(principal: UcanSigner<UcanDID<'key'>>) {
+    const store = new StoreMemory();
+    const serviceConfig = getServiceConfig();
+    const connection = await this.createServiceConnection();
+
+    if (connection && serviceConfig.uploadServiceUrl) {
+      const receiptsUrl =
+        serviceConfig.receiptsUrl ??
+        new URL('/receipt/', serviceConfig.uploadServiceUrl).toString();
+      const serviceConf: ClientServiceConf = {
+        access: connection,
+        upload: connection,
+        filecoin: connection,
+        gateway: connection,
+      } as unknown as ClientServiceConf;
+      return Client.create({
+        principal,
+        store,
+        serviceConf,
+        receiptsEndpoint: new URL(receiptsUrl),
+      });
+    }
+
+    return Client.create({ principal, store });
+  }
 
   /**
    * Check and initialize hardware mode if supported
@@ -2108,8 +2233,7 @@ export class UCANDelegationService {
       const UcantoClient = await import('@ucanto/client');
       const { CAR, HTTP } = await import('@ucanto/transport');
       // Parse the service DID properly
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const serviceID = await this.parseServiceDid(config.uploadService.did) as any;
+      const serviceID = (await this.parseServiceDid(config.uploadService.did)) as UcanDID;
       
       // Create the revocation invocation
       // Following Storacha's agent.js pattern
