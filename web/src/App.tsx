@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Upload, Share, Download, Calendar, Clock, Trash2, RefreshCw, X } from 'lucide-react';
 import { Header } from './components/Header';
 import { UploadZone } from './components/UploadZone';
@@ -7,6 +7,7 @@ import { DelegationManager } from './components/DelegationManager';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useFileUpload } from './hooks/useFileUpload';
 import { UploadedFile } from './types/upload';
+import { loadIpfsBlobUrl, getGatewayUrl } from './lib/ipfs-fetch';
 
 type AppView = 'upload' | 'delegations';
 
@@ -18,11 +19,14 @@ function App() {
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [currentView, setCurrentView] = useState<AppView>('upload');
   const [didCreated, setDidCreated] = useState(false);
+  const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
   const { uploadFile, isUploading, error, delegationService } = useFileUpload();
   const [hasDeleteCapability, setHasDeleteCapability] = useState(false);
   const [securityNoticeDismissed, setSecurityNoticeDismissed] = useState(() => {
     return localStorage.getItem('security_notice_dismissed') === 'true';
   });
+  const previewLoadingRef = useRef<Set<string>>(new Set());
+  const previewUrlsRef = useRef<Record<string, string>>({});
   
   useEffect(() => {
     // Check if DID is available
@@ -75,6 +79,69 @@ function App() {
     return () => clearInterval(interval);
   }, [didCreated, delegationService]);
 
+  useEffect(() => {
+    previewUrlsRef.current = previewUrls;
+  }, [previewUrls]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(previewUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
+
+  useEffect(() => {
+    const activeCids = new Set(storachaFiles.map((file) => file.root));
+    setPreviewUrls((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [cid, url] of Object.entries(prev)) {
+        if (!activeCids.has(cid)) {
+          URL.revokeObjectURL(url);
+          delete next[cid];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [storachaFiles]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchPreviews = async () => {
+      for (const file of storachaFiles) {
+        const isImage = file.root.startsWith('bafkrei');
+        if (!isImage) {
+          continue;
+        }
+        if (previewUrls[file.root] || previewLoadingRef.current.has(file.root)) {
+          continue;
+        }
+        previewLoadingRef.current.add(file.root);
+        loadIpfsBlobUrl(file.root, { expectImage: true })
+          .then(({ url }) => {
+            if (cancelled) {
+              URL.revokeObjectURL(url);
+              return;
+            }
+            setPreviewUrls((prev) => ({ ...prev, [file.root]: url }));
+          })
+          .catch((error) => {
+            console.warn('Failed to load IPFS preview:', error);
+          })
+          .finally(() => {
+            previewLoadingRef.current.delete(file.root);
+          });
+      }
+    };
+
+    fetchPreviews();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [storachaFiles, previewUrls]);
+
   const handleFileSelect = useCallback(async (file: File) => {
     const result = await uploadFile(file);
 
@@ -111,6 +178,26 @@ function App() {
 
   const handleCloseAlert = useCallback(() => {
     setAlert(null);
+  }, []);
+
+  const handleViewFile = useCallback(async (rootCid: string) => {
+    const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
+    try {
+      const { url } = await loadIpfsBlobUrl(rootCid);
+      if (popup) {
+        popup.location.href = url;
+        return;
+      }
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.warn('Failed to open via Helia and gateways:', error);
+      const fallbackUrl = getGatewayUrl(rootCid);
+      if (popup) {
+        popup.location.href = fallbackUrl;
+        return;
+      }
+      window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
+    }
   }, []);
   
   const handleDeleteFile = useCallback(async (rootCid: string) => {
@@ -349,17 +436,17 @@ function App() {
                   ) : (
                     <div className="space-y-3">
                     {storachaFiles.map((file, index) => {
-                      const gatewayUrl = `https://w3s.link/ipfs/${file.root}`;
                       const isImage = file.root.startsWith('bafkrei'); // Most images use raw codec
+                      const previewUrl = previewUrls[file.root];
                       
                       return (
                         <div key={file.root} className="bg-white rounded-lg border border-gray-200 p-4">
                           <div className="flex items-start gap-4">
                             {/* Preview thumbnail */}
                             <div className="flex-shrink-0">
-                              {isImage ? (
+                              {isImage && previewUrl ? (
                                 <img 
-                                  src={gatewayUrl} 
+                                  src={previewUrl} 
                                   alt="Preview"
                                   className="w-16 h-16 rounded object-cover border border-gray-200"
                                   onError={(e) => {
@@ -381,15 +468,14 @@ function App() {
                                   Upload #{index + 1}
                                 </h3>
                                 <div className="flex items-center gap-2">
-                                  <a
-                                    href={gatewayUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
+                                  <button
+                                    type="button"
+                                    onClick={() => handleViewFile(file.root)}
                                     className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 flex-shrink-0"
                                   >
                                     <Download className="w-3 h-3" />
                                     View
-                                  </a>
+                                  </button>
                                   {hasDeleteCapability && (
                                     <button
                                       onClick={() => handleDeleteFile(file.root)}
