@@ -44,6 +44,12 @@ test.beforeAll(async () => {
 });
 
 test.describe('Delegation and Upload Flow - E2E', () => {
+  const IPFS_BOOTSTRAP = [
+    '/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN',
+    '/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa',
+    '/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zp5i9cM2m2E1r4NkHeF7NhU9gBbz3K',
+    '/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ2wBb1jzYp5VCxQGtEex9kK',
+  ];
   let context: BrowserContext;
   let page: Page;
   let cdpSession: { client: unknown; authenticatorId: string };
@@ -56,6 +62,8 @@ test.describe('Delegation and Upload Flow - E2E', () => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let heliaUnixfs: any | null = null;
   let heliaStartPromise: Promise<any> | null = null;
+  let heliaWsMultiaddr: string | null = null;
+  let heliaPeerId: string | null = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let spaceAgent: any; // The agent that owns the space
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -63,91 +71,6 @@ test.describe('Delegation and Upload Flow - E2E', () => {
   let spaceDid: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let spaceProof: any;
-
-  function isPublicIp(address: string): boolean {
-    if (!address) {
-      return false;
-    }
-
-    if (address.includes(':')) {
-      const normalized = address.toLowerCase();
-      if (normalized === '::1') {
-        return false;
-      }
-      if (normalized.startsWith('fc') || normalized.startsWith('fd')) {
-        return false;
-      }
-      if (normalized.startsWith('fe80:')) {
-        return false;
-      }
-      return true;
-    }
-
-    const parts = address.split('.').map((part) => Number(part));
-    if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
-      return false;
-    }
-
-    const [a, b] = parts;
-    if (a === 10 || a === 127 || a === 0) {
-      return false;
-    }
-    if (a === 192 && b === 168) {
-      return false;
-    }
-    if (a === 169 && b === 254) {
-      return false;
-    }
-    if (a === 172 && b >= 16 && b <= 31) {
-      return false;
-    }
-
-    return true;
-  }
-
-  function isPublicMultiaddr(multiaddr: any): boolean {
-    if (!multiaddr || typeof multiaddr.nodeAddress !== 'function') {
-      return false;
-    }
-
-    try {
-      const { address } = multiaddr.nodeAddress();
-      return isPublicIp(address);
-    } catch {
-      return false;
-    }
-  }
-
-  function countPublicPeers(helia: any): number {
-    const connections = helia?.libp2p?.getConnections?.() ?? [];
-    const publicPeers = new Set<string>();
-
-    for (const connection of connections) {
-      if (isPublicMultiaddr(connection?.remoteAddr)) {
-        publicPeers.add(connection?.remotePeer?.toString?.() ?? String(connection?.remotePeer));
-      }
-    }
-
-    return publicPeers.size;
-  }
-
-  async function waitForPublicPeers(
-    helia: any,
-    { minPeers, timeoutMs }: { minPeers: number; timeoutMs: number }
-  ): Promise<void> {
-    const start = Date.now();
-
-    while (Date.now() - start < timeoutMs) {
-      const count = countPublicPeers(helia);
-      if (count >= minPeers) {
-        console.log(`🟣 Helia connected to ${count} public peers (min ${minPeers})`);
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-
-    throw new Error(`Timed out waiting for ${minPeers} public Helia peers`);
-  }
 
   async function ensureHelia() {
     if (heliaNode) {
@@ -157,11 +80,37 @@ test.describe('Delegation and Upload Flow - E2E', () => {
       heliaStartPromise = (async () => {
         const { createHelia } = await import('helia');
         const { unixfs } = await import('@helia/unixfs');
-        const node = await createHelia();
+        const { createLibp2p } = await import('libp2p');
+        const { bootstrap } = await import('@libp2p/bootstrap');
+        const { webSockets } = await import('@libp2p/websockets');
+        const { noise } = await import('@chainsafe/libp2p-noise');
+        const { yamux } = await import('@chainsafe/libp2p-yamux');
+        const { identify } = await import('@libp2p/identify');
+        const { ping } = await import('@libp2p/ping');
+        const { kadDHT } = await import('@libp2p/kad-dht');
+        const libp2p = await createLibp2p({
+          transports: [webSockets()],
+          connectionEncrypters: [noise()],
+          streamMuxers: [yamux()],
+          peerDiscovery: [bootstrap({ list: IPFS_BOOTSTRAP })],
+          addresses: {
+            listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+          },
+          services: {
+            identify: identify(),
+            ping: ping(),
+            dht: kadDHT({ clientMode: false }),
+          },
+        });
+        const node = await createHelia({ libp2p });
         heliaUnixfs = unixfs(node);
-        console.log('🟣 Helia node started');
-        console.log('🟣 Waiting for Helia to connect to public peers...');
-        await waitForPublicPeers(node, { minPeers: 10, timeoutMs: 60000 });
+        heliaPeerId = node.libp2p.peerId?.toString?.() ?? null;
+        const addrs = node.libp2p.getMultiaddrs().map((addr: any) => addr.toString());
+        heliaWsMultiaddr = addrs.find((addr) => addr.includes('/ws')) ?? null;
+        if (!heliaWsMultiaddr || !heliaPeerId) {
+          throw new Error('Failed to determine Helia WS multiaddr');
+        }
+        console.log(`🟣 Helia node started (peer: ${heliaPeerId}, ws: ${heliaWsMultiaddr})`);
         return node;
       })();
     }
@@ -174,14 +123,31 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     const { CarReader } = await import('@ipld/car');
     const reader = await CarReader.fromBytes(bytes);
     const roots = await reader.getRoots();
+    let blockCount = 0;
 
     for await (const block of reader.blocks()) {
       await helia.blockstore.put(block.cid, block.bytes);
+      blockCount += 1;
     }
 
+    console.log(`🟣 Helia stored ${blockCount} blocks from uploaded CAR`);
+
     for (const root of roots) {
-      await helia.libp2p.contentRouting.provide(root);
-      console.log(`🟣 Helia provided root ${root.toString()}`);
+      try {
+        await helia.libp2p.contentRouting.provide(root);
+        console.log(`🟣 Helia provided root ${root.toString()}`);
+      } catch (error) {
+        const message = (error as Error).message ?? String(error);
+        if (message.includes('No content routers available')) {
+          console.log(`🟣 Helia provide skipped (no routers) for ${root.toString()}`);
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    if (roots.length > 0) {
+      console.log(`🟣 Helia import complete for roots: ${roots.map((root) => root.toString()).join(', ')}`);
     }
   }
 
@@ -366,7 +332,13 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     uploadApiUrl = serverInfo.url;
     console.log('✅ upload-api server ready:', uploadApiUrl);
 
-    // 5. Setup browser context and WebAuthn
+    // 5. Start Helia before bootstrapping the browser
+    await ensureHelia();
+    if (!heliaWsMultiaddr || !heliaPeerId) {
+      throw new Error('Helia WS address missing');
+    }
+
+    // 6. Setup browser context and WebAuthn
     console.log('🌐 Setting up browser context...');
     context = await browser.newContext();
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
@@ -388,16 +360,21 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     });
 
     // Provide service overrides before app boot
-    if (uploadApiUrl) {
-      await page.addInitScript(
-        ({ url, did }) => {
+    await page.addInitScript(
+      ({ url, did, heliaBootstrap }) => {
+        if (url) {
           (globalThis as any).__UPLOAD_SERVICE_URL__ = url;
           (globalThis as any).__UPLOAD_SERVICE_DID__ = did;
           (globalThis as any).__RECEIPTS_URL__ = `${url}/receipt/`;
-        },
-        { url: uploadApiUrl, did: uploadServiceContext.id.did() }
-      );
-    }
+        }
+        (globalThis as any).__HELIA_BOOTSTRAP__ = heliaBootstrap;
+      },
+      {
+        url: uploadApiUrl,
+        did: uploadServiceContext.id.did(),
+        heliaBootstrap: { peerId: heliaPeerId, addrs: [heliaWsMultiaddr] },
+      }
+    );
 
     // Navigate to app
     await page.goto('/');
@@ -436,6 +413,8 @@ test.describe('Delegation and Upload Flow - E2E', () => {
       heliaNode = null;
       heliaStartPromise = null;
       heliaUnixfs = null;
+      heliaWsMultiaddr = null;
+      heliaPeerId = null;
       console.log('🟣 Helia node stopped');
     }
 
@@ -752,6 +731,38 @@ test.describe('Delegation and Upload Flow - E2E', () => {
       .locator('h3', { hasText: 'test-file.txt' });
     await expect(uploadedFilename).toBeVisible({ timeout: 60000 });
     console.log('✅ Upload completed and appeared in list');
+
+    // ========================================
+    // STEP 7B: View uploaded file via Helia/gateways
+    // ========================================
+    console.log('👀 STEP 7B: Viewing uploaded file via Helia...');
+
+    const storachaFilesHeading = page.getByRole('heading', { name: /Files in Storacha Space/i });
+    await expect(storachaFilesHeading).toBeVisible({ timeout: 60000 });
+
+    const filesSection = storachaFilesHeading.locator('..').locator('..');
+    const viewButton = filesSection.getByRole('button', { name: /View/i }).first();
+    await expect(viewButton).toBeVisible({ timeout: 60000 });
+
+    const [viewPage] = await Promise.all([
+      page.waitForEvent('popup'),
+      viewButton.click(),
+    ]);
+    await viewPage.waitForLoadState('domcontentloaded');
+
+    await page.waitForFunction(
+      () => {
+        const url = (window as any).__LAST_IPFS_BLOB_URL__;
+        return typeof url === 'string' && url.startsWith('blob:');
+      },
+      null,
+      { timeout: 60000 }
+    );
+
+    const viewUrl = await page.evaluate(() => (window as any).__LAST_IPFS_BLOB_URL__);
+    expect(viewUrl).toMatch(/^blob:/);
+    await viewPage.close().catch(() => {});
+    console.log('✅ View opened from Helia or gateway fallback');
 
     // ========================================
     // STEP 8: Verify upload UI completes without errors

@@ -18,6 +18,14 @@
     "playwright:install": "playwright install chromium"
   },
   "dependencies": {
+    "@chainsafe/libp2p-noise": "^16.1.5",
+    "@chainsafe/libp2p-yamux": "^7.0.4",
+    "@helia/unixfs": "^4.0.0",
+    "@libp2p/bootstrap": "^11.0.47",
+    "@libp2p/identify": "^3.0.39",
+    "@libp2p/kad-dht": "^15.1.11",
+    "@libp2p/ping": "^2.0.37",
+    "@libp2p/websockets": "^9.2.19",
     "@storacha/client": "^1.8.21",
     "@ucanto/client": "^9.0.2",
     "@ucanto/core": "^10.4.6",
@@ -25,6 +33,8 @@
     "@ucanto/principal": "^9.0.3",
     "@ucanto/transport": "^9.2.1",
     "cbor-web": "^9.0.1",
+    "helia": "^5.0.0",
+    "libp2p": "^2.10.0",
     "lucide-react": "^0.344.0",
     "multiformats": "^13.0.0",
     "react": "^18.3.1",
@@ -32,9 +42,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",
-    "@playwright/test": "^1.56.0",
-    "@helia/unixfs": "^4.0.0",
     "@ipld/car": "^5.2.0",
+    "@playwright/test": "^1.56.0",
     "@storacha/capabilities": "^1.12.0",
     "@storacha/upload-api": "^2.8.4",
     "@types/react": "^18.3.5",
@@ -47,13 +56,12 @@
     "eslint": "^9.9.1",
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.11",
-    "helia": "^5.0.0",
     "globals": "^15.9.0",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.3.0",
-    "vite": "^5.4.2",
+    "vite": "^7.3.1",
     "vite-plugin-node-polyfills": "^0.24.0"
   }
 }

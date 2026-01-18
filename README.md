@@ -119,6 +119,11 @@ This outputs a base64-encoded UCAN delegation proof.
 - Uses delegation with `upload/list` capability
 - Shows CID, upload date, shards
 
+### **5.5. Download via Helia (IPFS)**
+- Spins up a browser Helia node to fetch files directly over IPFS
+- Falls back to public gateways if Helia cannot fetch
+- Thumbnails use the same Helia-first blob pipeline
+
 ### **6. Create Delegation**
 - Create new delegations from your current Ed25519 DID
 - Delegate to another DID with specific capabilities
