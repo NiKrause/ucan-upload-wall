@@ -11,6 +11,7 @@ import { StoreMemory } from '@storacha/client/stores/memory';
 import * as Ed25519Principal from '@ucanto/principal/ed25519';
 import type { Signer as UcanSigner, DID as UcanDID } from '@ucanto/interface';
 import { WebAuthnDIDProvider, WebAuthnCredentialInfo, storeWebAuthnCredential } from './webauthn-did';
+import { getServiceConfig } from './service-config';
 import {
   initEd25519KeystoreWithPrfSeed,
   generateWorkerEd25519DID,
@@ -64,6 +65,124 @@ export class UCANDelegationService {
   private ed25519Keypair: Ed25519KeyPair | null = null;
   private storachaClient: Client.Client | null = null;
   private ed25519Archive: { id: string; keys: Record<string, Uint8Array> } | null = null;
+
+  private async createServiceConnection() {
+    const serviceConfig = getServiceConfig();
+    if (!serviceConfig.uploadServiceUrl || !serviceConfig.uploadServiceDid) {
+      return null;
+    }
+
+    const UcantoClient = await import('@ucanto/client');
+    const { CAR, HTTP } = await import('@ucanto/transport');
+    const { Verifier } = await import('@ucanto/principal');
+
+    const resolvedServiceDid = await this.resolveServiceDid(
+      serviceConfig.uploadServiceDid,
+      serviceConfig.uploadServiceUrl
+    );
+    const serviceID = Verifier.parse(resolvedServiceDid).withDID(
+      serviceConfig.uploadServiceDid
+    );
+
+    return UcantoClient.connect({
+      id: serviceID,
+      codec: CAR.outbound,
+      channel: HTTP.open({
+        url: new URL(serviceConfig.uploadServiceUrl),
+        method: 'POST',
+      }),
+    });
+  }
+
+  private async resolveServiceDid(did: string, serviceUrl?: string): Promise<string> {
+    if (!did.startsWith('did:web:')) {
+      return did;
+    }
+
+    try {
+      const { didKey } = await this.resolveDidWebToDidKey(did, serviceUrl);
+      return didKey ?? did;
+    } catch (error) {
+      console.warn(`Failed to resolve ${did} to did:key`, error);
+      return did;
+    }
+  }
+
+  private async resolveDidWebToDidKey(
+    did: string,
+    serviceUrl?: string
+  ): Promise<{ didKey?: string }> {
+    const didWebPrefix = 'did:web:';
+    const identifier = did.replace(didWebPrefix, '');
+    const parts = identifier.split(':');
+    const domain = parts[0];
+    const pathSegments = parts.slice(1);
+
+    const getDidJsonUrl = () => {
+      if (serviceUrl) {
+        const base = new URL(serviceUrl);
+        if (pathSegments.length > 0) {
+          return new URL(`/${pathSegments.join('/')}/did.json`, base.origin);
+        }
+        return new URL('/.well-known/did.json', base.origin);
+      }
+
+      const base = `https://${domain}`;
+      if (pathSegments.length > 0) {
+        return new URL(`/${pathSegments.join('/')}/did.json`, base);
+      }
+      return new URL('/.well-known/did.json', base);
+    };
+
+    const url = getDidJsonUrl();
+    const response = await fetch(url.toString(), {
+      headers: { Accept: 'application/json' },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch DID document ${url}: ${response.status}`);
+    }
+
+    const didDoc = (await response.json()) as {
+      verificationMethod?: Array<{ publicKeyMultibase?: string }>;
+    };
+
+    const publicKeyMultibase = didDoc.verificationMethod?.find(
+      (method) => typeof method.publicKeyMultibase === 'string'
+    )?.publicKeyMultibase;
+
+    if (!publicKeyMultibase) {
+      throw new Error(`No publicKeyMultibase found in DID document ${url}`);
+    }
+
+    return {
+      didKey: `did:key:${publicKeyMultibase}`,
+    };
+  }
+
+  private async createClient(principal: UcanSigner) {
+    const store = new StoreMemory();
+    const serviceConfig = getServiceConfig();
+    const connection = await this.createServiceConnection();
+
+    if (connection && serviceConfig.uploadServiceUrl) {
+      const receiptsUrl =
+        serviceConfig.receiptsUrl ??
+        new URL('/receipt/', serviceConfig.uploadServiceUrl).toString();
+      return Client.create({
+        principal,
+        store,
+        serviceConf: {
+          access: connection,
+          upload: connection,
+          filecoin: connection,
+        },
+        receiptsEndpoint: new URL(receiptsUrl),
+      });
+    }
+
+    return Client.create({ principal, store });
+  }
 
   /**
    * Initialize or load existing Ed25519 DID
@@ -438,9 +557,8 @@ export class UCANDelegationService {
       // In a full implementation, this would use the WebAuthn DID for signing
       const { Signer } = await import('@storacha/client/principal/ed25519');
       const principal = Signer.parse(credentials.key);
-      
-      const store = new StoreMemory();
-      const client = await Client.create({ principal, store });
+
+      const client = await this.createClient(principal);
 
       const proof = await Proof.parse(credentials.proof);
       const space = await client.addSpace(proof);
@@ -524,9 +642,6 @@ export class UCANDelegationService {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const delegation = await this.parseDelegationProof(delegationInfo.proof) as any;
       
-      const Client = await import('@storacha/client');
-      const { StoreMemory } = await import('@storacha/client/stores/memory');
-
       // Use worker-backed Ed25519 principal (WebAuthn PRF → keystore)
       const principal = await this.getWorkerPrincipal();
 
@@ -542,11 +657,7 @@ export class UCANDelegationService {
       
       console.log('✅ DID matches - delegation is for this principal');
 
-      const store = new StoreMemory();
-      const client = await Client.create({
-        principal,
-        store
-      });
+      const client = await this.createClient(principal);
       
       if (delegation.capabilities && delegation.capabilities.length > 0) {
         const cap = delegation.capabilities[0];
@@ -754,10 +865,6 @@ export class UCANDelegationService {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const delegation = await this.parseDelegationProof(delegationInfo.proof) as any;
       
-      // Import required modules
-      const Client = await import('@storacha/client');
-      const { StoreMemory } = await import('@storacha/client/stores/memory');
-
       // Use worker-backed Ed25519 principal (WebAuthn PRF → keystore)
       const principal = await this.getWorkerPrincipal();
 
@@ -773,12 +880,7 @@ export class UCANDelegationService {
       
       console.log('✅ DID matches - delegation is for this principal');
 
-      // Create Storacha client with the Ed25519 principal
-      const store = new StoreMemory();
-      const client = await Client.create({
-        principal,
-        store
-      });
+      const client = await this.createClient(principal);
       
       // Get space DID from delegation and set as current
       if (delegation.capabilities && delegation.capabilities.length > 0) {
@@ -850,10 +952,6 @@ export class UCANDelegationService {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       console.log('Delegation capabilities:', delegation.capabilities.map((c: any) => c.can).join(', '));
       
-      // Import required modules
-      const Client = await import('@storacha/client');
-      const { StoreMemory } = await import('@storacha/client/stores/memory');
-
       // Use worker-backed Ed25519 principal (WebAuthn PRF → keystore)
       const principal = await this.getWorkerPrincipal();
 
@@ -877,12 +975,7 @@ export class UCANDelegationService {
         );
       }
       
-      // Create Storacha client with the Ed25519 principal
-      const store = new StoreMemory();
-      const client = await Client.create({
-        principal,
-        store,
-      });
+      const client = await this.createClient(principal);
       
       console.log('✅ Created Storacha client with delegation');
       
@@ -1231,6 +1324,12 @@ export class UCANDelegationService {
         // Generate default name if not provided
         const defaultName = name || `Delegation from ${issuerDidString.slice(0, 20)}... (${new Date().toLocaleDateString()})`;
         
+        const expirationSeconds = delegation.expiration;
+        const expiresAt =
+          typeof expirationSeconds === 'number' && Number.isFinite(expirationSeconds)
+            ? new Date(expirationSeconds * 1000).toISOString()
+            : undefined;
+
         delegationInfo = {
           id: delegation.cid?.toString() || crypto.randomUUID(),
           name: defaultName,
@@ -1239,7 +1338,7 @@ export class UCANDelegationService {
           proof: cleanedProof,
           capabilities,
           createdAt: new Date().toISOString(),
-          expiresAt: delegation.expiration ? new Date(delegation.expiration * 1000).toISOString() : undefined,
+          expiresAt,
           format: detectedFormat + ' (ucanto extract)'
         };
         
@@ -1374,6 +1473,12 @@ export class UCANDelegationService {
                       throw new Error(`This delegation is not for your current DID. Expected: ${ourDid}, Got: ${audienceDid}`);
                     }
                     
+                    const expirationSeconds = delegation.expiration;
+                    const expiresAt =
+                      typeof expirationSeconds === 'number' && Number.isFinite(expirationSeconds)
+                        ? new Date(expirationSeconds * 1000).toISOString()
+                        : undefined;
+
                     delegationInfo = {
                       id: delegation.cid?.toString() || crypto.randomUUID(),
                       fromIssuer: String(issuerDid),
@@ -1384,7 +1489,7 @@ export class UCANDelegationService {
                         ? delegation.capabilities.map((cap: any) => cap.can || cap.capability || cap)
                         : ['space/blob/add', 'space/blob/list', 'space/blob/remove', 'store/add', 'store/list', 'store/remove', 'upload/add', 'upload/list', 'upload/remove'],
                       createdAt: new Date().toISOString(),
-                      expiresAt: delegation.expiration ? new Date(delegation.expiration * 1000).toISOString() : undefined,
+                      expiresAt,
                       format: 'ucanto-result-format (base64-encoded JSON)'
                     };
                     
@@ -1466,6 +1571,12 @@ export class UCANDelegationService {
             }
             
             // Create delegation info from UCAN delegation
+            const expirationSeconds = delegation.expiration;
+            const expiresAt =
+              typeof expirationSeconds === 'number' && Number.isFinite(expirationSeconds)
+                ? new Date(expirationSeconds * 1000).toISOString()
+                : undefined;
+
             delegationInfo = {
               id: delegation.cid?.toString() || crypto.randomUUID(),
               fromIssuer: String(issuerDid),
@@ -1476,7 +1587,7 @@ export class UCANDelegationService {
                 ? delegation.capabilities.map((cap: any) => cap.can || cap.capability || cap)
                 : ['space/blob/add', 'space/blob/list', 'space/blob/remove', 'store/add', 'store/list', 'store/remove', 'upload/add', 'upload/list', 'upload/remove'], // fallback capabilities
               createdAt: new Date().toISOString(),
-              expiresAt: delegation.expiration ? new Date(delegation.expiration * 1000).toISOString() : undefined,
+              expiresAt,
               format: 'car-format (base64-encoded CAR file)'
             };
           } else {
@@ -1501,7 +1612,8 @@ export class UCANDelegationService {
       
       // Check if already exists
       if (delegations.find(d => d.id === delegationInfo.id)) {
-        throw new Error('Delegation already imported');
+        console.warn('Delegation already imported');
+        return;
       }
 
       delegations.unshift(delegationInfo);
@@ -1523,7 +1635,8 @@ export class UCANDelegationService {
     
     // Check if already exists
     if (delegations.find(d => d.id === delegation.id)) {
-      throw new Error('Delegation already imported');
+      console.warn('Delegation already imported');
+      return;
     }
     
     delegations.unshift(delegation);
@@ -1602,6 +1715,8 @@ export class UCANDelegationService {
    */
   async isDelegationRevoked(delegationCID: string, forceRefresh = false): Promise<boolean> {
     const now = Date.now();
+    const serviceConfig = getServiceConfig();
+    const revocationUrl = serviceConfig.revocationUrl ?? 'https://up.storacha.network';
     
     // Check cache first (unless forcing refresh)
     if (!forceRefresh) {
@@ -1615,7 +1730,7 @@ export class UCANDelegationService {
     try {
       console.log(`Checking revocation status for delegation: ${delegationCID}`);
       const response = await fetch(
-        `https://up.storacha.network/revocations/${delegationCID}`,
+        `${revocationUrl.replace(/\/$/, '')}/revocations/${delegationCID}`,
         {
           method: 'GET',
           headers: {
@@ -1687,6 +1802,9 @@ export class UCANDelegationService {
   async revokeDelegation(delegationCID: string): Promise<{ success: boolean; error?: string }> {
     try {
       console.log(`🔄 Revoking delegation: ${delegationCID}`);
+      const serviceConfig = getServiceConfig();
+      const revocationUrl = serviceConfig.revocationUrl ?? 'https://up.storacha.network';
+      const revocationDid = serviceConfig.revocationDid ?? 'did:web:up.storacha.network';
       
       // Find the delegation in created delegations
       const createdDelegations = this.getCreatedDelegations();
@@ -1714,7 +1832,7 @@ export class UCANDelegationService {
       
       // Parse the service DID properly
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const serviceID = Verifier.parse('did:web:up.storacha.network') as any;
+      const serviceID = Verifier.parse(revocationDid) as any;
       
       // Create the revocation invocation
       // Following Storacha's agent.js pattern
@@ -1741,7 +1859,7 @@ export class UCANDelegationService {
         id: serviceID as any,
         codec: CAR.outbound,
         channel: HTTP.open({
-          url: new URL('https://up.storacha.network'),
+          url: new URL(revocationUrl),
           method: 'POST',
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         }) as any,

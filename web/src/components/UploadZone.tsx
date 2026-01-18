@@ -171,6 +171,7 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
               onClick={handleCreateDID}
               disabled={isCreatingDID}
               className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              data-testid="create-did-button"
             >
               {encryptionSupported ? <Lock className="h-4 w-4 mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
               {isCreatingDID ? 'Generating...' : encryptionSupported ? '🔐 Create Secure DID' : 'Create DID'}

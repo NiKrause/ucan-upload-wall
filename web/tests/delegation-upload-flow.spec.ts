@@ -10,11 +10,15 @@
  * Issue: https://github.com/NiKrause/ucan-upload-wall/issues/2
  */
 
+import http from 'node:http';
 import { test, expect, BrowserContext, Page } from '@playwright/test';
 import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpers/webauthn';
 import * as ed25519 from '@ucanto/principal/ed25519';
 import { DID } from '@ucanto/interface';
-import { delegate } from '@ucanto/core';
+import { delegate, Message } from '@ucanto/core';
+import { createServer, handle } from '@storacha/upload-api';
+import { CAR } from '@ucanto/transport';
+import * as CARTransport from '@ucanto/transport/car';
 
 // Import test context from upload-api
 // Note: This provides in-memory storage and services
@@ -45,6 +49,13 @@ test.describe('Delegation and Upload Flow - E2E', () => {
   let cdpSession: { client: unknown; authenticatorId: string };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let uploadServiceContext: any;
+  let uploadApiServer: http.Server | null = null;
+  let uploadApiUrl: string | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let heliaNode: any | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let heliaUnixfs: any | null = null;
+  let heliaStartPromise: Promise<any> | null = null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let spaceAgent: any; // The agent that owns the space
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -52,6 +63,263 @@ test.describe('Delegation and Upload Flow - E2E', () => {
   let spaceDid: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let spaceProof: any;
+
+  function isPublicIp(address: string): boolean {
+    if (!address) {
+      return false;
+    }
+
+    if (address.includes(':')) {
+      const normalized = address.toLowerCase();
+      if (normalized === '::1') {
+        return false;
+      }
+      if (normalized.startsWith('fc') || normalized.startsWith('fd')) {
+        return false;
+      }
+      if (normalized.startsWith('fe80:')) {
+        return false;
+      }
+      return true;
+    }
+
+    const parts = address.split('.').map((part) => Number(part));
+    if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
+      return false;
+    }
+
+    const [a, b] = parts;
+    if (a === 10 || a === 127 || a === 0) {
+      return false;
+    }
+    if (a === 192 && b === 168) {
+      return false;
+    }
+    if (a === 169 && b === 254) {
+      return false;
+    }
+    if (a === 172 && b >= 16 && b <= 31) {
+      return false;
+    }
+
+    return true;
+  }
+
+  function isPublicMultiaddr(multiaddr: any): boolean {
+    if (!multiaddr || typeof multiaddr.nodeAddress !== 'function') {
+      return false;
+    }
+
+    try {
+      const { address } = multiaddr.nodeAddress();
+      return isPublicIp(address);
+    } catch {
+      return false;
+    }
+  }
+
+  function countPublicPeers(helia: any): number {
+    const connections = helia?.libp2p?.getConnections?.() ?? [];
+    const publicPeers = new Set<string>();
+
+    for (const connection of connections) {
+      if (isPublicMultiaddr(connection?.remoteAddr)) {
+        publicPeers.add(connection?.remotePeer?.toString?.() ?? String(connection?.remotePeer));
+      }
+    }
+
+    return publicPeers.size;
+  }
+
+  async function waitForPublicPeers(
+    helia: any,
+    { minPeers, timeoutMs }: { minPeers: number; timeoutMs: number }
+  ): Promise<void> {
+    const start = Date.now();
+
+    while (Date.now() - start < timeoutMs) {
+      const count = countPublicPeers(helia);
+      if (count >= minPeers) {
+        console.log(`🟣 Helia connected to ${count} public peers (min ${minPeers})`);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+
+    throw new Error(`Timed out waiting for ${minPeers} public Helia peers`);
+  }
+
+  async function ensureHelia() {
+    if (heliaNode) {
+      return heliaNode;
+    }
+    if (!heliaStartPromise) {
+      heliaStartPromise = (async () => {
+        const { createHelia } = await import('helia');
+        const { unixfs } = await import('@helia/unixfs');
+        const node = await createHelia();
+        heliaUnixfs = unixfs(node);
+        console.log('🟣 Helia node started');
+        console.log('🟣 Waiting for Helia to connect to public peers...');
+        await waitForPublicPeers(node, { minPeers: 10, timeoutMs: 60000 });
+        return node;
+      })();
+    }
+    heliaNode = await heliaStartPromise;
+    return heliaNode;
+  }
+
+  async function importCarToHelia(bytes: Uint8Array) {
+    const helia = await ensureHelia();
+    const { CarReader } = await import('@ipld/car');
+    const reader = await CarReader.fromBytes(bytes);
+    const roots = await reader.getRoots();
+
+    for await (const block of reader.blocks()) {
+      await helia.blockstore.put(block.cid, block.bytes);
+    }
+
+    for (const root of roots) {
+      await helia.libp2p.contentRouting.provide(root);
+      console.log(`🟣 Helia provided root ${root.toString()}`);
+    }
+  }
+
+  function createCorsHttp(): typeof http {
+    return {
+      ...http,
+      createServer: (handler: http.RequestListener) =>
+        http.createServer((req, res) => {
+          console.log(`🧰 Storage node HTTP ${req.method} ${req.url}`);
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+          res.setHeader(
+            'Access-Control-Allow-Headers',
+            'Content-Type, Authorization, X-Amz-Checksum-Sha256'
+          );
+
+          if (req.method === 'OPTIONS') {
+            res.writeHead(204);
+            res.end();
+            return;
+          }
+
+          if (req.method === 'PUT') {
+            const chunks: Uint8Array[] = [];
+            req.on('data', (chunk: Uint8Array) => chunks.push(chunk));
+            req.on('end', () => {
+              const bytes = new Uint8Array(Buffer.concat(chunks));
+              importCarToHelia(bytes).catch((error) => {
+                console.warn('🟣 Helia CAR import skipped:', error?.message ?? error);
+              });
+            });
+          }
+
+          return handler(req, res);
+        }),
+    } as typeof http;
+  }
+
+  async function startUploadApiServer(context: any): Promise<{ server: http.Server; url: string }> {
+    const agent = createServer({ ...context, codec: CAR.inbound });
+
+    const server = http.createServer(async (req, res) => {
+      console.log(`🌐 upload-api HTTP ${req.method} ${req.url}`);
+      if (req.method === 'OPTIONS') {
+        res.writeHead(200, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Max-Age': '86400',
+        });
+        res.end();
+        return;
+      }
+
+      if (req.method === 'GET' && req.url?.startsWith('/receipt/')) {
+        const taskCid = req.url.slice('/receipt/'.length);
+        if (!taskCid) {
+          res.writeHead(204, { 'Access-Control-Allow-Origin': '*' });
+          res.end();
+          return;
+        }
+
+        console.log(`🧾 Receipt lookup for task ${taskCid}`);
+        const receiptResult = await context.agentStore.receipts.get(taskCid);
+        if (receiptResult.error) {
+          console.warn(`🧾 Receipt not found for task ${taskCid}`);
+          res.writeHead(404, {
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end();
+          return;
+        }
+
+        const message = await Message.build({ receipts: [receiptResult.ok] });
+        const body = CARTransport.request.encode(message).body;
+        res.writeHead(200, {
+          'Access-Control-Allow-Origin': '*',
+          'Content-Type': 'application/car',
+        });
+        res.end(body);
+        return;
+      }
+
+      if (req.method === 'GET' && req.url?.startsWith('/.well-known/did.json')) {
+        const serviceDid = context.id.did();
+        const didKey = context.id.toDIDKey();
+        const publicKeyMultibase = didKey.startsWith('did:key:')
+          ? didKey.slice('did:key:'.length)
+          : didKey;
+
+        res.writeHead(200, {
+          'Access-Control-Allow-Origin': '*',
+          'Content-Type': 'application/json',
+        });
+        res.end(
+          JSON.stringify({
+            id: serviceDid,
+            verificationMethod: [
+              {
+                id: `${serviceDid}#key-1`,
+                type: 'Ed25519VerificationKey2020',
+                controller: serviceDid,
+                publicKeyMultibase,
+              },
+            ],
+          })
+        );
+        return;
+      }
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(chunk as Buffer);
+      }
+      const body = Buffer.concat(chunks);
+
+      const response = await handle(agent, { headers: req.headers, body });
+      console.log(`✅ upload-api response ${response.status || 200} ${req.method} ${req.url}`);
+      res.writeHead(response.status || 200, {
+        ...response.headers,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      });
+      res.end(response.body);
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Failed to bind upload-api HTTP server');
+    }
+
+    return { server, url: `http://127.0.0.1:${address.port}` };
+  }
 
   test.beforeEach(async ({ browser }) => {
     test.setTimeout(120000); // 2 minutes timeout for complex flow
@@ -61,7 +329,8 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     // 1. Create in-memory upload service
     console.log('📦 Creating in-memory upload service...');
     uploadServiceContext = await createContext({
-      requirePaymentPlan: false // Disable payment checks for testing
+      requirePaymentPlan: false,
+      http: createCorsHttp()
     });
     console.log('✅ Upload service created:', uploadServiceContext.id.did());
 
@@ -90,6 +359,13 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     });
     console.log('✅ Space provisioned');
 
+    // 5. Start upload-api HTTP server
+    console.log('🌐 Starting upload-api HTTP server...');
+    const serverInfo = await startUploadApiServer(uploadServiceContext);
+    uploadApiServer = serverInfo.server;
+    uploadApiUrl = serverInfo.url;
+    console.log('✅ upload-api server ready:', uploadApiUrl);
+
     // 5. Setup browser context and WebAuthn
     console.log('🌐 Setting up browser context...');
     context = await browser.newContext();
@@ -98,6 +374,30 @@ test.describe('Delegation and Upload Flow - E2E', () => {
 
     // Enable virtual WebAuthn authenticator
     cdpSession = await enableVirtualAuthenticator(context);
+
+    page.on('console', (msg) => {
+      console.log(`[browser:${msg.type()}] ${msg.text()}`);
+    });
+    page.on('pageerror', (error) => {
+      console.log(`[browser:error] ${error.message}`);
+    });
+    page.on('requestfailed', (request) => {
+      console.log(
+        `[browser:requestfailed] ${request.method()} ${request.url()} ${request.failure()?.errorText ?? ''}`
+      );
+    });
+
+    // Provide service overrides before app boot
+    if (uploadApiUrl) {
+      await page.addInitScript(
+        ({ url, did }) => {
+          (globalThis as any).__UPLOAD_SERVICE_URL__ = url;
+          (globalThis as any).__UPLOAD_SERVICE_DID__ = did;
+          (globalThis as any).__RECEIPTS_URL__ = `${url}/receipt/`;
+        },
+        { url: uploadApiUrl, did: uploadServiceContext.id.did() }
+      );
+    }
 
     // Navigate to app
     await page.goto('/');
@@ -125,8 +425,70 @@ test.describe('Delegation and Upload Flow - E2E', () => {
       console.log('✅ Upload service cleaned up');
     }
     
+    if (uploadApiServer) {
+      await new Promise<void>((resolve) => uploadApiServer?.close(() => resolve()));
+      uploadApiServer = null;
+      uploadApiUrl = null;
+    }
+
+    if (heliaNode) {
+      await heliaNode.stop();
+      heliaNode = null;
+      heliaStartPromise = null;
+      heliaUnixfs = null;
+      console.log('🟣 Helia node stopped');
+    }
+
     await context?.close().catch(() => {});
   });
+
+  async function createDIDInUI(): Promise<string> {
+    console.log('📝 Creating DID in React UI...');
+
+    await page.getByRole('button', { name: /Upload Files/i }).click();
+    await page.waitForTimeout(1000);
+
+    const uploadHeading = page.getByRole('heading', { name: /Step 1: Create Ed25519 DID/i });
+    await expect(uploadHeading).toBeVisible({ timeout: 10000 });
+
+    const createButton = page.getByRole('button', {
+      name: /Create DID|Create Secure DID|Generating/i,
+    });
+    await expect(createButton).toBeVisible({ timeout: 10000 });
+    await expect(createButton).toBeEnabled({ timeout: 5000 });
+
+    const getDidDisplay = async () => {
+      await page.getByRole('button', { name: /delegations/i }).click();
+      await page.waitForTimeout(1000);
+      const didElement = page.getByTestId('did-display');
+      await expect(didElement).toBeVisible({ timeout: 10000 });
+      const browserDID = (await didElement.textContent())?.trim();
+      expect(browserDID).toBeTruthy();
+      expect(browserDID).toMatch(/^did:key:z6Mk/);
+      return browserDID as string;
+    };
+
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await createButton.click();
+        await page.waitForFunction(
+          () => Boolean(localStorage.getItem('ed25519_keypair')),
+          null,
+          { timeout: 20000 }
+        );
+        const browserDID = await getDidDisplay();
+        console.log('✅ Browser DID:', browserDID);
+        return browserDID;
+      } catch (error) {
+        lastError = error;
+        console.log(`ℹ️ DID creation attempt ${attempt} did not complete, retrying...`);
+        await page.waitForTimeout(500);
+      }
+    }
+
+    throw lastError ?? new Error('Failed to create DID in UI');
+  }
 
   test('should complete full delegation workflow: create space → DID → delegate → import → upload → persist', async () => {
     console.log('\n🎯 TEST START: Complete Delegation Workflow\n');
@@ -135,34 +497,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     // STEP 1: Create DID in React UI (on Upload tab)
     // ========================================
     console.log('📝 STEP 1: Creating DID in React UI...');
-    
-    // Start on Upload tab (default view)
-    await page.waitForTimeout(1000);
-    
-    // Navigate to Delegations tab to create DID
-    await page.getByRole('button', { name: /delegations/i }).click();
-    await page.waitForTimeout(1000);
-
-    // Create DID
-    const createButton = page.getByTestId('create-did-button');
-    await expect(createButton).toBeVisible({ timeout: 10000 });
-    await expect(createButton).toBeEnabled({ timeout: 5000 });
-    await createButton.click();
-    await page.waitForTimeout(3000);
-
-    // ========================================
-    // STEP 2: Copy DID from UI
-    // ========================================
-    console.log('📋 STEP 2: Extracting DID from UI...');
-    
-    // After DID creation, verify it's visible
-    const didElement = page.getByTestId('did-display');
-    await expect(didElement).toBeVisible({ timeout: 10000 });
-    const browserDID = await didElement.textContent();
-    
-    expect(browserDID).toBeTruthy();
-    expect(browserDID).toMatch(/^did:key:z6Mk/);
-    console.log('✅ Browser DID:', browserDID);
+    const browserDID = await createDIDInUI();
     
     // Navigate away and back to reset UI state
     console.log('🔄 Navigating away and back to Delegations tab...');
@@ -189,12 +524,15 @@ test.describe('Delegation and Upload Flow - E2E', () => {
       issuer: spaceAgent,
       audience: browserPrincipal,
       capabilities: [
-        { with: space.did(), can: 'store/add' },
+        { with: space.did(), can: 'space/blob/add' },
+        { with: space.did(), can: 'space/index/add' },
         { with: space.did(), can: 'upload/add' },
-        { with: space.did(), can: 'upload/list' }
+        { with: space.did(), can: 'upload/list' },
+        { with: space.did(), can: 'filecoin/offer' },
+        { with: space.did(), can: 'store/add' }
       ],
       proofs: [spaceProof], // Include proof that spaceAgent has authority
-      expiration: undefined,
+      expiration: Math.floor(Date.now() / 1000) + 3600,
     });
 
     // Encode delegation as base64 (Storacha CLI format: multibase-base64)
@@ -245,12 +583,15 @@ test.describe('Delegation and Upload Flow - E2E', () => {
         issuer: spaceAgent,
         audience: updatedBrowserPrincipal,
         capabilities: [
-          { with: space.did(), can: 'store/add' },
+          { with: space.did(), can: 'space/blob/add' },
+          { with: space.did(), can: 'space/index/add' },
           { with: space.did(), can: 'upload/add' },
-          { with: space.did(), can: 'upload/list' }
+          { with: space.did(), can: 'upload/list' },
+          { with: space.did(), can: 'filecoin/offer' },
+          { with: space.did(), can: 'store/add' }
         ],
         proofs: [spaceProof],
-        expiration: undefined,
+        expiration: Math.floor(Date.now() / 1000) + 3600,
       });
       
       const updatedArchive = await updatedDelegation.archive();
@@ -404,12 +745,13 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     await expect(uploadButton).toBeVisible({ timeout: 5000 });
     await uploadButton.click();
 
-    // Wait for upload interaction to complete
-    // Note: This tests the UI flow, but actual upload goes to production Storacha
-    // (not the in-memory test service, which would require HTTP server setup)
-    await page.waitForTimeout(3000);
-    
-    console.log('✅ Upload button clicked - UI interaction tested');
+    const uploadedHeading = page.getByRole('heading', { name: /Recently Uploaded Files/i });
+    await expect(uploadedHeading).toBeVisible({ timeout: 60000 });
+    const uploadedFilename = uploadedHeading
+      .locator('..')
+      .locator('h3', { hasText: 'test-file.txt' });
+    await expect(uploadedFilename).toBeVisible({ timeout: 60000 });
+    console.log('✅ Upload completed and appeared in list');
 
     // ========================================
     // STEP 8: Verify upload UI completes without errors
@@ -431,8 +773,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     console.log('✅ Step 6: Verified delegation in UI');
     console.log('✅ Step 7: Tested upload UI interaction');
     console.log('✅ Step 8: Verified UI stability');
-    console.log('\n📝 Note: Upload persistence not tested (requires HTTP server for in-memory service)');
-    console.log('   The upload UI targets production Storacha network.\n');
+    console.log('\n📝 Note: Upload performed against local upload-api server.');
     console.log('Summary:');
     console.log('  ✓ Created in-memory upload service');
     console.log('  ✓ Created space and provisioned it');
@@ -448,16 +789,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
 
     // Create DID in UI
     console.log('📝 Creating DID in React UI...');
-    await page.getByRole('button', { name: /delegations/i }).click();
-    await page.waitForTimeout(1000);
-
-    const createButton = page.getByTestId('create-did-button');
-    await createButton.click();
-    await page.waitForTimeout(3000);
-
-    const didElement = page.getByTestId('did-display');
-    const browserDID = await didElement.textContent();
-    console.log('✅ Browser DID:', browserDID);
+    const browserDID = await createDIDInUI();
     
     // Navigate away and back to reset state
     await page.getByRole('button', { name: /Upload Files/i }).click();
@@ -477,7 +809,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
         { with: space.did(), can: 'upload/add' }
       ],
       proofs: [spaceProof],
-      expiration: undefined,
+      expiration: Math.floor(Date.now() / 1000) + 3600,
     });
 
     const delegationArchive = await delegation.archive();
@@ -564,4 +896,3 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     console.log('\n✅ TEST PASSED: All delegation formats work correctly!\n');
   });
 });
-
