@@ -24,6 +24,7 @@ import {
 } from './secure-ed25519-did';
 import { HardwareUCANDelegationService } from './hardware-ucan-service';
 import { checkEd25519Support } from './webauthn-ed25519-signer';
+import { config } from '../config';
 
 // Storage keys for localStorage
 const STORAGE_KEYS = {
@@ -415,11 +416,8 @@ export class UCANDelegationService {
    * @returns Parsed delegation object
    */
   private async parseDelegationProof(proofString: string): Promise<unknown> {
-    // Normalize the proof: add 'm' prefix if not present
-    let normalizedProof = proofString.trim();
-    if (!normalizedProof.startsWith('m') && !normalizedProof.startsWith('u')) {
-      normalizedProof = 'm' + normalizedProof;
-    }
+    // Normalize multibase prefix for base64/base64url inputs
+    const normalizedProof = this.normalizeDelegationProof(proofString.trim());
     
     // Decode the multibase string to bytes
     let tokenBytes: Uint8Array;
@@ -579,7 +577,11 @@ export class UCANDelegationService {
       const principal = Signer.parse(credentials.key);
       
       const store = new StoreMemory();
-      const client = await Client.create({ principal, store });
+      
+      const client = await Client.create({
+        principal,
+        store,
+      });
 
       const proof = await Proof.parse(credentials.proof);
       const space = await client.addSpace(proof);
@@ -604,10 +606,10 @@ export class UCANDelegationService {
     
     // Check if we have delete capability
     const hasDeleteCapability = credentials || receivedDelegations.some(delegation => 
-      delegation.capabilities.some(cap => 
+      delegation.capabilities?.some(cap => 
         cap === 'upload/remove' || cap === 'upload/*' ||
         cap === 'space/*' || cap === 'store/remove' || cap === 'store/*'
-      )
+      ) || false
     );
     
     if (!hasDeleteCapability) {
@@ -619,10 +621,10 @@ export class UCANDelegationService {
         return await this.deleteWithCredentials(rootCid);
       } else {
         const delegation = receivedDelegations.find(d => 
-          d.capabilities.some(cap => 
+          d.capabilities?.some(cap => 
             cap === 'upload/remove' || cap === 'upload/*' ||
             cap === 'space/*' || cap === 'store/remove' || cap === 'store/*'
-          )
+          ) || false
         );
         if (delegation) {
           return await this.deleteWithDelegation(rootCid, delegation);
@@ -682,22 +684,21 @@ export class UCANDelegationService {
       console.log('✅ DID matches - delegation is for this principal');
 
       const store = new StoreMemory();
+      
       const client = await Client.create({
         principal,
-        store
+        store,
       });
       
-      if (delegation.capabilities && delegation.capabilities.length > 0) {
-        const cap = delegation.capabilities[0];
-        if (cap.with && typeof cap.with === 'string' && cap.with.startsWith('did:key:')) {
-          try {
-            const space = await client.addSpace(delegation);
-            await client.setCurrentSpace(space.did());
-            console.log('✅ Space set successfully for delete operation');
-          } catch (spaceError) {
-            console.error('❌ Failed to set current space:', (spaceError as Error).message);
-            throw spaceError;
-          }
+      const spaceDid = this.getSpaceDidFromDelegation(delegation);
+      if (spaceDid) {
+        try {
+          const space = await client.addSpace(delegation);
+          await client.setCurrentSpace(space.did());
+          console.log('✅ Space set successfully for delete operation');
+        } catch (spaceError) {
+          console.error('❌ Failed to set current space:', (spaceError as Error).message);
+          throw spaceError;
         }
       }
       
@@ -720,10 +721,10 @@ export class UCANDelegationService {
     const receivedDelegations = this.getReceivedDelegations();
     
     return !!credentials || receivedDelegations.some(delegation => 
-      delegation.capabilities.some(cap => 
+      delegation.capabilities?.some(cap => 
         cap === 'upload/remove' || cap === 'upload/*' ||
         cap === 'space/*' || cap === 'store/remove' || cap === 'store/*'
-      )
+      ) || false
     );
   }
   
@@ -762,11 +763,11 @@ export class UCANDelegationService {
     // Check if we have received delegations with upload capability (Browser B scenario)
     // Support both exact matches and wildcard capabilities (e.g., 'upload/*' includes 'upload/add')
     const uploadDelegation = receivedDelegations.find(delegation => 
-      delegation.capabilities.some(cap => 
+      delegation.capabilities?.some(cap => 
         cap === 'upload/add' || cap === 'upload/*' ||
         cap === 'space/blob/add' || cap === 'space/*' || cap === 'blob/*' ||
         cap === 'store/add' || cap === 'store/*'
-      )
+      ) || false
     );
     
     if (uploadDelegation) {
@@ -820,10 +821,10 @@ export class UCANDelegationService {
       
       // Check if we have received delegations with upload/list capability (Browser B scenario)
       const uploadDelegation = receivedDelegations.find(delegation => 
-        delegation.capabilities.some(cap => 
+        delegation.capabilities?.some(cap => 
           cap === 'upload/list' || cap === 'upload/*' ||
           cap === 'space/info' || cap === 'space/*'
-        )
+        ) || false
       );
       
       if (uploadDelegation) {
@@ -914,23 +915,70 @@ export class UCANDelegationService {
 
       // Create Storacha client with the Ed25519 principal
       const store = new StoreMemory();
-      const client = await Client.create({
-        principal,
-        store
+      
+      console.log('🔧 Creating client with config:', {
+        url: config.uploadService.url,
+        did: config.uploadService.did,
       });
       
+      let client;
+      
+      // Check if using local service (non-production URL)
+      const isLocalService = config.uploadService.url.includes('localhost') || 
+                            config.uploadService.url.includes('127.0.0.1');
+      
+      if (isLocalService) {
+        console.log('🏠 Local service detected - using @ucanto/client with custom service');
+        
+        // Import ucanto client for low-level connection
+        const UcantoClient = await import('@ucanto/client');
+        const { CAR, HTTP } = await import('@ucanto/transport');
+        const serviceID = await this.parseServiceDid(config.uploadService.did);
+        
+        // Create connection to local service
+        const connection = UcantoClient.connect({
+          id: serviceID,
+          codec: CAR.outbound,
+          channel: HTTP.open({
+            url: new URL(config.uploadService.url),
+            method: 'POST',
+          }),
+        });
+        
+        // Create client with custom service configuration
+        client = await Client.create({
+          principal,
+          store,
+          serviceConf: {
+            access: connection,
+            upload: connection,
+            filecoin: connection,
+          },
+          receiptsEndpoint: new URL('http://localhost:9201'), // Mock receipts
+        });
+        
+        console.log('✅ Client created with local service');
+      } else {
+        console.log('☁️  Production service - using default @storacha/client');
+        
+        client = await Client.create({
+          principal,
+          store,
+        });
+        
+        console.log('✅ Client created successfully (production service)');
+      }
+      
       // Get space DID from delegation and set as current
-      if (delegation.capabilities && delegation.capabilities.length > 0) {
-        const cap = delegation.capabilities[0];
-        if (cap.with && typeof cap.with === 'string' && cap.with.startsWith('did:key:')) {
-          try {
-            const space = await client.addSpace(delegation);
-            await client.setCurrentSpace(space.did());
-            console.log('✅ Space set successfully:', space.did());
-          } catch (spaceError) {
-            console.error('❌ Failed to set current space:', (spaceError as Error).message);
-            throw spaceError; // Don't continue if space setup fails
-          }
+      const listSpaceDid = this.getSpaceDidFromDelegation(delegation);
+      if (listSpaceDid) {
+        try {
+          const space = await client.addSpace(delegation);
+          await client.setCurrentSpace(space.did());
+          console.log('✅ Space set successfully:', space.did());
+        } catch (spaceError) {
+          console.error('❌ Failed to set current space:', (spaceError as Error).message);
+          throw spaceError; // Don't continue if space setup fails
         }
       }
       
@@ -1044,29 +1092,61 @@ export class UCANDelegationService {
       
       // Create Storacha client with the Ed25519 principal
       const store = new StoreMemory();
-      const client = await Client.create({
-        principal,
-        store,
-      });
+      
+      // Check if using local service
+      const isLocalService = config.uploadService.url.includes('localhost') || 
+                            config.uploadService.url.includes('127.0.0.1');
+      
+      let client;
+      
+      if (isLocalService) {
+        console.log('🏠 Local service detected - creating client with custom service');
+        
+        const UcantoClient = await import('@ucanto/client');
+        const { CAR, HTTP } = await import('@ucanto/transport');
+        const serviceID = await this.parseServiceDid(config.uploadService.did);
+        const connection = UcantoClient.connect({
+          id: serviceID,
+          codec: CAR.outbound,
+          channel: HTTP.open({
+            url: new URL(config.uploadService.url),
+            method: 'POST',
+          }),
+        });
+        
+        client = await Client.create({
+          principal,
+          store,
+          serviceConf: {
+            access: connection,
+            upload: connection,
+            filecoin: connection,
+          },
+          receiptsEndpoint: new URL('http://localhost:9201'),
+        });
+      } else {
+        client = await Client.create({
+          principal,
+          store,
+        });
+      }
       
       console.log('✅ Created Storacha client with delegation');
       
       // Get space DID from delegation capabilities
       let spaceDid = 'unknown';
-      if (delegation.capabilities && delegation.capabilities.length > 0) {
-        const cap = delegation.capabilities[0];
-        if (cap.with && typeof cap.with === 'string' && cap.with.startsWith('did:key:')) {
-          spaceDid = cap.with;
-          console.log('Space DID from delegation:', spaceDid);
-          
-          // Add space using the delegation and set as current
-          try {
-            const space = await client.addSpace(delegation);
-            await client.setCurrentSpace(space.did());
-            console.log('✅ Space set successfully');
-          } catch (spaceError) {
-            console.warn('Failed to set current space:', (spaceError as Error).message);
-          }
+      const uploadSpaceDid = this.getSpaceDidFromDelegation(delegation);
+      if (uploadSpaceDid) {
+        spaceDid = uploadSpaceDid;
+        console.log('Space DID from delegation:', spaceDid);
+        
+        // Add space using the delegation and set as current
+        try {
+          const space = await client.addSpace(delegation);
+          await client.setCurrentSpace(space.did());
+          console.log('✅ Space set successfully');
+        } catch (spaceError) {
+          console.warn('Failed to set current space:', (spaceError as Error).message);
         }
       }
       
@@ -1078,8 +1158,8 @@ export class UCANDelegationService {
       console.log('✅ File uploaded successfully:', cid.toString());
       return { cid: cid.toString() };
     } catch (error) {
-      console.error('Upload with delegation failed:', error);
-      throw new Error(`Delegated upload failed: ${error}`);
+      this.logUcantoError('Upload with delegation failed', error);
+      throw new Error(`Delegated upload failed: ${this.stringifyUcantoError(error)}`);
     }
   }
 
@@ -1203,16 +1283,15 @@ export class UCANDelegationService {
       proofDelegation = await this.parseDelegationProof(suitableDelegation.proof);
       
       // Extract space DID from the delegation's capabilities
-      if (proofDelegation.capabilities && proofDelegation.capabilities.length > 0) {
-        const cap = proofDelegation.capabilities[0];
-        if (cap.with && typeof cap.with === 'string' && cap.with.startsWith('did:key:')) {
-          spaceDid = cap.with;
-          console.log('Extracted space DID from received delegation:', spaceDid);
-        } else {
-          throw new Error('Received delegation does not contain a valid space DID in capabilities');
-        }
+      const chainedSpaceDid = this.getSpaceDidFromDelegation(proofDelegation);
+      if (chainedSpaceDid) {
+        spaceDid = chainedSpaceDid;
+        console.log('Extracted space DID from received delegation:', spaceDid);
       } else {
+        if (!proofDelegation?.capabilities?.length) {
         throw new Error('Received delegation has no capabilities');
+        }
+        throw new Error('Received delegation does not contain a valid space DID in capabilities');
       }
       
       // Use appropriate principal (Ed25519) as issuer for chained delegation
@@ -1350,6 +1429,7 @@ export class UCANDelegationService {
     try {
       // Check if this is a hardware-varsig delegation
       const cleanedProof = delegationProof.trim().replace(/\s+/g, '').replace(/[\r\n]/g, '');
+      const normalizedProof = this.normalizeDelegationProof(cleanedProof);
       
       // Try hardware verification first if we have hardware mode
       if (this.hardwareService) {
@@ -1358,15 +1438,15 @@ export class UCANDelegationService {
           
           // Decode the proof
           let tokenBytes: Uint8Array;
-          if (cleanedProof.startsWith('m')) {
-            const base64Part = cleanedProof.substring(1);
+          if (normalizedProof.startsWith('m')) {
+            const base64Part = normalizedProof.substring(1);
             const binary = atob(base64Part);
             tokenBytes = new Uint8Array(binary.length);
             for (let i = 0; i < binary.length; i++) {
               tokenBytes[i] = binary.charCodeAt(i);
             }
-          } else if (cleanedProof.startsWith('u')) {
-            const base64urlPart = cleanedProof.substring(1);
+          } else if (normalizedProof.startsWith('u')) {
+            const base64urlPart = normalizedProof.substring(1);
             const standardBase64 = this.base64urlToBase64(base64urlPart);
             const binary = atob(standardBase64);
             tokenBytes = new Uint8Array(binary.length);
@@ -1374,12 +1454,12 @@ export class UCANDelegationService {
               tokenBytes[i] = binary.charCodeAt(i);
             }
           } else {
-            tokenBytes = new TextEncoder().encode(cleanedProof);
+            tokenBytes = new TextEncoder().encode(normalizedProof);
           }
           
           // Try to verify as hardware delegation
           const result = await this.hardwareService.verifyHardwareDelegation(
-            cleanedProof,
+            normalizedProof,
             window.location.origin
           );
           
@@ -1392,7 +1472,7 @@ export class UCANDelegationService {
               name,
               fromIssuer: result.issuer,
               toAudience: result.audience,
-              proof: cleanedProof,
+              proof: normalizedProof,
               capabilities: result.capabilities,
               createdAt: new Date().toISOString(),
               expiresAt: result.expiration ? new Date(result.expiration * 1000).toISOString() : undefined,
@@ -1418,8 +1498,8 @@ export class UCANDelegationService {
       console.log('Importing delegation...');
       
       // Note: cleanedProof is already defined above, reuse it
-      console.log('Original length:', delegationProof.length, 'Cleaned length:', cleanedProof.length);
-      console.log('First chars:', cleanedProof.substring(0, 20));
+      console.log('Original length:', delegationProof.length, 'Normalized length:', normalizedProof.length);
+      console.log('First chars:', normalizedProof.substring(0, 20));
       
       let delegationInfo: DelegationInfo;
       let detectedFormat = 'unknown';
@@ -1430,13 +1510,13 @@ export class UCANDelegationService {
       
       // Check if it's multibase encoded (starts with 'm' for base64 multibase)
       let tokenBytes: Uint8Array;
-      if (cleanedProof.startsWith('m')) {
+      if (normalizedProof.startsWith('m')) {
         console.log('Detected multibase encoding (base64), decoding...');
         detectedFormat = 'multibase-base64 (Storacha CLI format)';
         try {
           // 'm' prefix indicates standard base64 encoding in multibase
           // Remove 'm' prefix and decode as standard base64
-          const base64Part = cleanedProof.substring(1);
+          const base64Part = normalizedProof.substring(1);
           console.log('Base64 part length:', base64Part.length);
           console.log('Base64 part (first 50 chars):', base64Part.substring(0, 50));
           const binary = atob(base64Part);
@@ -1451,13 +1531,13 @@ export class UCANDelegationService {
           console.error('Multibase decoding failed:', multibaseError);
           throw multibaseError;
         }
-      } else if (cleanedProof.startsWith('u')) {
+      } else if (normalizedProof.startsWith('u')) {
         console.log('Detected multibase encoding (base64url), decoding...');
         detectedFormat = 'multibase-base64url';
         try {
           // 'u' prefix indicates base64url encoding in multibase
           // Remove 'u' prefix and decode as base64url
-          const base64urlPart = cleanedProof.substring(1);
+          const base64urlPart = normalizedProof.substring(1);
           const standardBase64 = this.base64urlToBase64(base64urlPart);
           const binary = atob(standardBase64);
           tokenBytes = new Uint8Array(binary.length);
@@ -1472,7 +1552,7 @@ export class UCANDelegationService {
       } else {
         // Try as raw text first
         detectedFormat = 'raw-text';
-        tokenBytes = new TextEncoder().encode(cleanedProof);
+        tokenBytes = new TextEncoder().encode(normalizedProof);
       }
       
       // PRIORITY 1: Try ucanto's extract() first (for delegations created by this app)
@@ -1530,7 +1610,7 @@ export class UCANDelegationService {
           name: defaultName,
           fromIssuer: String(issuerDid),
           toAudience: audienceDid,
-          proof: cleanedProof,
+          proof: normalizedProof,
           capabilities,
           createdAt: new Date().toISOString(),
           expiresAt: delegation.expiration ? new Date(delegation.expiration * 1000).toISOString() : undefined,
@@ -1562,7 +1642,7 @@ export class UCANDelegationService {
         
         // Parse the delegation using Storacha's proof parser
         // It accepts the original multibase string
-        const delegation = await Proof.parse(cleanedProof);
+        const delegation = await Proof.parse(normalizedProof);
         
         console.log('✅ Successfully parsed delegation with @storacha/client/proof');
         
@@ -1594,7 +1674,7 @@ export class UCANDelegationService {
           name: defaultName,
           fromIssuer: issuerDid,
           toAudience: audienceDid,
-          proof: cleanedProof,
+          proof: normalizedProof,
           capabilities,
           createdAt: new Date().toISOString(),
           expiresAt: undefined, // Storacha CLI delegations don't include expiration in the parsed object
@@ -1617,8 +1697,11 @@ export class UCANDelegationService {
         console.log('Trying legacy formats as last resort...');
         
         try {
+          const base64Input = (normalizedProof.startsWith('m') || normalizedProof.startsWith('u'))
+            ? normalizedProof.substring(1)
+            : normalizedProof;
           // Try to decode base64 first
-          const decodedArrayBuffer = this.base64ToArrayBuffer(delegationProof);
+          const decodedArrayBuffer = this.base64ToArrayBuffer(base64Input);
         
         // Try to parse as JSON (for our fallback format or ucanto result format)
         try {
@@ -1680,7 +1763,7 @@ export class UCANDelegationService {
                       id: delegation.cid?.toString() || crypto.randomUUID(),
                       fromIssuer: String(issuerDid),
                       toAudience: audienceDid,
-                      proof: delegationProof,
+                      proof: normalizedProof,
                       capabilities: Array.isArray(delegation.capabilities) 
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         ? delegation.capabilities.map((cap: any) => cap.can || cap.capability || cap)
@@ -1722,7 +1805,7 @@ export class UCANDelegationService {
               id: jsonDelegation.cid || crypto.randomUUID(),
               fromIssuer: jsonDelegation.issuer,
               toAudience: jsonDelegation.audience,
-              proof: delegationProof,
+              proof: normalizedProof,
               capabilities: Array.isArray(jsonDelegation.capabilities) 
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ? jsonDelegation.capabilities.map((cap: any) => cap.can || cap)
@@ -1741,7 +1824,10 @@ export class UCANDelegationService {
         // Fallback: try to parse as CAR format (proper UCAN delegation)
         
         try {
-          const carArrayBuffer = this.base64ToArrayBuffer(delegationProof);
+          const base64Input = (normalizedProof.startsWith('m') || normalizedProof.startsWith('u'))
+            ? normalizedProof.substring(1)
+            : normalizedProof;
+          const carArrayBuffer = this.base64ToArrayBuffer(base64Input);
           const carBytes = new Uint8Array(carArrayBuffer);
           
           const { extract } = await import('@ucanto/core/delegation');
@@ -1781,7 +1867,7 @@ export class UCANDelegationService {
               id: delegation.cid?.toString() || crypto.randomUUID(),
               fromIssuer: String(issuerDid),
               toAudience: audienceDid,
-              proof: delegationProof,
+              proof: normalizedProof,
               capabilities: Array.isArray(delegation.capabilities) 
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ? delegation.capabilities.map((cap: any) => cap.can || cap.capability || cap)
@@ -1926,7 +2012,7 @@ export class UCANDelegationService {
     try {
       console.log(`Checking revocation status for delegation: ${delegationCID}`);
       const response = await fetch(
-        `https://up.storacha.network/revocations/${delegationCID}`,
+        `${config.uploadService.url}/revocations/${delegationCID}`,
         {
           method: 'GET',
           headers: {
@@ -2021,11 +2107,9 @@ export class UCANDelegationService {
       const { invoke } = await import('@ucanto/core');
       const UcantoClient = await import('@ucanto/client');
       const { CAR, HTTP } = await import('@ucanto/transport');
-      const { Verifier } = await import('@ucanto/principal');
-      
       // Parse the service DID properly
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const serviceID = Verifier.parse('did:web:up.storacha.network') as any;
+      const serviceID = await this.parseServiceDid(config.uploadService.did) as any;
       
       // Create the revocation invocation
       // Following Storacha's agent.js pattern
@@ -2052,7 +2136,7 @@ export class UCANDelegationService {
         id: serviceID as any,
         codec: CAR.outbound,
         channel: HTTP.open({
-          url: new URL('https://up.storacha.network'),
+          url: new URL(config.uploadService.url),
           method: 'POST',
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
         }) as any,
@@ -2244,6 +2328,76 @@ export class UCANDelegationService {
       }
       return bytes.buffer;
     }
+  }
+
+  private logUcantoError(context: string, error: unknown): void {
+    console.error(`${context}:`, error);
+
+    const err = error as { message?: string; cause?: unknown; errors?: unknown; response?: unknown };
+    if (err?.message) {
+      console.error('  Message:', err.message);
+    }
+    if (err?.cause) {
+      console.error('  Cause:', err.cause);
+    }
+    if (err?.errors) {
+      console.error('  Errors:', err.errors);
+    }
+    if (err?.response) {
+      console.error('  Response:', err.response);
+    }
+  }
+
+  private stringifyUcantoError(error: unknown): string {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
+    if (typeof error === 'string') {
+      return error;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+
+  private async parseServiceDid(serviceDid: string): Promise<unknown> {
+    if (serviceDid.startsWith('did:web:')) {
+      const DID = await import('@ipld/dag-ucan/did');
+      return DID.parse(serviceDid);
+    }
+
+    const { Verifier } = await import('@ucanto/principal');
+    return Verifier.parse(serviceDid);
+  }
+
+  private getSpaceDidFromDelegation(delegation: { capabilities?: Array<{ with?: unknown }> } | null): string | null {
+    if (!delegation?.capabilities?.length) {
+      return null;
+    }
+
+    for (const cap of delegation.capabilities) {
+      if (typeof cap?.with === 'string' && cap.with.startsWith('did:')) {
+        return cap.with;
+      }
+    }
+
+    return null;
+  }
+
+  private normalizeDelegationProof(proof: string): string {
+    if (proof.startsWith('m') || proof.startsWith('u')) {
+      return proof;
+    }
+
+    const isBase64Like = /^[A-Za-z0-9+/=_-]+$/.test(proof);
+    if (!isBase64Like) {
+      return proof;
+    }
+
+    const prefix = /[-_]/.test(proof) ? 'u' : 'm';
+    return `${prefix}${proof}`;
   }
 
   /**

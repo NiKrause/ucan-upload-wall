@@ -27,10 +27,15 @@ export function useFileUpload() {
         throw new Error('Setup incomplete. Please import a UCAN delegation or add Storacha credentials first.');
       }
 
-      // Initialize WebAuthn DID if needed
-      console.log('🔐 Initializing WebAuthn DID...');
-      await delegationService.initializeWebAuthnDID();
-      console.log('✅ WebAuthn DID initialized');
+      // Only initialize WebAuthn DID if not using delegation
+      const hasDelegation = delegationService.getReceivedDelegations().length > 0;
+      if (!hasDelegation) {
+        console.log('🔐 Initializing WebAuthn DID (no delegation)...');
+        await delegationService.initializeWebAuthnDID();
+        console.log('✅ WebAuthn DID initialized');
+      } else {
+        console.log('ℹ️ Using existing delegation, skipping WebAuthn initialization');
+      }
 
       // Upload file using browser-only Storacha client
       console.log('📤 Starting upload via delegationService.uploadFile()...');

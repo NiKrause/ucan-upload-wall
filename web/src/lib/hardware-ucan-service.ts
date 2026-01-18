@@ -261,19 +261,33 @@ export class HardwareUCANDelegationService {
           return { valid: false, error: `${algorithm} signature verification failed` };
         }
         
+        // Extract capabilities from delegation
+        const capabilities = delegation.capabilities.map((cap: any) => 
+          cap.can || cap.capability || cap
+        );
+        
         return {
           valid: true,
-          issuerDid: delegation.issuer.did(),
-          audienceDid: delegation.audience.did()
+          issuer: delegation.issuer.did(),
+          audience: delegation.audience.did(),
+          capabilities: capabilities,
+          expiration: delegation.expiration
         };
       } catch {
         // Not a varsig-encoded delegation, use standard verification
         console.log('Not a varsig delegation, using standard verification');
         
+        // Extract capabilities from delegation
+        const capabilities = delegation.capabilities.map((cap: any) => 
+          cap.can || cap.capability || cap
+        );
+        
         return {
-          valid: true, // Assume ucanto already verified it
-          issuerDid: delegation.issuer.did(),
-          audienceDid: delegation.audience.did()
+          valid: true,
+          issuer: delegation.issuer.did(),
+          audience: delegation.audience.did(),
+          capabilities: capabilities,
+          expiration: delegation.expiration
         };
       }
     } catch (error) {

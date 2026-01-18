@@ -6,6 +6,7 @@
  */
 
 import type { WebAuthnAssertion, ClientDataJSON } from './types.js';
+import { config } from '../../config';
 
 /**
  * Create mock authenticatorData
@@ -172,7 +173,7 @@ export function createMockP256Assertion(options: {
 export function createMockUcanPayload(): Uint8Array {
   const payload = {
     iss: 'did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK',
-    aud: 'did:web:up.storacha.network',
+    aud: config.uploadService.did,
     att: [{ with: 'did:key:z6Mk...', can: 'upload/add' }],
     exp: Math.floor(Date.now() / 1000) + 86400
   };

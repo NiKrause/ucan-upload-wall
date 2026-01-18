@@ -1081,7 +1081,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                     <div>
                       <div className="text-sm font-medium text-gray-600 mb-1">Capabilities:</div>
                       <div className="flex flex-wrap gap-1">
-                        {delegation.capabilities.map((cap, index) => (
+                        {(delegation.capabilities || []).map((cap, index) => (
                           <span key={index} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
                             {cap}
                           </span>
