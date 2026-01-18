@@ -19,6 +19,18 @@ import { createServer, handle } from '@storacha/upload-api';
 import { CAR } from '@ucanto/transport';
 import * as CARTransport from '@ucanto/transport/car';
 
+if (!Promise.withResolvers) {
+  Promise.withResolvers = function withResolvers<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((innerResolve, innerReject) => {
+      resolve = innerResolve;
+      reject = innerReject;
+    });
+    return { promise, resolve, reject };
+  };
+}
+
 type ReceiptResult = { ok?: unknown; error?: unknown };
 
 type UploadApiContext = {
