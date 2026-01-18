@@ -10,26 +10,61 @@
  * Issue: https://github.com/NiKrause/ucan-upload-wall/issues/2
  */
 
+import http from 'node:http';
 import { test, expect, BrowserContext, Page } from '@playwright/test';
 import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpers/webauthn';
 import * as ed25519 from '@ucanto/principal/ed25519';
-import { DID } from '@ucanto/interface';
-import { delegate } from '@ucanto/core';
+import { delegate, Message } from '@ucanto/core';
+import { createServer, handle } from '@storacha/upload-api';
+import { CAR } from '@ucanto/transport';
+import * as CARTransport from '@ucanto/transport/car';
+
+type ReceiptResult = { ok?: unknown; error?: unknown };
+
+type UploadApiContext = {
+  id: { did: () => string; toDIDKey: () => string };
+  agentStore: { receipts: { get: (taskCid: string) => Promise<ReceiptResult> } };
+  provisionsStorage: {
+    put: (args: {
+      cause: unknown;
+      consumer: string;
+      customer: string;
+      provider: string;
+    }) => Promise<void>;
+  };
+} & Record<string, unknown>;
+
+type CreateContext = (
+  config?: { requirePaymentPlan?: boolean; http?: typeof http } & Record<string, unknown>
+) => Promise<UploadApiContext>;
+
+type CleanupContext = (context: UploadApiContext) => Promise<void>;
+
+type EdSigner = Awaited<ReturnType<typeof ed25519.generate>>;
+type DelegationProof = Awaited<ReturnType<typeof delegate>>;
+
+type HeliaNode = {
+  libp2p: {
+    peerId?: { toString?: () => string };
+    getMultiaddrs: () => Array<{ toString: () => string }>;
+    contentRouting: { provide: (root: unknown) => Promise<void> };
+  };
+  blockstore: { put: (cid: unknown, bytes: Uint8Array) => Promise<void> };
+  stop: () => Promise<void>;
+};
 
 // Import test context from upload-api
 // Note: This provides in-memory storage and services
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let createContext: (config?: any) => Promise<any>;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let cleanupContext: (context: any) => Promise<void>;
+let createContext: CreateContext;
+let cleanupContext: CleanupContext;
 
 // Dynamic import for upload-api test utilities
 test.beforeAll(async () => {
   try {
     // Import from the exported test context path
     const uploadApiHelpers = await import('@storacha/upload-api/test/context');
-    createContext = uploadApiHelpers.createContext;
-    cleanupContext = uploadApiHelpers.cleanupContext;
+    createContext = uploadApiHelpers.createContext as CreateContext;
+    cleanupContext = uploadApiHelpers.cleanupContext as CleanupContext;
     
     console.log('✅ Upload-api test utilities loaded successfully');
   } catch (error) {
@@ -40,18 +75,243 @@ test.beforeAll(async () => {
 });
 
 test.describe('Delegation and Upload Flow - E2E', () => {
+  const IPFS_BOOTSTRAP = [
+    '/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN',
+    '/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa',
+    '/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoJPWSCR5Zp5i9cM2m2E1r4NkHeF7NhU9gBbz3K',
+    '/dnsaddr/bootstrap.libp2p.io/p2p/QmcZf59bWwK5XFi76CZX8cbJ2wBb1jzYp5VCxQGtEex9kK',
+  ];
   let context: BrowserContext;
   let page: Page;
   let cdpSession: { client: unknown; authenticatorId: string };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let uploadServiceContext: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let spaceAgent: any; // The agent that owns the space
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let space: any; // The space identity
+  let uploadServiceContext: UploadApiContext | null = null;
+  let uploadApiServer: http.Server | null = null;
+  let uploadApiUrl: string | null = null;
+  let heliaNode: HeliaNode | null = null;
+  let heliaStartPromise: Promise<HeliaNode> | null = null;
+  let heliaWsMultiaddr: string | null = null;
+  let heliaPeerId: string | null = null;
+  let spaceAgent: EdSigner; // The agent that owns the space
+  let space: EdSigner; // The space identity
   let spaceDid: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let spaceProof: any;
+  let spaceProof: DelegationProof;
+
+  async function ensureHelia(): Promise<HeliaNode> {
+    if (heliaNode) {
+      return heliaNode;
+    }
+    if (!heliaStartPromise) {
+      heliaStartPromise = (async () => {
+        const { createHelia } = await import('helia');
+        const { unixfs } = await import('@helia/unixfs');
+        const { createLibp2p } = await import('libp2p');
+        const { bootstrap } = await import('@libp2p/bootstrap');
+        const { webSockets } = await import('@libp2p/websockets');
+        const { noise } = await import('@chainsafe/libp2p-noise');
+        const { yamux } = await import('@chainsafe/libp2p-yamux');
+        const { identify } = await import('@libp2p/identify');
+        const { ping } = await import('@libp2p/ping');
+        const { kadDHT } = await import('@libp2p/kad-dht');
+        const libp2p = await createLibp2p({
+          transports: [webSockets()],
+          connectionEncrypters: [noise()],
+          streamMuxers: [yamux()],
+          peerDiscovery: [bootstrap({ list: IPFS_BOOTSTRAP })],
+          addresses: {
+            listen: ['/ip4/127.0.0.1/tcp/0/ws'],
+          },
+          services: {
+            identify: identify(),
+            ping: ping(),
+            dht: kadDHT({ clientMode: false }),
+          },
+        });
+        const node = (await createHelia({ libp2p })) as HeliaNode;
+        unixfs(node);
+        heliaPeerId = node.libp2p.peerId?.toString?.() ?? null;
+        const addrs = node.libp2p.getMultiaddrs().map((addr) => addr.toString());
+        heliaWsMultiaddr = addrs.find((addr) => addr.includes('/ws')) ?? null;
+        if (!heliaWsMultiaddr || !heliaPeerId) {
+          throw new Error('Failed to determine Helia WS multiaddr');
+        }
+        console.log(`🟣 Helia node started (peer: ${heliaPeerId}, ws: ${heliaWsMultiaddr})`);
+        return node;
+      })();
+    }
+    heliaNode = await heliaStartPromise;
+    return heliaNode;
+  }
+
+  async function importCarToHelia(bytes: Uint8Array) {
+    const helia = await ensureHelia();
+    const { CarReader } = await import('@ipld/car');
+    const reader = await CarReader.fromBytes(bytes);
+    const roots = await reader.getRoots();
+    let blockCount = 0;
+
+    for await (const block of reader.blocks()) {
+      await helia.blockstore.put(block.cid, block.bytes);
+      blockCount += 1;
+    }
+
+    console.log(`🟣 Helia stored ${blockCount} blocks from uploaded CAR`);
+
+    for (const root of roots) {
+      try {
+        await helia.libp2p.contentRouting.provide(root);
+        console.log(`🟣 Helia provided root ${root.toString()}`);
+      } catch (error) {
+        const message = (error as Error).message ?? String(error);
+        if (message.includes('No content routers available')) {
+          console.log(`🟣 Helia provide skipped (no routers) for ${root.toString()}`);
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    if (roots.length > 0) {
+      console.log(`🟣 Helia import complete for roots: ${roots.map((root) => root.toString()).join(', ')}`);
+    }
+  }
+
+  function createCorsHttp(): typeof http {
+    return {
+      ...http,
+      createServer: (handler: http.RequestListener) =>
+        http.createServer((req, res) => {
+          console.log(`🧰 Storage node HTTP ${req.method} ${req.url}`);
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+          res.setHeader(
+            'Access-Control-Allow-Headers',
+            'Content-Type, Authorization, X-Amz-Checksum-Sha256'
+          );
+
+          if (req.method === 'OPTIONS') {
+            res.writeHead(204);
+            res.end();
+            return;
+          }
+
+          if (req.method === 'PUT') {
+            const chunks: Uint8Array[] = [];
+            req.on('data', (chunk: Uint8Array) => chunks.push(chunk));
+            req.on('end', () => {
+              const bytes = new Uint8Array(Buffer.concat(chunks));
+              importCarToHelia(bytes).catch((error) => {
+                console.warn('🟣 Helia CAR import skipped:', error?.message ?? error);
+              });
+            });
+          }
+
+          return handler(req, res);
+        }),
+    } as typeof http;
+  }
+
+  async function startUploadApiServer(
+    context: UploadApiContext
+  ): Promise<{ server: http.Server; url: string }> {
+    const agent = createServer({ ...context, codec: CAR.inbound });
+
+    const server = http.createServer(async (req, res) => {
+      console.log(`🌐 upload-api HTTP ${req.method} ${req.url}`);
+      if (req.method === 'OPTIONS') {
+        res.writeHead(200, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Access-Control-Max-Age': '86400',
+        });
+        res.end();
+        return;
+      }
+
+      if (req.method === 'GET' && req.url?.startsWith('/receipt/')) {
+        const taskCid = req.url.slice('/receipt/'.length);
+        if (!taskCid) {
+          res.writeHead(204, { 'Access-Control-Allow-Origin': '*' });
+          res.end();
+          return;
+        }
+
+        console.log(`🧾 Receipt lookup for task ${taskCid}`);
+        const receiptResult = await context.agentStore.receipts.get(taskCid);
+        if (receiptResult.error) {
+          console.warn(`🧾 Receipt not found for task ${taskCid}`);
+          res.writeHead(404, {
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end();
+          return;
+        }
+
+        const message = await Message.build({ receipts: [receiptResult.ok] });
+        const body = CARTransport.request.encode(message).body;
+        res.writeHead(200, {
+          'Access-Control-Allow-Origin': '*',
+          'Content-Type': 'application/car',
+        });
+        res.end(body);
+        return;
+      }
+
+      if (req.method === 'GET' && req.url?.startsWith('/.well-known/did.json')) {
+        const serviceDid = context.id.did();
+        const didKey = context.id.toDIDKey();
+        const publicKeyMultibase = didKey.startsWith('did:key:')
+          ? didKey.slice('did:key:'.length)
+          : didKey;
+
+        res.writeHead(200, {
+          'Access-Control-Allow-Origin': '*',
+          'Content-Type': 'application/json',
+        });
+        res.end(
+          JSON.stringify({
+            id: serviceDid,
+            verificationMethod: [
+              {
+                id: `${serviceDid}#key-1`,
+                type: 'Ed25519VerificationKey2020',
+                controller: serviceDid,
+                publicKeyMultibase,
+              },
+            ],
+          })
+        );
+        return;
+      }
+
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) {
+        chunks.push(chunk as Buffer);
+      }
+      const body = Buffer.concat(chunks);
+
+      const response = await handle(agent, { headers: req.headers, body });
+      console.log(`✅ upload-api response ${response.status || 200} ${req.method} ${req.url}`);
+      res.writeHead(response.status || 200, {
+        ...response.headers,
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+      });
+      res.end(response.body);
+    });
+
+    await new Promise<void>((resolve) => {
+      server.listen(0, '127.0.0.1', () => resolve());
+    });
+
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Failed to bind upload-api HTTP server');
+    }
+
+    return { server, url: `http://127.0.0.1:${address.port}` };
+  }
 
   test.beforeEach(async ({ browser }) => {
     test.setTimeout(120000); // 2 minutes timeout for complex flow
@@ -61,7 +321,8 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     // 1. Create in-memory upload service
     console.log('📦 Creating in-memory upload service...');
     uploadServiceContext = await createContext({
-      requirePaymentPlan: false // Disable payment checks for testing
+      requirePaymentPlan: false,
+      http: createCorsHttp()
     });
     console.log('✅ Upload service created:', uploadServiceContext.id.did());
 
@@ -90,7 +351,20 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     });
     console.log('✅ Space provisioned');
 
-    // 5. Setup browser context and WebAuthn
+    // 5. Start upload-api HTTP server
+    console.log('🌐 Starting upload-api HTTP server...');
+    const serverInfo = await startUploadApiServer(uploadServiceContext);
+    uploadApiServer = serverInfo.server;
+    uploadApiUrl = serverInfo.url;
+    console.log('✅ upload-api server ready:', uploadApiUrl);
+
+    // 5. Start Helia before bootstrapping the browser
+    await ensureHelia();
+    if (!heliaWsMultiaddr || !heliaPeerId) {
+      throw new Error('Helia WS address missing');
+    }
+
+    // 6. Setup browser context and WebAuthn
     console.log('🌐 Setting up browser context...');
     context = await browser.newContext();
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
@@ -98,6 +372,41 @@ test.describe('Delegation and Upload Flow - E2E', () => {
 
     // Enable virtual WebAuthn authenticator
     cdpSession = await enableVirtualAuthenticator(context);
+
+    page.on('console', (msg) => {
+      console.log(`[browser:${msg.type()}] ${msg.text()}`);
+    });
+    page.on('pageerror', (error) => {
+      console.log(`[browser:error] ${error.message}`);
+    });
+    page.on('requestfailed', (request) => {
+      console.log(
+        `[browser:requestfailed] ${request.method()} ${request.url()} ${request.failure()?.errorText ?? ''}`
+      );
+    });
+
+    // Provide service overrides before app boot
+    await page.addInitScript(
+      ({ url, did, heliaBootstrap }) => {
+        const globalOverrides = globalThis as typeof globalThis & {
+          __UPLOAD_SERVICE_URL__?: string;
+          __UPLOAD_SERVICE_DID__?: string;
+          __RECEIPTS_URL__?: string;
+          __HELIA_BOOTSTRAP__?: { peerId: string; addrs: string[] };
+        };
+        if (url) {
+          globalOverrides.__UPLOAD_SERVICE_URL__ = url;
+          globalOverrides.__UPLOAD_SERVICE_DID__ = did;
+          globalOverrides.__RECEIPTS_URL__ = `${url}/receipt/`;
+        }
+        globalOverrides.__HELIA_BOOTSTRAP__ = heliaBootstrap;
+      },
+      {
+        url: uploadApiUrl,
+        did: uploadServiceContext.id.did(),
+        heliaBootstrap: { peerId: heliaPeerId, addrs: [heliaWsMultiaddr] },
+      }
+    );
 
     // Navigate to app
     await page.goto('/');
@@ -125,8 +434,71 @@ test.describe('Delegation and Upload Flow - E2E', () => {
       console.log('✅ Upload service cleaned up');
     }
     
+    if (uploadApiServer) {
+      await new Promise<void>((resolve) => uploadApiServer?.close(() => resolve()));
+      uploadApiServer = null;
+      uploadApiUrl = null;
+    }
+
+    if (heliaNode) {
+      await heliaNode.stop();
+      heliaNode = null;
+      heliaStartPromise = null;
+      heliaWsMultiaddr = null;
+      heliaPeerId = null;
+      console.log('🟣 Helia node stopped');
+    }
+
     await context?.close().catch(() => {});
   });
+
+  async function createDIDInUI(): Promise<string> {
+    console.log('📝 Creating DID in React UI...');
+
+    await page.getByRole('button', { name: /Upload Files/i }).click();
+    await page.waitForTimeout(1000);
+
+    const uploadHeading = page.getByRole('heading', { name: /Step 1: Create Ed25519 DID/i });
+    await expect(uploadHeading).toBeVisible({ timeout: 10000 });
+
+    const createButton = page.getByRole('button', {
+      name: /Create DID|Create Secure DID|Generating/i,
+    });
+    await expect(createButton).toBeVisible({ timeout: 10000 });
+    await expect(createButton).toBeEnabled({ timeout: 5000 });
+
+    const getDidDisplay = async () => {
+      await page.getByRole('button', { name: /delegations/i }).click();
+      await page.waitForTimeout(1000);
+      const didElement = page.getByTestId('did-display');
+      await expect(didElement).toBeVisible({ timeout: 10000 });
+      const browserDID = (await didElement.textContent())?.trim();
+      expect(browserDID).toBeTruthy();
+      expect(browserDID).toMatch(/^did:key:z6Mk/);
+      return browserDID as string;
+    };
+
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await createButton.click();
+        await page.waitForFunction(
+          () => Boolean(localStorage.getItem('ed25519_keypair')),
+          null,
+          { timeout: 20000 }
+        );
+        const browserDID = await getDidDisplay();
+        console.log('✅ Browser DID:', browserDID);
+        return browserDID;
+      } catch (error) {
+        lastError = error;
+        console.log(`ℹ️ DID creation attempt ${attempt} did not complete, retrying...`);
+        await page.waitForTimeout(500);
+      }
+    }
+
+    throw lastError ?? new Error('Failed to create DID in UI');
+  }
 
   test('should complete full delegation workflow: create space → DID → delegate → import → upload → persist', async () => {
     console.log('\n🎯 TEST START: Complete Delegation Workflow\n');
@@ -135,34 +507,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     // STEP 1: Create DID in React UI (on Upload tab)
     // ========================================
     console.log('📝 STEP 1: Creating DID in React UI...');
-    
-    // Start on Upload tab (default view)
-    await page.waitForTimeout(1000);
-    
-    // Navigate to Delegations tab to create DID
-    await page.getByRole('button', { name: /delegations/i }).click();
-    await page.waitForTimeout(1000);
-
-    // Create DID
-    const createButton = page.getByTestId('create-did-button');
-    await expect(createButton).toBeVisible({ timeout: 10000 });
-    await expect(createButton).toBeEnabled({ timeout: 5000 });
-    await createButton.click();
-    await page.waitForTimeout(3000);
-
-    // ========================================
-    // STEP 2: Copy DID from UI
-    // ========================================
-    console.log('📋 STEP 2: Extracting DID from UI...');
-    
-    // After DID creation, verify it's visible
-    const didElement = page.getByTestId('did-display');
-    await expect(didElement).toBeVisible({ timeout: 10000 });
-    const browserDID = await didElement.textContent();
-    
-    expect(browserDID).toBeTruthy();
-    expect(browserDID).toMatch(/^did:key:z6Mk/);
-    console.log('✅ Browser DID:', browserDID);
+    const browserDID = await createDIDInUI();
     
     // Navigate away and back to reset UI state
     console.log('🔄 Navigating away and back to Delegations tab...');
@@ -189,12 +534,15 @@ test.describe('Delegation and Upload Flow - E2E', () => {
       issuer: spaceAgent,
       audience: browserPrincipal,
       capabilities: [
-        { with: space.did(), can: 'store/add' },
+        { with: space.did(), can: 'space/blob/add' },
+        { with: space.did(), can: 'space/index/add' },
         { with: space.did(), can: 'upload/add' },
-        { with: space.did(), can: 'upload/list' }
+        { with: space.did(), can: 'upload/list' },
+        { with: space.did(), can: 'filecoin/offer' },
+        { with: space.did(), can: 'store/add' }
       ],
       proofs: [spaceProof], // Include proof that spaceAgent has authority
-      expiration: undefined,
+      expiration: Math.floor(Date.now() / 1000) + 3600,
     });
 
     // Encode delegation as base64 (Storacha CLI format: multibase-base64)
@@ -245,12 +593,15 @@ test.describe('Delegation and Upload Flow - E2E', () => {
         issuer: spaceAgent,
         audience: updatedBrowserPrincipal,
         capabilities: [
-          { with: space.did(), can: 'store/add' },
+          { with: space.did(), can: 'space/blob/add' },
+          { with: space.did(), can: 'space/index/add' },
           { with: space.did(), can: 'upload/add' },
-          { with: space.did(), can: 'upload/list' }
+          { with: space.did(), can: 'upload/list' },
+          { with: space.did(), can: 'filecoin/offer' },
+          { with: space.did(), can: 'store/add' }
         ],
         proofs: [spaceProof],
-        expiration: undefined,
+        expiration: Math.floor(Date.now() / 1000) + 3600,
       });
       
       const updatedArchive = await updatedDelegation.archive();
@@ -391,10 +742,11 @@ test.describe('Delegation and Upload Flow - E2E', () => {
       return dt;
     }, testFileContent);
     
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await fileInput.evaluateHandle((input: any, dt: any) => {
-      input.files = dt.files;
-      input.dispatchEvent(new Event('change', { bubbles: true }));
+    await fileInput.evaluateHandle((input: unknown, dt: unknown) => {
+      const element = input as HTMLInputElement;
+      const dataTransfer = dt as DataTransfer;
+      element.files = dataTransfer.files;
+      element.dispatchEvent(new Event('change', { bubbles: true }));
     }, dataTransfer);
 
     await page.waitForTimeout(1000);
@@ -404,12 +756,52 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     await expect(uploadButton).toBeVisible({ timeout: 5000 });
     await uploadButton.click();
 
-    // Wait for upload interaction to complete
-    // Note: This tests the UI flow, but actual upload goes to production Storacha
-    // (not the in-memory test service, which would require HTTP server setup)
-    await page.waitForTimeout(3000);
-    
-    console.log('✅ Upload button clicked - UI interaction tested');
+    const uploadSuccessAlert = page.getByText(/Successfully uploaded test-file\.txt/i);
+    await expect(uploadSuccessAlert).toBeVisible({ timeout: 60000 });
+
+    const uploadedHeading = page.getByRole('heading', { name: /Recently Uploaded Files/i });
+    await expect(uploadedHeading).toBeVisible({ timeout: 60000 });
+    const uploadedFilename = uploadedHeading
+      .locator('..')
+      .locator('h3', { hasText: 'test-file.txt' });
+    await expect(uploadedFilename).toBeVisible({ timeout: 60000 });
+    console.log('✅ Upload completed and appeared in list');
+
+    // ========================================
+    // STEP 7B: View uploaded file via Helia/gateways
+    // ========================================
+    console.log('👀 STEP 7B: Viewing uploaded file via Helia...');
+
+    const storachaFilesHeading = page.getByRole('heading', { name: /Files in Storacha Space/i });
+    await expect(storachaFilesHeading).toBeVisible({ timeout: 60000 });
+
+    const filesSection = storachaFilesHeading.locator('..').locator('..');
+    const viewButton = filesSection.getByRole('button', { name: /View/i }).first();
+    await expect(viewButton).toBeVisible({ timeout: 60000 });
+
+    const [viewPage] = await Promise.all([
+      page.waitForEvent('popup'),
+      viewButton.click(),
+    ]);
+    await viewPage.waitForLoadState('domcontentloaded');
+
+    await page.waitForFunction(
+      () => {
+        const win = window as typeof window & { __LAST_IPFS_BLOB_URL__?: string };
+        const url = win.__LAST_IPFS_BLOB_URL__;
+        return typeof url === 'string' && url.startsWith('blob:');
+      },
+      null,
+      { timeout: 60000 }
+    );
+
+    const viewUrl = await page.evaluate(() => {
+      const win = window as typeof window & { __LAST_IPFS_BLOB_URL__?: string };
+      return win.__LAST_IPFS_BLOB_URL__;
+    });
+    expect(viewUrl).toMatch(/^blob:/);
+    await viewPage.close().catch(() => {});
+    console.log('✅ View opened from Helia or gateway fallback');
 
     // ========================================
     // STEP 8: Verify upload UI completes without errors
@@ -431,8 +823,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     console.log('✅ Step 6: Verified delegation in UI');
     console.log('✅ Step 7: Tested upload UI interaction');
     console.log('✅ Step 8: Verified UI stability');
-    console.log('\n📝 Note: Upload persistence not tested (requires HTTP server for in-memory service)');
-    console.log('   The upload UI targets production Storacha network.\n');
+    console.log('\n📝 Note: Upload performed against local upload-api server.');
     console.log('Summary:');
     console.log('  ✓ Created in-memory upload service');
     console.log('  ✓ Created space and provisioned it');
@@ -448,16 +839,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
 
     // Create DID in UI
     console.log('📝 Creating DID in React UI...');
-    await page.getByRole('button', { name: /delegations/i }).click();
-    await page.waitForTimeout(1000);
-
-    const createButton = page.getByTestId('create-did-button');
-    await createButton.click();
-    await page.waitForTimeout(3000);
-
-    const didElement = page.getByTestId('did-display');
-    const browserDID = await didElement.textContent();
-    console.log('✅ Browser DID:', browserDID);
+    const browserDID = await createDIDInUI();
     
     // Navigate away and back to reset state
     await page.getByRole('button', { name: /Upload Files/i }).click();
@@ -477,7 +859,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
         { with: space.did(), can: 'upload/add' }
       ],
       proofs: [spaceProof],
-      expiration: undefined,
+      expiration: Math.floor(Date.now() / 1000) + 3600,
     });
 
     const delegationArchive = await delegation.archive();
@@ -564,4 +946,3 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     console.log('\n✅ TEST PASSED: All delegation formats work correctly!\n');
   });
 });
-
