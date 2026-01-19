@@ -1147,7 +1147,19 @@ for (const modeConfig of TEST_MODES) {
       await expect(activeBadge).toBeVisible({ timeout: 5000 });
       const browserDelegations = await page.evaluate(() => localStorage.getItem('received_delegations'));
       const parsedDelegations = browserDelegations ? JSON.parse(browserDelegations) : [];
-      expect(parsedDelegations.some((entry: { name?: string }) => entry.name === `Test ${format.name}`)).toBe(true);
+      const expectedBytes = Buffer.from(delegationBytes);
+      const hasMatchingProof = parsedDelegations.some((entry: { proof?: string }) => {
+        const proof = entry.proof;
+        if (!proof || typeof proof !== 'string') return false;
+        if (proof.startsWith('m')) {
+          return Buffer.from(proof.slice(1), 'base64').equals(expectedBytes);
+        }
+        if (proof.startsWith('u')) {
+          return Buffer.from(proof.slice(1), 'base64url').equals(expectedBytes);
+        }
+        return Buffer.from(proof, 'base64').equals(expectedBytes);
+      });
+      expect(hasMatchingProof).toBe(true);
       console.log(`✅ Format ${format.name} imported successfully`);
       console.log(`🧾 Browser received delegations after ${format.name}:`, browserDelegations);
 
