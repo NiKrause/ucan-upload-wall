@@ -7,7 +7,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   encodeWebAuthnVarsig,
+  encodeWebAuthnVarsigV1,
   decodeWebAuthnVarsig,
+  decodeWebAuthnVarsigV1,
   varintEncode,
   varintDecode,
   concat,
@@ -16,6 +18,16 @@ import {
   bytesEqual,
   WEBAUTHN_ED25519,
   WEBAUTHN_P256,
+  VARSIG_PREFIX,
+  VARSIG_VERSION,
+  INNER_EDDSA,
+  INNER_ECDSA,
+  CURVE_ED25519,
+  CURVE_P256,
+  MULTIHASH_SHA256,
+  MULTIHASH_SHA256_LEN,
+  WEBAUTHN_WRAPPER,
+  PAYLOAD_ENCODING_RAW,
   isWebAuthnMulticodec,
   getAlgorithm,
   parseClientDataJSON
@@ -209,6 +221,45 @@ describe('WebAuthn Varsig Decoder', () => {
     const truncated = varsig.slice(0, 50);
     
     expect(() => decodeWebAuthnVarsig(truncated)).toThrow();
+  });
+});
+
+describe('WebAuthn Varsig v1 Encoder/Decoder', () => {
+  it('should encode and decode Ed25519 varsig v1', () => {
+    const assertion = createMockEd25519Assertion();
+    const varsig = encodeWebAuthnVarsigV1(assertion, 'Ed25519');
+    const decoded = decodeWebAuthnVarsigV1(varsig);
+
+    expect(varsig[0]).toBe(VARSIG_PREFIX);
+    expect(varsig[1]).toBe(VARSIG_VERSION);
+    expect(decoded.innerAlgorithm).toBe(INNER_EDDSA);
+    expect(decoded.curve).toBe(CURVE_ED25519);
+    expect(decoded.multihashCode).toBe(MULTIHASH_SHA256);
+    expect(decoded.multihashLength).toBe(MULTIHASH_SHA256_LEN);
+    expect(decoded.webauthnMarker).toBe(WEBAUTHN_WRAPPER);
+    expect(decoded.payloadEncoding).toBe(PAYLOAD_ENCODING_RAW);
+    expect(bytesEqual(decoded.authenticatorData, assertion.authenticatorData)).toBe(true);
+    expect(bytesEqual(decoded.clientDataJSON, assertion.clientDataJSON)).toBe(true);
+    expect(bytesEqual(decoded.signature, assertion.signature)).toBe(true);
+  });
+
+  it('should encode and decode P-256 varsig v1', () => {
+    const assertion = createMockP256Assertion();
+    const varsig = encodeWebAuthnVarsigV1(assertion, 'P-256');
+    const decoded = decodeWebAuthnVarsigV1(varsig);
+
+    expect(decoded.innerAlgorithm).toBe(INNER_ECDSA);
+    expect(decoded.curve).toBe(CURVE_P256);
+    expect(decoded.algorithm).toBe('P-256');
+  });
+
+  it('should reject non-v1 varsig header', () => {
+    const assertion = createMockEd25519Assertion();
+    const varsig = encodeWebAuthnVarsigV1(assertion, 'Ed25519');
+    const corrupted = varsig.slice();
+    corrupted[0] = 0x00;
+
+    expect(() => decodeWebAuthnVarsigV1(corrupted)).toThrow('Unsupported varsig header');
   });
 });
 

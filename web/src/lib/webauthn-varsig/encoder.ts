@@ -5,7 +5,19 @@
  * [multicodec] + [authData_len] + [authData] + [clientData_len] + [clientData] + [signature]
  */
 
-import { ALGORITHM_TO_MULTICODEC } from './multicodec.js';
+import {
+  ALGORITHM_TO_MULTICODEC,
+  VARSIG_PREFIX,
+  VARSIG_VERSION,
+  INNER_EDDSA,
+  INNER_ECDSA,
+  CURVE_ED25519,
+  CURVE_P256,
+  MULTIHASH_SHA256,
+  MULTIHASH_SHA256_LEN,
+  PAYLOAD_ENCODING_RAW,
+  WEBAUTHN_WRAPPER
+} from './multicodec.js';
 import type { WebAuthnAssertion, SignatureAlgorithm } from './types.js';
 import { varintEncode, concat } from './utils.js';
 
@@ -42,6 +54,47 @@ export function encodeWebAuthnVarsig(
   ]);
   
   return varsig;
+}
+
+/**
+ * Encode a WebAuthn assertion as varsig v1
+ *
+ * Format:
+ * - varsig prefix (0x34)
+ * - varsig version (0x01)
+ * - signature algorithm metadata (varints)
+ * - payload encoding metadata (varint)
+ * - assertion serialization
+ */
+export function encodeWebAuthnVarsigV1(
+  assertion: WebAuthnAssertion,
+  algorithm: SignatureAlgorithm = 'Ed25519'
+): Uint8Array {
+  const { authenticatorData, clientDataJSON, signature } = assertion;
+
+  validateWebAuthnAssertion(assertion);
+
+  const innerAlgorithm = algorithm === 'Ed25519' ? INNER_EDDSA : INNER_ECDSA;
+  const curve = algorithm === 'Ed25519' ? CURVE_ED25519 : CURVE_P256;
+
+  const header = new Uint8Array([VARSIG_PREFIX, VARSIG_VERSION]);
+  const authDataLenBytes = varintEncode(authenticatorData.length);
+  const clientDataLenBytes = varintEncode(clientDataJSON.length);
+
+  return concat([
+    header,
+    varintEncode(innerAlgorithm),
+    varintEncode(curve),
+    varintEncode(MULTIHASH_SHA256),
+    varintEncode(MULTIHASH_SHA256_LEN),
+    varintEncode(WEBAUTHN_WRAPPER),
+    varintEncode(PAYLOAD_ENCODING_RAW),
+    authDataLenBytes,
+    authenticatorData,
+    clientDataLenBytes,
+    clientDataJSON,
+    signature
+  ]);
 }
 
 /**

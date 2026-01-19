@@ -6,14 +6,15 @@
  */
 
 import {
-  encodeWebAuthnVarsig,
-  decodeWebAuthnVarsig,
+  encodeWebAuthnVarsigV1,
+  decodeWebAuthnVarsigV1,
   reconstructSignedData,
   verifyEd25519Signature,
   verifyP256Signature,
+  concat,
   type WebAuthnAssertion
 } from './webauthn-varsig/index.js';
-import * as UcantoPrincipal from '@ucanto/principal'; // Resolved to le-space tarball via package.json overrides
+import * as DagUcanSignature from '@ipld/dag-ucan/signature';
 
 const wrapQueuedSign = <T extends { sign: (data: Uint8Array) => Promise<Uint8Array> }>(
   signer: T
@@ -60,7 +61,9 @@ export class WebAuthnEd25519Signer {
     // Hash payload to create challenge
     // Ensure we have a regular Uint8Array with ArrayBuffer (not SharedArrayBuffer)
     const payloadCopy = new Uint8Array(payload);
-    const challengeHash = await crypto.subtle.digest('SHA-256', payloadCopy);
+    const domain = new TextEncoder().encode('ucan-webauthn-v1:');
+    const challengeInput = concat([domain, payloadCopy]);
+    const challengeHash = await crypto.subtle.digest('SHA-256', challengeInput);
     const challenge = new Uint8Array(challengeHash);
     
     console.log('🔐 Requesting WebAuthn signature (biometric required)...');
@@ -96,9 +99,9 @@ export class WebAuthnEd25519Signer {
     console.log('✅ WebAuthn signature obtained!');
     
     // Encode as varsig
-    const varsig = encodeWebAuthnVarsig(webauthnAssertion, 'Ed25519');
+    const varsig = encodeWebAuthnVarsigV1(webauthnAssertion, 'Ed25519');
     
-    console.log('📦 Encoded as varsig:', varsig.length, 'bytes');
+    console.log('📦 Encoded as varsig v1:', varsig.length, 'bytes');
     
     return varsig;
   }
@@ -118,8 +121,9 @@ export class WebAuthnEd25519Signer {
    */
   async verify(data: Uint8Array, signature: Uint8Array): Promise<boolean> {
     try {
-      // Decode varsig
-      const decoded = decodeWebAuthnVarsig(signature);
+      const signatureBytes = (signature as Uint8Array & { raw?: Uint8Array }).raw ?? signature;
+      // Decode varsig v1
+      const decoded = decodeWebAuthnVarsigV1(signatureBytes);
       
       // Reconstruct the data that was actually signed by WebAuthn
       const signedData = await reconstructSignedData(decoded);
@@ -137,30 +141,29 @@ export class WebAuthnEd25519Signer {
    * Uses custom ucanto with WebAuthn varsig support
    */
   toUcantoSigner() {
-    // Convert credential ID to base64 for ucanto
-    let credentialIdBase64: string;
-    if (this.credentialId instanceof ArrayBuffer) {
-      credentialIdBase64 = btoa(String.fromCharCode(...new Uint8Array(this.credentialId)));
-    } else if (ArrayBuffer.isView(this.credentialId)) {
-      credentialIdBase64 = btoa(String.fromCharCode(...new Uint8Array(this.credentialId.buffer)));
-    } else {
-      throw new Error('Invalid credentialId type');
-    }
-    
-    // Create ucanto WebAuthn signer with varsig support
-    console.log('✨ Creating ucanto WebAuthn signer with varsig support');
-    console.log('UcantoPrincipal:', UcantoPrincipal);
-    console.log('WebAuthnEd25519:', UcantoPrincipal.WebAuthnEd25519);
-    
-    if (!UcantoPrincipal.WebAuthnEd25519) {
-      throw new Error('WebAuthnEd25519 not available in ucanto principal');
-    }
-    
-    const signer = UcantoPrincipal.WebAuthnEd25519.create(
-      credentialIdBase64,
-      this.publicKey,
-      this.did
-    );
+    const signatureAlgorithm = 'EdDSA';
+    const signatureCode = DagUcanSignature.EdDSA;
+    const signer = {
+      sign: async (payload: Uint8Array) => {
+        const varsig = await this.sign(payload);
+        return DagUcanSignature.create(signatureCode, varsig);
+      },
+      did: () => this.did,
+      toDIDKey: () => this.did,
+      signatureAlgorithm,
+      signatureCode,
+      encode: () => this.publicKey,
+      toArchive: () => ({
+        id: this.did,
+        keys: {
+          [this.did]: this.publicKey
+        }
+      }),
+      export: () => {
+        throw new Error('Cannot export WebAuthn hardware-backed keys');
+      }
+    };
+
     return wrapQueuedSign(signer);
   }
 }
@@ -197,7 +200,9 @@ export class WebAuthnP256Signer {
   async sign(payload: Uint8Array): Promise<Uint8Array> {
     // Hash payload to create challenge
     const payloadCopy = new Uint8Array(payload);
-    const challengeHash = await crypto.subtle.digest('SHA-256', payloadCopy);
+    const domain = new TextEncoder().encode('ucan-webauthn-v1:');
+    const challengeInput = concat([domain, payloadCopy]);
+    const challengeHash = await crypto.subtle.digest('SHA-256', challengeInput);
     const challenge = new Uint8Array(challengeHash);
     
     console.log('🔐 Requesting WebAuthn P-256 signature (biometric required)...');
@@ -233,9 +238,9 @@ export class WebAuthnP256Signer {
     console.log('✅ WebAuthn P-256 signature obtained!');
     
     // Encode as P-256 varsig
-    const varsig = encodeWebAuthnVarsig(webauthnAssertion, 'P-256');
+    const varsig = encodeWebAuthnVarsigV1(webauthnAssertion, 'P-256');
     
-    console.log('📦 Encoded as P-256 varsig:', varsig.length, 'bytes');
+    console.log('📦 Encoded as P-256 varsig v1:', varsig.length, 'bytes');
     
     return varsig;
   }
@@ -255,8 +260,9 @@ export class WebAuthnP256Signer {
    */
   async verify(data: Uint8Array, signature: Uint8Array): Promise<boolean> {
     try {
-      // Decode varsig
-      const decoded = decodeWebAuthnVarsig(signature);
+      const signatureBytes = (signature as Uint8Array & { raw?: Uint8Array }).raw ?? signature;
+      // Decode varsig v1
+      const decoded = decodeWebAuthnVarsigV1(signatureBytes);
       
       // Reconstruct the data that was actually signed by WebAuthn
       const signedData = await reconstructSignedData(decoded);
@@ -273,34 +279,30 @@ export class WebAuthnP256Signer {
    * Convert to ucanto-compatible signer interface
    */
   toUcantoSigner() {
-    const self = this;
-    return {
+    const signatureAlgorithm = 'ES256';
+    const signatureCode = DagUcanSignature.ES256;
+    const signer = {
+      sign: async (payload: Uint8Array) => {
+        const varsig = await this.sign(payload);
+        return DagUcanSignature.create(signatureCode, varsig);
+      },
       did: () => this.did,
-      sign: async (data: Uint8Array) => {
-        const signature = await self.sign(data);
-        // Ensure we return a proper Uint8Array, not a serialized object
-        return signature instanceof Uint8Array ? signature : new Uint8Array(Object.values(signature));
-      },
-      // Verify varsig-encoded signature
-      verify: async (data: Uint8Array, signature: Uint8Array) => self.verify(data, signature),
-      // WebAuthn doesn't support key export
-      export: () => {
-        throw new Error('Cannot export WebAuthn hardware-backed keys');
-      },
-      // Storacha client needs toArchive for persistence
+      toDIDKey: () => this.did,
+      signatureAlgorithm,
+      signatureCode,
+      encode: () => this.publicKey,
       toArchive: () => ({
-        id: self.did,
+        id: this.did,
         keys: {
-          // Store minimal info - actual signing happens via WebAuthn
-          [self.did]: self.publicKey
+          [this.did]: this.publicKey
         }
       }),
-      // Encode method for serialization (returns the public key)
-      encode: () => self.publicKey,
-      // Signature algorithm identifier  
-      signatureCode: 0x1200, // P-256 multicodec
-      signatureAlgorithm: 'ES256'
+      export: () => {
+        throw new Error('Cannot export WebAuthn hardware-backed keys');
+      }
     };
+
+    return wrapQueuedSign(signer);
   }
 }
 

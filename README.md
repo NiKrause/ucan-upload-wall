@@ -311,6 +311,8 @@ See **[SECURITY.md § WebAuthn UCAN Signing](./SECURITY.md#-webauthn-ucan-signin
 - **[UX_IMPROVEMENT_AUTO_NAVIGATION.md](./docs/UX_IMPROVEMENT_AUTO_NAVIGATION.md)** - Auto-navigation UX improvement
 - **[BUGFIX_DID_WEB_REVOCATION.md](./docs/BUGFIX_DID_WEB_REVOCATION.md)** - did:web support bug fixes
 - **[varsig-branch-notes.md](./docs/varsig-branch-notes.md)** - Branch-specific varsig notes and tests
+- **[varsig-implementation.md](./docs/varsig-implementation.md)** - Varsig v1 WebAuthn implementation details
+- **[ChainAgnostic varsig README](https://github.com/ChainAgnostic/varsig/blob/main/README.md)** - Upstream varsig spec reference
 
 ## 🔗 Related Projects
 

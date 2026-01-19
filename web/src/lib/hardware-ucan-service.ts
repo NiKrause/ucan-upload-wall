@@ -5,12 +5,22 @@
  */
 
 import { WebAuthnEd25519Signer, WebAuthnP256Signer, createWebAuthnEd25519Credential, checkEd25519Support, type WebAuthnCredentialOptions } from './webauthn-ed25519-signer.js';
-import { decodeWebAuthnVarsig, verifyWebAuthnAssertion, reconstructSignedData, verifyEd25519Signature, verifyP256Signature } from './webauthn-varsig/index.js';
+import {
+  decodeWebAuthnVarsigV1,
+  verifyWebAuthnAssertion,
+  reconstructSignedData,
+  verifyEd25519Signature,
+  verifyP256Signature,
+  VARSIG_PREFIX,
+  VARSIG_VERSION,
+  concat
+} from './webauthn-varsig/index.js';
 
 /**
  * Storage key for hardware-backed credential
  */
 const HARDWARE_SIGNER_KEY = 'webauthn_ed25519_hardware_signer';
+const SIGN_COUNT_KEY_PREFIX = 'webauthn_signcount_';
 
 /**
  * Stored hardware signer info
@@ -210,20 +220,39 @@ export class HardwareUCANDelegationService {
       }
       
       // Check if signature is varsig-encoded
-      const signature = delegation.signature;
-      
+      const signature = delegation.signature as {
+        raw?: Uint8Array;
+      };
+      const signatureBytes = signature.raw ?? new Uint8Array(signature as Uint8Array);
+      const isVarsigV1 =
+        signatureBytes.length >= 2 &&
+        signatureBytes[0] === VARSIG_PREFIX &&
+        signatureBytes[1] === VARSIG_VERSION;
+
       try {
-        // Try to decode as varsig
-        const decoded = decodeWebAuthnVarsig(new Uint8Array(signature));
+        if (!isVarsigV1) {
+          throw new Error('Not varsig v1');
+        }
+
+        // Decode varsig v1
+        const decoded = decodeWebAuthnVarsigV1(signatureBytes);
         
         // Verify WebAuthn assertion structure
-        const payloadBytes = new TextEncoder().encode(JSON.stringify(delegation.data));
-        const challengeHash = await crypto.subtle.digest('SHA-256', payloadBytes);
-        
-        const verificationResult = verifyWebAuthnAssertion(decoded, {
+        const payloadBytes = delegation.bytes
+          ? new Uint8Array(delegation.bytes)
+          : new TextEncoder().encode(JSON.stringify(delegation.data));
+        const domain = new TextEncoder().encode('ucan-webauthn-v1:');
+        const challengeInput = concat([domain, payloadBytes]);
+        const challengeHash = await crypto.subtle.digest('SHA-256', challengeInput);
+        const expectedRpId = new URL(expectedOrigin).hostname;
+        const previousSignCount = this.loadSignCount(delegation.issuer.did());
+
+        const verificationResult = await verifyWebAuthnAssertion(decoded, {
           expectedOrigin,
+          expectedRpId,
           expectedChallenge: new Uint8Array(challengeHash),
-          requireUserVerification: true
+          requireUserVerification: false,
+          previousSignCount
         });
         
         if (!verificationResult.valid) {
@@ -231,6 +260,10 @@ export class HardwareUCANDelegationService {
             valid: false,
             error: `WebAuthn verification failed: ${verificationResult.error}`
           };
+        }
+
+        if (verificationResult.signCount !== undefined) {
+          this.storeSignCount(delegation.issuer.did(), verificationResult.signCount);
         }
         
         // Verify cryptographic signature
@@ -273,7 +306,13 @@ export class HardwareUCANDelegationService {
           capabilities: capabilities,
           expiration: delegation.expiration
         };
-      } catch {
+      } catch (error) {
+        if (isVarsigV1) {
+          return {
+            valid: false,
+            error: (error as Error).message
+          };
+        }
         // Not a varsig-encoded delegation, use standard verification
         console.log('Not a varsig delegation, using standard verification');
         
@@ -389,5 +428,16 @@ export class HardwareUCANDelegationService {
     } else {
       throw new Error(`Unsupported DID key type: ${multikey[0]}, ${multikey[1]}`);
     }
+  }
+
+  private loadSignCount(did: string): number | undefined {
+    const stored = localStorage.getItem(`${SIGN_COUNT_KEY_PREFIX}${did}`);
+    if (!stored) return undefined;
+    const parsed = Number.parseInt(stored, 10);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  private storeSignCount(did: string, signCount: number): void {
+    localStorage.setItem(`${SIGN_COUNT_KEY_PREFIX}${did}`, String(signCount));
   }
 }

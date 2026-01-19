@@ -8,6 +8,7 @@
 export type {
   WebAuthnAssertion,
   DecodedVarsig,
+  DecodedVarsigV1,
   ClientDataJSON,
   SignatureAlgorithm,
   VarsigOptions
@@ -19,6 +20,16 @@ export {
   WEBAUTHN_P256,
   ED25519_PUB,
   P256_PUB,
+  VARSIG_PREFIX,
+  VARSIG_VERSION,
+  INNER_EDDSA,
+  INNER_ECDSA,
+  CURVE_ED25519,
+  CURVE_P256,
+  MULTIHASH_SHA256,
+  MULTIHASH_SHA256_LEN,
+  PAYLOAD_ENCODING_RAW,
+  WEBAUTHN_WRAPPER,
   isWebAuthnMulticodec,
   getAlgorithm
 } from './multicodec.js';
@@ -26,12 +37,14 @@ export {
 // Encoder
 export {
   encodeWebAuthnVarsig,
+  encodeWebAuthnVarsigV1,
   validateWebAuthnAssertion
 } from './encoder.js';
 
 // Decoder
 export {
   decodeWebAuthnVarsig,
+  decodeWebAuthnVarsigV1,
   parseClientDataJSON
 } from './decoder.js';
 

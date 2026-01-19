@@ -33,6 +33,40 @@ export const WEBAUTHN_P256 = 0xd1f2;
 export const P256_PUB = 0x1200;
 
 /**
+ * Varsig v1 header
+ */
+export const VARSIG_PREFIX = 0x34;
+export const VARSIG_VERSION = 0x01;
+
+/**
+ * Varsig signature algorithm discriminants
+ */
+export const INNER_EDDSA = 0xed;
+export const INNER_ECDSA = 0xec;
+
+/**
+ * Varsig curve varints (multicodec)
+ */
+export const CURVE_ED25519 = 0xed01;
+export const CURVE_P256 = 0x1200;
+
+/**
+ * Varsig multihash header (SHA-256)
+ */
+export const MULTIHASH_SHA256 = 0x12;
+export const MULTIHASH_SHA256_LEN = 0x20;
+
+/**
+ * Varsig payload encoding metadata
+ */
+export const PAYLOAD_ENCODING_RAW = 0x5f;
+
+/**
+ * WebAuthn extension marker (private-use multicodec range)
+ */
+export const WEBAUTHN_WRAPPER = 0x300001;
+
+/**
  * Map of algorithm names to multicodecs
  */
 export const ALGORITHM_TO_MULTICODEC = {

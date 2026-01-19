@@ -5,7 +5,7 @@
  */
 
 import { parseClientDataJSON } from './decoder.js';
-import type { DecodedVarsig, ClientDataJSON } from './types.js';
+import type { DecodedVarsig, DecodedVarsigV1, ClientDataJSON, WebAuthnDecoded } from './types.js';
 import { base64urlToBytes, bytesEqual } from './utils.js';
 
 /**
@@ -13,8 +13,10 @@ import { base64urlToBytes, bytesEqual } from './utils.js';
  */
 export interface VerificationOptions {
   expectedOrigin: string;
+  expectedRpId: string;
   expectedChallenge: Uint8Array;
   requireUserVerification?: boolean;
+  previousSignCount?: number;
 }
 
 /**
@@ -24,6 +26,7 @@ export interface VerificationResult {
   valid: boolean;
   error?: string;
   clientData?: ClientDataJSON;
+  signCount?: number;
   flags?: {
     userPresent: boolean;
     userVerified: boolean;
@@ -43,8 +46,8 @@ export interface VerificationResult {
  * @param options - Verification options
  * @returns Verification result
  */
-export function verifyWebAuthnAssertion(
-  decoded: DecodedVarsig,
+export async function verifyWebAuthnAssertion(
+  decoded: WebAuthnDecoded,
   options: VerificationOptions
 ): VerificationResult {
   try {
@@ -76,40 +79,69 @@ export function verifyWebAuthnAssertion(
       };
     }
     
-    // 5. Parse authenticatorData flags
+    // 5. Parse authenticatorData flags + rpIdHash + signCount
     if (decoded.authenticatorData.length < 37) {
       return {
         valid: false,
         error: `Invalid authenticatorData length: ${decoded.authenticatorData.length}, expected >= 37`
       };
     }
-    
+
+    const rpIdHash = decoded.authenticatorData.slice(0, 32);
     const flags = decoded.authenticatorData[32];
+    const signCountBytes = decoded.authenticatorData.slice(33, 37);
+    const signCount =
+      (signCountBytes[0] << 24) |
+      (signCountBytes[1] << 16) |
+      (signCountBytes[2] << 8) |
+      signCountBytes[3];
     const userPresent = (flags & 0x01) !== 0;
     const userVerified = (flags & 0x04) !== 0;
     const backupEligible = (flags & 0x08) !== 0;
     const backupState = (flags & 0x10) !== 0;
-    
-    // 6. Verify user presence
+
+    // 6. Verify rpIdHash
+    const rpIdBytes = new TextEncoder().encode(options.expectedRpId);
+    const rpIdHashExpected = new Uint8Array(
+      await crypto.subtle.digest('SHA-256', rpIdBytes)
+    );
+
+    if (!bytesEqual(rpIdHash, rpIdHashExpected)) {
+      return {
+        valid: false,
+        error: 'rpIdHash mismatch'
+      };
+    }
+
+    // 7. Verify user presence
     if (!userPresent) {
       return {
         valid: false,
         error: 'User presence (UP) flag not set'
       };
     }
-    
-    // 7. Verify user verification if required
+
+    // 8. Verify user verification if required
     if (options.requireUserVerification !== false && !userVerified) {
       return {
         valid: false,
         error: 'User verification (UV) flag not set'
       };
     }
-    
+
+    // 9. Enforce monotonic signCount when provided
+    if (options.previousSignCount !== undefined && signCount <= options.previousSignCount) {
+      return {
+        valid: false,
+        error: 'signCount is not monotonic'
+      };
+    }
+
     // All checks passed
     return {
       valid: true,
       clientData,
+      signCount,
       flags: {
         userPresent,
         userVerified,
@@ -133,7 +165,7 @@ export function verifyWebAuthnAssertion(
  * @param decoded - Decoded varsig data
  * @returns The data that was signed
  */
-export async function reconstructSignedData(decoded: DecodedVarsig): Promise<Uint8Array> {
+export async function reconstructSignedData(decoded: WebAuthnDecoded): Promise<Uint8Array> {
   // Hash clientDataJSON
   const clientDataHash = await crypto.subtle.digest(
     'SHA-256',

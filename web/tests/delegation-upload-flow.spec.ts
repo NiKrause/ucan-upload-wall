@@ -22,6 +22,16 @@ import * as CARTransport from '@ucanto/transport/car';
 import * as ProviderCaps from '@storacha/capabilities/provider';
 import * as DidMailto from '@storacha/did-mailto';
 import { Absentee } from '@ucanto/principal';
+import {
+  decodeWebAuthnVarsigV1,
+  reconstructSignedData,
+  verifyEd25519Signature,
+  verifyP256Signature,
+  verifyWebAuthnAssertion,
+  VARSIG_PREFIX,
+  VARSIG_VERSION,
+  concat,
+} from '../src/lib/webauthn-varsig/index.js';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -79,6 +89,8 @@ const createVarsigPrincipal = () => {
   const wrapVerifier = (did: string) => {
     const edVerifier = BaseVerifier.parse(did);
     const webauthnVerifier = WebAuthnEd25519.Verifier.create(edVerifier.publicKey, did);
+    const expectedOrigin = process.env.WEBAUTHN_ORIGIN ?? 'http://localhost:4173';
+    const expectedRpId = new URL(expectedOrigin).hostname;
 
     return {
       code: edVerifier.code,
@@ -86,8 +98,33 @@ const createVarsigPrincipal = () => {
       signatureAlgorithm: edVerifier.signatureAlgorithm,
       did: () => did,
       toDIDKey: () => edVerifier.toDIDKey(),
-      verify: (payload: Uint8Array, signature: { raw?: Uint8Array }) => {
+      verify: async (payload: Uint8Array, signature: { raw?: Uint8Array }) => {
         const raw = signature?.raw ?? signature;
+        if (raw?.byteLength && raw.byteLength >= 2 && raw[0] === VARSIG_PREFIX && raw[1] === VARSIG_VERSION) {
+          try {
+            const decoded = decodeWebAuthnVarsigV1(raw);
+            const domain = new TextEncoder().encode('ucan-webauthn-v1:');
+            const challengeInput = concat([domain, payload]);
+            const challengeHash = await crypto.subtle.digest('SHA-256', challengeInput);
+            const verification = await verifyWebAuthnAssertion(decoded, {
+              expectedOrigin,
+              expectedRpId,
+              expectedChallenge: new Uint8Array(challengeHash),
+              requireUserVerification: false,
+            });
+            if (!verification.valid) {
+              return false;
+            }
+            const signedData = await reconstructSignedData(decoded);
+            if (decoded.algorithm === 'P-256') {
+              return verifyP256Signature(signedData, decoded.signature, edVerifier.publicKey);
+            }
+            return verifyEd25519Signature(signedData, decoded.signature, edVerifier.publicKey);
+          } catch (error) {
+            console.error('[ucanto-varsig] v1 verification error:', error);
+            return false;
+          }
+        }
         if (raw?.byteLength && raw.byteLength !== 64) {
           return webauthnVerifier.verify(payload, signature);
         }
