@@ -229,6 +229,13 @@ export class UCANDelegationService {
     this.hardwareModeChecked = true;
     
     try {
+      const principalModule = await import('@ucanto/principal');
+      if (!('WebAuthnEd25519' in principalModule)) {
+        console.log('ℹ️ WebAuthnEd25519 principal not available, falling back to worker mode');
+        this.useHardwareMode = false;
+        return false;
+      }
+
       console.log('🔍 Checking for hardware-backed Ed25519 support...');
       
       // Check browser support

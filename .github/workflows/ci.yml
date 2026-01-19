@@ -34,6 +34,9 @@ jobs:
       - name: Run TypeScript type check
         run: npm run typecheck
 
+      - name: Run unit tests
+        run: npm run test:run
+
       - name: Build project
         run: npm run build
 
@@ -50,5 +53,4 @@ jobs:
           name: playwright-report
           path: web/test-results/
           retention-days: 7
-
 

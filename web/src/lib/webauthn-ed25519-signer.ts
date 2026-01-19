@@ -13,7 +13,7 @@ import {
   verifyP256Signature,
   type WebAuthnAssertion
 } from './webauthn-varsig/index.js';
-import * as UcantoPrincipal from '@ucanto/principal'; // Resolved to custom @le-space version via package.json overrides
+import * as UcantoPrincipal from '@ucanto/principal'; // Resolved to le-space tarball via package.json overrides
 
 /**
  * WebAuthn Ed25519 signer for UCAN
