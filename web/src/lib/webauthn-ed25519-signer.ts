@@ -701,23 +701,9 @@ async function createP256Did(publicKey: Uint8Array): Promise<string> {
  * Check if browser supports WebAuthn Ed25519
  */
 export async function checkEd25519Support(): Promise<boolean> {
-  if (!window.PublicKeyCredential) {
+  if (typeof window === 'undefined' || !window.PublicKeyCredential) {
     return false;
   }
-  
-  // Try to check if Ed25519 is supported
-  // Note: Not all browsers expose this, so we may need to try creating a credential
-  try {
-    // Check if platform authenticator is available
-    const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    
-    // Ed25519 support started in:
-    // - Chrome 108+
-    // - Safari 17+ (macOS 14+, iOS 17+)
-    // - Firefox (limited)
-    
-    return available;
-  } catch {
-    return false;
-  }
+
+  return Boolean(navigator.credentials?.create);
 }

@@ -19,6 +19,7 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
   const [webauthnSupported, setWebauthnSupported] = useState(false);
   const [copiedDID, setCopiedDID] = useState(false);
   const [encryptionSupported] = useState(false); // Currently always false - encryption handled in worker
+  const [authenticatorMode, setAuthenticatorMode] = useState<'platform' | 'cross-platform'>('platform');
 
   useEffect(() => {
     // Check WebAuthn support
@@ -165,44 +166,45 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
               Choose how to create your secure identity:
             </p>
             
-            {/* Two-button choice for authenticator type */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Platform Authenticator (Touch ID / Face ID) */}
+            {/* Toggle between standard and hardware modes */}
+            <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
               <button
-                onClick={() => handleCreateDID('platform')}
-                disabled={isCreatingDID}
-                className="bg-blue-600 text-white px-6 py-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors border-2 border-transparent hover:border-blue-800 text-left"
-                data-testid="create-did-button"
+                type="button"
+                onClick={() => setAuthenticatorMode('platform')}
+                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                  authenticatorMode === 'platform'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
               >
-                <div className="flex items-start">
-                  <Lock className="h-5 w-5 mr-3 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <div className="font-semibold mb-1">🔒 Touch ID / Face ID</div>
-                    <div className="text-sm text-blue-100 opacity-90">
-                      Built-in biometric security with additional verification
-                    </div>
-                  </div>
-                </div>
+                Standard (Touch ID / Face ID)
               </button>
-
-              {/* Cross-platform Authenticator (USB/NFC Keys) */}
               <button
-                onClick={() => handleCreateDID('cross-platform')}
-                disabled={isCreatingDID}
-                className="bg-green-600 text-white px-6 py-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors border-2 border-transparent hover:border-green-800 text-left"
-                data-testid="create-did-button"
+                type="button"
+                onClick={() => setAuthenticatorMode('cross-platform')}
+                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                  authenticatorMode === 'cross-platform'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
               >
-                <div className="flex items-start">
-                  <Shield className="h-5 w-5 mr-3 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <div className="font-semibold mb-1">🔑 Security Key</div>
-                    <div className="text-sm text-green-100 opacity-90">
-                      Ledger, YubiKey, or other USB/NFC device
-                    </div>
-                  </div>
-                </div>
+                Hardware (Security Key)
               </button>
             </div>
+
+            <button
+              onClick={() => handleCreateDID(authenticatorMode)}
+              disabled={isCreatingDID}
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              data-testid="create-did-button"
+            >
+              {authenticatorMode === 'platform' ? (
+                <Lock className="h-4 w-4 mr-2" />
+              ) : (
+                <Shield className="h-4 w-4 mr-2" />
+              )}
+              {isCreatingDID ? 'Generating...' : 'Create DID'}
+            </button>
 
             {isCreatingDID && (
               <div className="text-center text-gray-600 py-2">
@@ -212,8 +214,8 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
             )}
 
             <div className="text-xs text-gray-500 mt-2 p-3 bg-gray-50 rounded">
-              <strong>Note:</strong> Choose the option that matches your available hardware. 
-              Both methods create a secure Ed25519 DID with hardware-backed protection.
+              <strong>Note:</strong> Switch to Hardware if you want to use a USB/NFC security key.
+              Standard uses built-in biometric authentication.
             </div>
           </div>
         </div>
@@ -224,7 +226,10 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
               <Shield className="h-5 w-5 text-green-500 mr-2" />
               <div>
                 <span className="text-green-800 font-medium">Ed25519 DID Active</span>
-                <code className="block text-xs text-green-700 mt-1 break-all">
+                <code
+                  className="block text-xs text-green-700 mt-1 break-all"
+                  data-testid="did-display"
+                >
                   {currentDID.substring(0, 30)}...{currentDID.slice(-10)}
                 </code>
               </div>
@@ -232,6 +237,7 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
             <button
               onClick={() => copyToClipboard(currentDID)}
               className="flex items-center text-green-600 hover:text-green-800 ml-2"
+              data-testid="copy-did-button"
             >
               {copiedDID ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             </button>

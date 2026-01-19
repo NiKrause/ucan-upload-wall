@@ -204,124 +204,6 @@ export class UCANDelegationService {
     return Client.create({ principal, store });
   }
 
-  private async createServiceConnection() {
-    const serviceConfig = getServiceConfig();
-    if (!serviceConfig.uploadServiceUrl || !serviceConfig.uploadServiceDid) {
-      return null;
-    }
-
-    const UcantoClient = await import('@ucanto/client');
-    const { CAR, HTTP } = await import('@ucanto/transport');
-    const { Verifier } = await import('@ucanto/principal');
-
-    const resolvedServiceDid = await this.resolveServiceDid(
-      serviceConfig.uploadServiceDid,
-      serviceConfig.uploadServiceUrl
-    );
-    const serviceID = Verifier.parse(resolvedServiceDid).withDID(
-      serviceConfig.uploadServiceDid
-    );
-
-    return UcantoClient.connect({
-      id: serviceID,
-      codec: CAR.outbound,
-      channel: HTTP.open({
-        url: new URL(serviceConfig.uploadServiceUrl),
-        method: 'POST',
-      }),
-    });
-  }
-
-  private async resolveServiceDid(did: string, serviceUrl?: string): Promise<string> {
-    if (!did.startsWith('did:web:')) {
-      return did;
-    }
-
-    try {
-      const { didKey } = await this.resolveDidWebToDidKey(did, serviceUrl);
-      return didKey ?? did;
-    } catch (error) {
-      console.warn(`Failed to resolve ${did} to did:key`, error);
-      return did;
-    }
-  }
-
-  private async resolveDidWebToDidKey(
-    did: string,
-    serviceUrl?: string
-  ): Promise<{ didKey?: string }> {
-    const didWebPrefix = 'did:web:';
-    const identifier = did.replace(didWebPrefix, '');
-    const parts = identifier.split(':');
-    const domain = parts[0];
-    const pathSegments = parts.slice(1);
-
-    const getDidJsonUrl = () => {
-      if (serviceUrl) {
-        const base = new URL(serviceUrl);
-        if (pathSegments.length > 0) {
-          return new URL(`/${pathSegments.join('/')}/did.json`, base.origin);
-        }
-        return new URL('/.well-known/did.json', base.origin);
-      }
-
-      const base = `https://${domain}`;
-      if (pathSegments.length > 0) {
-        return new URL(`/${pathSegments.join('/')}/did.json`, base);
-      }
-      return new URL('/.well-known/did.json', base);
-    };
-
-    const url = getDidJsonUrl();
-    const response = await fetch(url.toString(), {
-      headers: { Accept: 'application/json' },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch DID document ${url}: ${response.status}`);
-    }
-
-    const didDoc = (await response.json()) as {
-      verificationMethod?: Array<{ publicKeyMultibase?: string }>;
-    };
-
-    const publicKeyMultibase = didDoc.verificationMethod?.find(
-      (method) => typeof method.publicKeyMultibase === 'string'
-    )?.publicKeyMultibase;
-
-    if (!publicKeyMultibase) {
-      throw new Error(`No publicKeyMultibase found in DID document ${url}`);
-    }
-
-    return {
-      didKey: `did:key:${publicKeyMultibase}`,
-    };
-  }
-
-  private async createClient(principal: UcanSigner) {
-    const store = new StoreMemory();
-    const serviceConfig = getServiceConfig();
-    const connection = await this.createServiceConnection();
-
-    if (connection && serviceConfig.uploadServiceUrl) {
-      const receiptsUrl =
-        serviceConfig.receiptsUrl ??
-        new URL('/receipt/', serviceConfig.uploadServiceUrl).toString();
-      return Client.create({
-        principal,
-        store,
-        serviceConf: {
-          access: connection,
-          upload: connection,
-          filecoin: connection,
-        },
-        receiptsEndpoint: new URL(receiptsUrl),
-      });
-    }
-
-    return Client.create({ principal, store });
-  }
-
   /**
    * Check and initialize hardware mode if supported
    * Returns true if hardware mode is active
@@ -333,6 +215,15 @@ export class UCANDelegationService {
   ): Promise<boolean> {
     if (this.hardwareModeChecked) {
       return this.useHardwareMode;
+    }
+
+    const overrides = globalThis as typeof globalThis & {
+      __FORCE_WORKER_MODE__?: boolean;
+    };
+    if (overrides.__FORCE_WORKER_MODE__) {
+      this.hardwareModeChecked = true;
+      this.useHardwareMode = false;
+      return false;
     }
     
     this.hardwareModeChecked = true;
@@ -421,7 +312,7 @@ export class UCANDelegationService {
     force = false,
     authenticatorType?: 'platform' | 'cross-platform'
   ): Promise<Ed25519KeyPair> {
-    // Check for hardware mode first (unless we already have worker credentials)
+    // Prefer hardware mode first when available, regardless of authenticator type.
     if (!force && !this.ed25519Keypair) {
       const hardwareEnabled = await this.checkAndInitializeHardwareMode(authenticatorType);
       if (hardwareEnabled) {

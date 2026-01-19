@@ -405,6 +405,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
           __UPLOAD_SERVICE_DID__?: string;
           __RECEIPTS_URL__?: string;
           __HELIA_BOOTSTRAP__?: { peerId: string; addrs: string[] };
+          __FORCE_WORKER_MODE__?: boolean;
         };
         if (url) {
           globalOverrides.__UPLOAD_SERVICE_URL__ = url;
@@ -412,6 +413,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
           globalOverrides.__RECEIPTS_URL__ = `${url}/receipt/`;
         }
         globalOverrides.__HELIA_BOOTSTRAP__ = heliaBootstrap;
+        globalOverrides.__FORCE_WORKER_MODE__ = true;
       },
       {
         url: uploadApiUrl,

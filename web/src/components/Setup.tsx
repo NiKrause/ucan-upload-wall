@@ -22,6 +22,7 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
   const [savedCredentials, setSavedCredentials] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [webauthnSupported, setWebauthnSupported] = useState(false);
+  const [authenticatorMode, setAuthenticatorMode] = useState<'platform' | 'cross-platform'>('platform');
   
   // NEW: Hardware mode detection
   const [signingMode, setSigningMode] = useState<{
@@ -80,11 +81,11 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
     }
   };
 
-  const handleCreateDID = async () => {
+  const handleCreateDID = async (authenticatorType?: 'platform' | 'cross-platform') => {
     setIsCreatingDID(true);
     try {
       // Simple unencrypted Ed25519 DID stored in localStorage
-      await delegationService.initializeEd25519DID(false);
+      await delegationService.initializeEd25519DID(false, authenticatorType);
       
       const did = delegationService.getCurrentDID();
       setCurrentDID(did);
@@ -214,7 +215,7 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
             <Key className="w-5 h-5 text-blue-600" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Step 1: Ed25519 DID</h3>
+            <h3 className="text-lg font-semibold text-gray-900">Step 1: Create Ed25519 DID</h3>
             <p className="text-sm text-gray-600">Create your decentralized identity</p>
           </div>
         </div>
@@ -253,13 +254,17 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
               )}
               
               <div className="flex items-center gap-2">
-                <code className="flex-1 text-xs bg-white px-3 py-2 rounded border border-green-300 font-mono break-all">
+                <code
+                  className="flex-1 text-xs bg-white px-3 py-2 rounded border border-green-300 font-mono break-all"
+                  data-testid="did-display"
+                >
                   {currentDID}
                 </code>
                 <button
                   onClick={handleCopyDID}
                   className="flex-shrink-0 p-2 text-green-700 hover:text-green-900 hover:bg-green-100 rounded transition-colors"
                   title="Copy DID"
+                  data-testid="copy-did-button"
                 >
                   {copiedField === 'did' ? (
                     <Check className="w-4 h-4" />
@@ -278,23 +283,58 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
             </div>
           </div>
         ) : (
-          <button
-            onClick={handleCreateDID}
-            disabled={!webauthnSupported || isCreatingDID}
-            className="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-          >
-            {isCreatingDID ? (
-              <>
-                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Creating DID...
-              </>
-            ) : (
-              <>
-                <Key className="w-5 h-5" />
-                Create Ed25519 DID
-              </>
-            )}
-          </button>
+          <div className="space-y-4">
+            <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+              <button
+                type="button"
+                onClick={() => setAuthenticatorMode('platform')}
+                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                  authenticatorMode === 'platform'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Standard (Touch ID / Face ID)
+              </button>
+              <button
+                type="button"
+                onClick={() => setAuthenticatorMode('cross-platform')}
+                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                  authenticatorMode === 'cross-platform'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Hardware (Security Key)
+              </button>
+            </div>
+            <button
+              onClick={() => handleCreateDID(authenticatorMode)}
+              disabled={!webauthnSupported || isCreatingDID}
+              className="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              data-testid="create-did-button"
+            >
+              {isCreatingDID ? (
+                <>
+                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Creating DID...
+                </>
+              ) : (
+                <>
+                  {authenticatorMode === 'platform' ? (
+                    <Lock className="w-5 h-5" />
+                  ) : (
+                    <Shield className="w-5 h-5" />
+                  )}
+                  Create Ed25519 DID
+                </>
+              )}
+            </button>
+            <div className="text-xs text-gray-500 mt-2 p-3 bg-gray-50 rounded">
+              <strong>Note:</strong> Switch to Hardware if you want to use a USB/NFC security key.
+              Standard uses built-in biometric authentication.
+            </div>
+          </div>
         )}
       </div>
 
