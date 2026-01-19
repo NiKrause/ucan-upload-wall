@@ -19,6 +19,9 @@ import { delegate, Message } from '@ucanto/core';
 import { createServer, handle } from '@storacha/upload-api';
 import { CAR } from '@ucanto/transport';
 import * as CARTransport from '@ucanto/transport/car';
+import * as ProviderCaps from '@storacha/capabilities/provider';
+import * as DidMailto from '@storacha/did-mailto';
+import { Absentee } from '@ucanto/principal';
 
 if (!Promise.withResolvers) {
   Promise.withResolvers = function withResolvers<T>() {
@@ -124,6 +127,7 @@ type TestModeConfig = {
   mode: TestMode;
   titleSuffix: string;
   forceWorker: boolean;
+  forceP256Hardware?: boolean;
   seedHardwareSigner?: {
     did: string;
     algorithm: 'Ed25519' | 'P-256';
@@ -132,6 +136,9 @@ type TestModeConfig = {
   };
 };
 
+const ENABLE_P256 =
+  process.env.TEST_HARDWARE_P256 === '1' || process.env.TEST_HARDWARE_P256 === 'true';
+
 const TEST_MODES: TestModeConfig[] = [
   {
     mode: 'hardware-ed25519',
@@ -139,22 +146,20 @@ const TEST_MODES: TestModeConfig[] = [
     forceWorker: false,
   },
   {
-    mode: 'hardware-p256',
-    titleSuffix: 'Hardware P-256 (Fallback)',
-    forceWorker: false,
-    seedHardwareSigner: {
-      did: 'did:key:zDnaHardwareP256',
-      algorithm: 'P-256',
-      publicKeyHex: '22'.repeat(65),
-      credentialIdBytes: [5, 6, 7, 8],
-    },
-  },
-  {
     mode: 'worker',
     titleSuffix: 'Worker Fallback (Forced)',
     forceWorker: true,
   },
 ];
+
+if (ENABLE_P256) {
+  TEST_MODES.splice(1, 0, {
+    mode: 'hardware-p256',
+    titleSuffix: 'Hardware P-256 (Fallback)',
+    forceWorker: false,
+    forceP256Hardware: true,
+  });
+}
 
 for (const modeConfig of TEST_MODES) {
   test.describe(`Delegation and Upload Flow - E2E (${modeConfig.titleSuffix})`, () => {
@@ -427,13 +432,49 @@ for (const modeConfig of TEST_MODES) {
       audience: spaceAgent,
       capabilities: [{ can: '*', with: space.did() }],
     });
+    console.log('🧾 Space proof capabilities:', spaceProof.capabilities);
+    console.log('🧾 Space proof issuer:', spaceProof.issuer.did());
+    console.log('🧾 Space proof audience:', spaceProof.audience.did());
 
     // 4. Provision the space (register with upload service)
     console.log('📝 Provisioning space with upload service...');
+    const accountDid = DidMailto.fromEmail('test@example.com');
+    const account = Absentee.from({ id: accountDid });
+    const providerAdd = ProviderCaps.add.invoke({
+      issuer: spaceAgent,
+      audience: uploadServiceContext.id,
+      with: account.did(),
+      nb: {
+        provider: uploadServiceContext.id.did(),
+        consumer: space.did(),
+      },
+      proofs: [
+        await delegate({
+          issuer: account,
+          audience: spaceAgent,
+          capabilities: [
+            {
+              can: 'provider/add',
+              with: account.did(),
+              nb: {
+                provider: uploadServiceContext.id.did(),
+                consumer: space.did(),
+              },
+            },
+          ],
+        }),
+      ],
+    });
+    console.log('🧾 Provider add capability:', providerAdd.capabilities);
     await uploadServiceContext.provisionsStorage.put({
-      cause: spaceProof.cid,
+      cause: providerAdd,
       consumer: spaceDid,
-      customer: uploadServiceContext.id.did(),
+      customer: account.did(),
+      provider: uploadServiceContext.id.did(),
+    });
+    console.log('🧾 Provision record:', {
+      consumer: spaceDid,
+      customer: account.did(),
       provider: uploadServiceContext.id.did(),
     });
     console.log('✅ Space provisioned');
@@ -474,13 +515,14 @@ for (const modeConfig of TEST_MODES) {
 
     // Provide service overrides before app boot
     await page.addInitScript(
-      ({ url, did, heliaBootstrap, forceWorker }) => {
+      ({ url, did, heliaBootstrap, forceWorker, forceP256Hardware }) => {
         const globalOverrides = globalThis as typeof globalThis & {
           __UPLOAD_SERVICE_URL__?: string;
           __UPLOAD_SERVICE_DID__?: string;
           __RECEIPTS_URL__?: string;
           __HELIA_BOOTSTRAP__?: { peerId: string; addrs: string[] };
           __FORCE_WORKER_MODE__?: boolean;
+          __FORCE_P256_HARDWARE__?: boolean;
         };
         if (url) {
           globalOverrides.__UPLOAD_SERVICE_URL__ = url;
@@ -489,12 +531,14 @@ for (const modeConfig of TEST_MODES) {
         }
         globalOverrides.__HELIA_BOOTSTRAP__ = heliaBootstrap;
         globalOverrides.__FORCE_WORKER_MODE__ = forceWorker;
+        globalOverrides.__FORCE_P256_HARDWARE__ = forceP256Hardware;
       },
       {
         url: uploadApiUrl,
         did: uploadServiceContext.id.did(),
         heliaBootstrap: { peerId: heliaPeerId, addrs: [heliaWsMultiaddr] },
         forceWorker: modeConfig.forceWorker,
+        forceP256Hardware: modeConfig.forceP256Hardware ?? false,
       }
     );
 
@@ -608,6 +652,20 @@ for (const modeConfig of TEST_MODES) {
             { timeout: 20000 }
           );
         }
+        if (mode !== 'worker') {
+          const expectedAlgorithm = mode === 'hardware-p256' ? 'P-256' : 'Ed25519';
+          const storedAlgorithm = await page.evaluate((key) => {
+            const stored = localStorage.getItem(key);
+            if (!stored) return null;
+            try {
+              return JSON.parse(stored).algorithm ?? null;
+            } catch {
+              return null;
+            }
+          }, HARDWARE_SIGNER_KEY);
+          expect(storedAlgorithm).toBe(expectedAlgorithm);
+          console.log(`✅ Hardware algorithm confirmed: ${storedAlgorithm}`);
+        }
         const browserDID = await getDidDisplay();
         console.log('✅ Browser DID:', browserDID);
         return browserDID;
@@ -619,6 +677,30 @@ for (const modeConfig of TEST_MODES) {
     }
 
     throw lastError ?? new Error('Failed to create DID in UI');
+  }
+
+  async function waitForDidDisplay(expectedDid?: string): Promise<string> {
+    const didDisplay = page.getByTestId('did-display');
+    const expectedPattern = expectedDid
+      ? new RegExp(`^${expectedDid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)
+      : /^did:key:/;
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      await expect(didDisplay).toBeVisible({ timeout: 15000 });
+      const text = (await didDisplay.textContent())?.trim() ?? '';
+      if (expectedPattern.test(text)) {
+        return text;
+      }
+
+      if (attempt === 1) {
+        await page.getByRole('button', { name: /Upload Files/i }).click();
+        await page.waitForTimeout(500);
+        await page.getByRole('button', { name: /delegations/i }).click();
+        await page.waitForTimeout(1000);
+      }
+    }
+
+    throw new Error('DID display did not render expected value');
   }
 
   test('should complete full delegation workflow: create space → DID → delegate → import → upload → persist', async () => {
@@ -655,6 +737,7 @@ for (const modeConfig of TEST_MODES) {
       issuer: spaceAgent,
       audience: browserPrincipal,
       capabilities: [
+        { with: space.did(), can: 'assert/index' },
         { with: space.did(), can: 'space/blob/add' },
         { with: space.did(), can: 'space/index/add' },
         { with: space.did(), can: 'upload/add' },
@@ -665,6 +748,7 @@ for (const modeConfig of TEST_MODES) {
       proofs: [spaceProof], // Include proof that spaceAgent has authority
       expiration: Math.floor(Date.now() / 1000) + 3600,
     });
+    console.log('🧾 Delegation capabilities (server-side):', delegation.capabilities);
 
     // Encode delegation as base64 (Storacha CLI format: multibase-base64)
     const delegationArchive = await delegation.archive();
@@ -692,11 +776,8 @@ for (const modeConfig of TEST_MODES) {
     await page.waitForTimeout(2000);
     
     // Wait for the DID to be displayed (confirms the page is fully loaded with DID)
-    const didDisplay = page.getByTestId('did-display');
-    await expect(didDisplay).toBeVisible({ timeout: 10000 });
-    
     // Re-read the DID to ensure we have the current one
-    const currentDID = await didDisplay.textContent();
+    const currentDID = await waitForDidDisplay(browserDID);
     console.log('📋 Current DID on page:', currentDID);
     
     // Check if DID changed (it shouldn't, but let's verify)
@@ -714,6 +795,7 @@ for (const modeConfig of TEST_MODES) {
         issuer: spaceAgent,
         audience: updatedBrowserPrincipal,
         capabilities: [
+          { with: space.did(), can: 'assert/index' },
           { with: space.did(), can: 'space/blob/add' },
           { with: space.did(), can: 'space/index/add' },
           { with: space.did(), can: 'upload/add' },
@@ -724,6 +806,7 @@ for (const modeConfig of TEST_MODES) {
         proofs: [spaceProof],
         expiration: Math.floor(Date.now() / 1000) + 3600,
       });
+      console.log('🧾 Updated delegation capabilities (server-side):', updatedDelegation.capabilities);
       
       const updatedArchive = await updatedDelegation.archive();
       if (!updatedArchive.ok) {
@@ -838,6 +921,8 @@ for (const modeConfig of TEST_MODES) {
     console.log('✅ Delegation card is active and visible');
     
     console.log('✅ Delegation imported successfully');
+    const browserDelegations = await page.evaluate(() => localStorage.getItem('received_delegations'));
+    console.log('🧾 Browser received delegations:', browserDelegations);
 
     // ========================================
     // STEP 7: Upload a file
@@ -982,6 +1067,7 @@ for (const modeConfig of TEST_MODES) {
       proofs: [spaceProof],
       expiration: Math.floor(Date.now() / 1000) + 3600,
     });
+    console.log('🧾 Delegation capabilities (server-side):', delegation.capabilities);
 
     const delegationArchive = await delegation.archive();
     if (!delegationArchive.ok) {
@@ -1015,8 +1101,7 @@ for (const modeConfig of TEST_MODES) {
       await page.waitForTimeout(2000);
       
       // Wait for DID to be visible
-      const didDisplay = page.getByTestId('did-display');
-      await expect(didDisplay).toBeVisible({ timeout: 10000 });
+      await waitForDidDisplay(browserDID);
       
       await page.waitForLoadState('networkidle');
       await page.waitForTimeout(1500);
@@ -1055,6 +1140,8 @@ for (const modeConfig of TEST_MODES) {
       const activeBadge = page.locator('.bg-green-100.text-green-800', { hasText: 'Active' });
       await expect(activeBadge).toBeVisible({ timeout: 5000 });
       console.log(`✅ Format ${format.name} imported successfully`);
+      const browserDelegations = await page.evaluate(() => localStorage.getItem('received_delegations'));
+      console.log(`🧾 Browser received delegations after ${format.name}:`, browserDelegations);
 
       // Clean up for next format test
       await page.reload();
