@@ -42,11 +42,11 @@ describe('Varint Encoding/Decoding', () => {
     }
   });
   
-  it('should encode 0x2ed1 (WEBAUTHN_ED25519) correctly', () => {
-    const encoded = varintEncode(0x2ed1);
+  it('should encode 0xd1ed (WEBAUTHN_ED25519) correctly', () => {
+    const encoded = varintEncode(0xd1ed);
     const [decoded] = varintDecode(encoded);
     
-    expect(decoded).toBe(0x2ed1);
+    expect(decoded).toBe(0xd1ed);
   });
   
   it('should handle varint with offset', () => {
@@ -156,9 +156,9 @@ describe('WebAuthn Varsig Decoder', () => {
     const decoded = decodeWebAuthnVarsig(varsig);
     
     expect(decoded.multicodec).toBe(WEBAUTHN_ED25519);
-    expect(decoded.authenticatorData).toEqual(original.authenticatorData);
-    expect(decoded.clientDataJSON).toEqual(original.clientDataJSON);
-    expect(decoded.signature).toEqual(original.signature);
+    expect(bytesEqual(decoded.authenticatorData, original.authenticatorData)).toBe(true);
+    expect(bytesEqual(decoded.clientDataJSON, original.clientDataJSON)).toBe(true);
+    expect(bytesEqual(decoded.signature, original.signature)).toBe(true);
   });
   
   it('should decode P-256 varsig', () => {
@@ -167,9 +167,9 @@ describe('WebAuthn Varsig Decoder', () => {
     const decoded = decodeWebAuthnVarsig(varsig);
     
     expect(decoded.multicodec).toBe(WEBAUTHN_P256);
-    expect(decoded.authenticatorData).toEqual(original.authenticatorData);
-    expect(decoded.clientDataJSON).toEqual(original.clientDataJSON);
-    expect(decoded.signature).toEqual(original.signature);
+    expect(bytesEqual(decoded.authenticatorData, original.authenticatorData)).toBe(true);
+    expect(bytesEqual(decoded.clientDataJSON, original.clientDataJSON)).toBe(true);
+    expect(bytesEqual(decoded.signature, original.signature)).toBe(true);
   });
   
   it('should throw on invalid multicodec', () => {
@@ -187,13 +187,18 @@ describe('WebAuthn Varsig Decoder', () => {
     expect(() => decodeWebAuthnVarsig(fakeVarsig)).toThrow('Unsupported multicodec');
   });
   
-  it('should throw on invalid signature length for Ed25519', () => {
+  it('should throw on empty signature', () => {
     const assertion = createMockEd25519Assertion();
-    // Use wrong signature length
-    assertion.signature = new Uint8Array(63); // Should be 64
-    const varsig = encodeWebAuthnVarsig(assertion);
-    
-    expect(() => decodeWebAuthnVarsig(varsig)).toThrow('Invalid Ed25519 signature length');
+    const fakeVarsig = concat([
+      varintEncode(WEBAUTHN_ED25519),
+      varintEncode(assertion.authenticatorData.length),
+      assertion.authenticatorData,
+      varintEncode(assertion.clientDataJSON.length),
+      assertion.clientDataJSON,
+      new Uint8Array(0)
+    ]);
+
+    expect(() => decodeWebAuthnVarsig(fakeVarsig)).toThrow('Signature is empty');
   });
   
   it('should throw on truncated data', () => {

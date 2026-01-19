@@ -261,13 +261,13 @@ sequenceDiagram
         Hardware-->>Browser: WebAuthn Assertion {<br/>  authenticatorData,<br/>  clientDataJSON,<br/>  signature (64 bytes)<br/>}
         Browser-->>HardwareService: assertion
         HardwareService->>VarsigEncoder: encodeWebAuthnVarsig(..., 'Ed25519')
-        VarsigEncoder->>VarsigEncoder: Encode as varsig:<br/>[0x2ed1][len][authData][len][clientData][sig]
+        VarsigEncoder->>VarsigEncoder: Encode as varsig:<br/>[0xd1ed][len][authData][len][clientData][sig]
     else P-256 Mode (Common)
         Hardware->>Hardware: Sign with P-256 private key:<br/>signature = P-256.sign(<br/>  authenticatorData || sha256(clientDataJSON)<br/>)
         Hardware-->>Browser: WebAuthn Assertion {<br/>  authenticatorData,<br/>  clientDataJSON,<br/>  signature (70-72 bytes DER)<br/>}
         Browser-->>HardwareService: assertion
         HardwareService->>VarsigEncoder: encodeWebAuthnVarsig(..., 'P-256')
-        VarsigEncoder->>VarsigEncoder: Encode as varsig:<br/>[0x2256][len][authData][len][clientData][sig]
+        VarsigEncoder->>VarsigEncoder: Encode as varsig:<br/>[0xd1f2][len][authData][len][clientData][sig]
     end
     
     VarsigEncoder-->>HardwareService: varsig bytes
@@ -303,7 +303,7 @@ sequenceDiagram
     HardwareService->>HardwareService: Extract signature from delegation
     HardwareService->>VarsigDecoder: decodeWebAuthnVarsig(signature)
     
-    VarsigDecoder->>VarsigDecoder: Read multicodec:<br/>0x2ed1 (Ed25519) or 0x2256 (P-256)
+    VarsigDecoder->>VarsigDecoder: Read multicodec:<br/>0xd1ed (Ed25519) or 0xd1f2 (P-256)
     VarsigDecoder->>VarsigDecoder: Extract authenticatorData
     VarsigDecoder->>VarsigDecoder: Extract clientDataJSON
     VarsigDecoder->>VarsigDecoder: Extract signature
@@ -1232,8 +1232,7 @@ sequenceDiagram
 - [Keystore Architecture](./KEYSTORE_ARCHITECTURE.md)
 - [WebAuthn Varsig README](../web/src/lib/webauthn-varsig/README.md) ⭐ NEW
 - [Integration Guide](../INTEGRATION_GUIDE.md) ⭐ NEW
-- [Implementation Summary](../IMPLEMENTATION_SUMMARY.md) ⭐ NEW
-- [Completion Report](../COMPLETION_REPORT.md) ⭐ NEW
+- [Varsig Branch Notes](./varsig-branch-notes.md)
 
 ### Browser Support
 - [WebAuthn Ed25519 Support](https://caniuse.com/webauthn) (Chrome 108+, Safari 17+)
@@ -1245,4 +1244,3 @@ sequenceDiagram
 ## License
 
 MIT License - See [LICENSE](../LICENSE) for details.
-

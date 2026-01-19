@@ -1,9 +1,11 @@
 /**
  * Multicodec Constants for WebAuthn Varsig
- * 
+ *
  * These multicodec prefixes identify the signature format in the varsig.
- * 
- * Reference: https://github.com/multiformats/multicodec/blob/master/table.csv
+ * WebAuthn signatures are not raw Ed25519/P-256 signatures, so they need a
+ * discriminant specific to WebAuthn.
+ *
+ * Reference: https://github.com/ChainAgnostic/varsig#signature-algorithm
  */
 
 /**
@@ -13,18 +15,16 @@
 export const ED25519_PUB = 0xed;
 
 /**
- * WebAuthn-wrapped Ed25519 signature
- * Custom multicodec (not yet in official table)
- * 0x2ed1 = temporary identifier for WebAuthn Ed25519
+ * WebAuthn-wrapped Ed25519 signature (varsig discriminant)
+ * Matches the le-space ucanto fork for WebAuthn Ed25519 varsig.
  */
-export const WEBAUTHN_ED25519 = 0x2ed1;
+export const WEBAUTHN_ED25519 = 0xd1ed;
 
 /**
- * WebAuthn-wrapped P-256 signature
- * Custom multicodec (not yet in official table)
- * 0x2256 = temporary identifier for WebAuthn P-256
+ * WebAuthn-wrapped P-256 signature (varsig discriminant).
+ * TODO: Update when a canonical multicodec is registered.
  */
-export const WEBAUTHN_P256 = 0x2256;
+export const WEBAUTHN_P256 = 0xd1f2;
 
 /**
  * Standard P-256 public key

@@ -15,6 +15,19 @@ import {
 } from './webauthn-varsig/index.js';
 import * as UcantoPrincipal from '@ucanto/principal'; // Resolved to le-space tarball via package.json overrides
 
+const wrapQueuedSign = <T extends { sign: (data: Uint8Array) => Promise<Uint8Array> }>(
+  signer: T
+): T => {
+  let pending: Promise<void> = Promise.resolve();
+  const queued = Object.create(signer) as T;
+  queued.sign = async (data: Uint8Array) => {
+    const run = pending.then(() => signer.sign(data), () => signer.sign(data));
+    pending = run.then(() => undefined, () => undefined);
+    return run;
+  };
+  return queued;
+};
+
 /**
  * WebAuthn Ed25519 signer for UCAN
  */
@@ -23,6 +36,12 @@ export class WebAuthnEd25519Signer {
   public did: string;
   public publicKey: Uint8Array;
   public algorithm = 'Ed25519' as const;
+  private static pendingRequest: Promise<void> = Promise.resolve();
+  private static enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = WebAuthnEd25519Signer.pendingRequest.then(task, task);
+    WebAuthnEd25519Signer.pendingRequest = run.then(() => undefined, () => undefined);
+    return run;
+  }
   
   constructor(credentialId: BufferSource, did: string, publicKey: Uint8Array) {
     this.credentialId = credentialId;
@@ -46,19 +65,20 @@ export class WebAuthnEd25519Signer {
     
     console.log('🔐 Requesting WebAuthn signature (biometric required)...');
     
-    // Get WebAuthn assertion
-    const assertion = await navigator.credentials.get({
-      publicKey: {
-        challenge,
-        allowCredentials: [{
-          id: this.credentialId,
-          type: 'public-key',
-          transports: ['internal', 'hybrid']
-        }],
-        userVerification: 'required',
-        timeout: 60000
-      }
-    }) as PublicKeyCredential | null;
+    const assertion = await WebAuthnEd25519Signer.enqueue(async () =>
+      navigator.credentials.get({
+        publicKey: {
+          challenge,
+          allowCredentials: [{
+            id: this.credentialId,
+            type: 'public-key',
+            transports: ['internal', 'hybrid']
+          }],
+          userVerification: 'required',
+          timeout: 60000
+        }
+      }) as Promise<PublicKeyCredential | null>
+    );
     
     if (!assertion) {
       throw new Error('WebAuthn authentication failed or was cancelled');
@@ -136,7 +156,12 @@ export class WebAuthnEd25519Signer {
       throw new Error('WebAuthnEd25519 not available in ucanto principal');
     }
     
-    return UcantoPrincipal.WebAuthnEd25519.create(credentialIdBase64, this.publicKey, this.did);
+    const signer = UcantoPrincipal.WebAuthnEd25519.create(
+      credentialIdBase64,
+      this.publicKey,
+      this.did
+    );
+    return wrapQueuedSign(signer);
   }
 }
 
@@ -149,6 +174,12 @@ export class WebAuthnP256Signer {
   public did: string;
   public publicKey: Uint8Array;
   public algorithm = 'P-256' as const;
+  private static pendingRequest: Promise<void> = Promise.resolve();
+  private static enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = WebAuthnP256Signer.pendingRequest.then(task, task);
+    WebAuthnP256Signer.pendingRequest = run.then(() => undefined, () => undefined);
+    return run;
+  }
   
   constructor(credentialId: BufferSource, did: string, publicKey: Uint8Array) {
     this.credentialId = credentialId;
@@ -171,19 +202,20 @@ export class WebAuthnP256Signer {
     
     console.log('🔐 Requesting WebAuthn P-256 signature (biometric required)...');
     
-    // Get WebAuthn assertion
-    const assertion = await navigator.credentials.get({
-      publicKey: {
-        challenge,
-        allowCredentials: [{
-          id: this.credentialId,
-          type: 'public-key',
-          transports: ['internal', 'hybrid']
-        }],
-        userVerification: 'required',
-        timeout: 60000
-      }
-    }) as PublicKeyCredential | null;
+    const assertion = await WebAuthnP256Signer.enqueue(async () =>
+      navigator.credentials.get({
+        publicKey: {
+          challenge,
+          allowCredentials: [{
+            id: this.credentialId,
+            type: 'public-key',
+            transports: ['internal', 'hybrid']
+          }],
+          userVerification: 'required',
+          timeout: 60000
+        }
+      }) as Promise<PublicKeyCredential | null>
+    );
     
     if (!assertion) {
       throw new Error('WebAuthn authentication failed or was cancelled');
@@ -295,6 +327,9 @@ export async function createWebAuthnEd25519Credential(
   options: WebAuthnCredentialOptions = {}
 ): Promise<WebAuthnEd25519Signer | WebAuthnP256Signer | null> {
   const { authenticatorType = 'any' } = options;
+  const forceP256Hardware =
+    typeof window !== 'undefined' &&
+    Boolean((window as typeof window & { __FORCE_P256_HARDWARE__?: boolean }).__FORCE_P256_HARDWARE__);
   
   console.log('🔑 Creating WebAuthn Ed25519 credential (hardware-backed)...');
   if (authenticatorType !== 'any') {
@@ -309,6 +344,14 @@ export async function createWebAuthnEd25519Credential(
     
     const userIdBytes = new TextEncoder().encode(userId);
     const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const pubKeyCredParams = forceP256Hardware
+      ? [{ type: 'public-key', alg: -7 }]
+      : [
+          { type: 'public-key', alg: -50 },  // Ed25519 (RFC 9864) - PREFERRED (fully-specified)
+          { type: 'public-key', alg: -8 },   // EdDSA (legacy polymorphic) - fallback
+          { type: 'public-key', alg: -7 },   // ES256 (P-256) - fallback
+          { type: 'public-key', alg: -257 }  // RS256 (RSA) - broad compatibility
+        ];
     
     // Create WebAuthn credential with Ed25519
     const credential = await navigator.credentials.create({
@@ -323,12 +366,7 @@ export async function createWebAuthnEd25519Credential(
           name: userId,
           displayName
         },
-        pubKeyCredParams: [
-          { type: 'public-key', alg: -50 },  // Ed25519 (RFC 9864) - PREFERRED (fully-specified)
-          { type: 'public-key', alg: -8 },   // EdDSA (legacy polymorphic) - fallback
-          { type: 'public-key', alg: -7 },   // ES256 (P-256) - fallback
-          { type: 'public-key', alg: -257 }  // RS256 (RSA) - broad compatibility
-        ],
+        pubKeyCredParams,
         authenticatorSelection: {
           // Set authenticator attachment based on user preference
           ...(authenticatorType !== 'any' && { authenticatorAttachment: authenticatorType }),
@@ -360,13 +398,17 @@ export async function createWebAuthnEd25519Credential(
     const response = credential.response as AuthenticatorAttestationResponse;
     
     // Extract public key from attestation object
-    const publicKey = await extractEd25519PublicKey(
-      new Uint8Array(response.attestationObject)
-    );
+    const publicKey = forceP256Hardware
+      ? null
+      : await extractEd25519PublicKey(new Uint8Array(response.attestationObject));
     
     if (!publicKey) {
       // Ed25519 not supported - try P-256 as fallback
-      console.log('🔄 Ed25519 not available, attempting P-256 extraction...');
+      if (forceP256Hardware) {
+        console.log('🔄 Forcing P-256 hardware fallback for testing');
+      } else {
+        console.log('🔄 Ed25519 not available, attempting P-256 extraction...');
+      }
       
       const p256PublicKey = await extractP256PublicKey(
         new Uint8Array(response.attestationObject)
@@ -682,14 +724,24 @@ async function extractP256PublicKey(attestationObject: Uint8Array): Promise<Uint
 async function createP256Did(publicKey: Uint8Array): Promise<string> {
   // Dynamically import base58btc from multiformats
   const { base58btc } = await import('multiformats/bases/base58');
+  const { p256 } = await import('@noble/curves/p256');
   
   // P-256 multicodec: 0x1200 encoded as varint
   const multicodecPrefix = new Uint8Array([0x80, 0x24]); // 0x1200 in varint
   
+  const compressedKey =
+    publicKey.length === 33
+      ? publicKey
+      : publicKey.length === 65
+      ? p256.ProjectivePoint.fromHex(publicKey).toRawBytes(true)
+      : (() => {
+          throw new Error(`Invalid P-256 public key length: ${publicKey.length}`);
+        })();
+
   // Create multikey: multicodec + publicKey
-  const multikey = new Uint8Array(multicodecPrefix.length + publicKey.length);
+  const multikey = new Uint8Array(multicodecPrefix.length + compressedKey.length);
   multikey.set(multicodecPrefix, 0);
-  multikey.set(publicKey, multicodecPrefix.length);
+  multikey.set(compressedKey, multicodecPrefix.length);
   
   // Encode as base58btc
   const encoded = base58btc.encode(multikey);

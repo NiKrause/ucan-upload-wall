@@ -23,6 +23,8 @@ import * as ProviderCaps from '@storacha/capabilities/provider';
 import * as DidMailto from '@storacha/did-mailto';
 import { Absentee } from '@ucanto/principal';
 
+test.describe.configure({ mode: 'serial' });
+
 if (!Promise.withResolvers) {
   Promise.withResolvers = function withResolvers<T>() {
     let resolve!: (value: T | PromiseLike<T>) => void;
@@ -495,6 +497,10 @@ for (const modeConfig of TEST_MODES) {
     // 6. Setup browser context and WebAuthn
     console.log('🌐 Setting up browser context...');
     context = await browser.newContext();
+    await context.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     page = await context.newPage();
 
@@ -1136,19 +1142,21 @@ for (const modeConfig of TEST_MODES) {
       const receivedHeading = page.getByRole('heading', { name: /Delegations Received/i });
       await expect(receivedHeading).toBeVisible({ timeout: 5000 });
       
-      // Look for the "Active" badge which IS displayed in delegation cards
-      const activeBadge = page.locator('.bg-green-100.text-green-800', { hasText: 'Active' });
+      // Look for at least one "Active" badge in delegation cards
+      const activeBadge = page.locator('.bg-green-100.text-green-800', { hasText: 'Active' }).first();
       await expect(activeBadge).toBeVisible({ timeout: 5000 });
-      console.log(`✅ Format ${format.name} imported successfully`);
       const browserDelegations = await page.evaluate(() => localStorage.getItem('received_delegations'));
+      const parsedDelegations = browserDelegations ? JSON.parse(browserDelegations) : [];
+      expect(parsedDelegations.some((entry: { name?: string }) => entry.name === `Test ${format.name}`)).toBe(true);
+      console.log(`✅ Format ${format.name} imported successfully`);
       console.log(`🧾 Browser received delegations after ${format.name}:`, browserDelegations);
 
-      // Clean up for next format test
-      await page.reload();
-      await page.waitForLoadState('networkidle');
+      // Clean up for next format test without reloading (keeps DID state)
+      await page.getByRole('button', { name: /Upload Files/i }).click();
       await page.waitForTimeout(1000);
       await page.getByRole('button', { name: /delegations/i }).click();
       await page.waitForTimeout(1000);
+      await waitForDidDisplay(browserDID);
     }
 
     console.log('\n✅ TEST PASSED: All delegation formats work correctly!\n');

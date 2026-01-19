@@ -42,7 +42,7 @@ WebAuthn Ed25519 → Sign assertion → Encode varsig → Verify → UCAN
 varsig = [multicodec] + [authData_len] + [authData] + [clientData_len] + [clientData] + [signature]
 ```
 
-- **multicodec**: `0x2ed1` for WebAuthn Ed25519, `0x2256` for WebAuthn P-256
+- **multicodec**: `0xd1ed` for WebAuthn Ed25519, `0xd1f2` for WebAuthn P-256 (temporary)
 - **authData_len**: Varint-encoded length of authenticatorData
 - **authData**: Raw authenticatorData from WebAuthn assertion
 - **clientData_len**: Varint-encoded length of clientDataJSON
@@ -82,7 +82,7 @@ import { decodeWebAuthnVarsig } from './lib/webauthn-varsig';
 // Decode varsig
 const decoded = decodeWebAuthnVarsig(varsig);
 
-console.log('Algorithm:', decoded.multicodec === 0x2ed1 ? 'Ed25519' : 'P-256');
+console.log('Algorithm:', decoded.multicodec === 0xd1ed ? 'Ed25519' : 'P-256');
 console.log('AuthenticatorData:', decoded.authenticatorData);
 console.log('ClientDataJSON:', new TextDecoder().decode(decoded.clientDataJSON));
 console.log('Signature:', decoded.signature);
@@ -276,6 +276,6 @@ const isValid = await verifyEd25519Signature(
 ## References
 
 - [WebAuthn Level 3 Specification](https://www.w3.org/TR/webauthn-3/)
-- [Varsig Specification](https://github.com/multiformats/multicodec)
+- [Varsig Specification](https://github.com/ChainAgnostic/varsig#signature-algorithm)
 - [UCAN Specification](https://github.com/ucan-wg/spec)
 - [Security Analysis](../../../SECURITY.md)

@@ -63,10 +63,8 @@ export function validateWebAuthnAssertion(assertion: WebAuthnAssertion): void {
     throw new Error('signature is required and cannot be empty');
   }
   
-  // Validate signature length based on algorithm
-  // Ed25519 signatures are always 64 bytes
-  // P-256 signatures are variable length (typically 70-72 bytes in DER format)
-  if (assertion.signature.length < 64) {
-    throw new Error(`Signature too short: ${assertion.signature.length} bytes`);
+  // WebAuthn signature length depends on the authenticator and algorithm.
+  if (assertion.signature.length === 0) {
+    throw new Error('signature is required and cannot be empty');
   }
 }

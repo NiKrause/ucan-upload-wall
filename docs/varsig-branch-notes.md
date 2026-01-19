@@ -1,8 +1,8 @@
 # Varsig Branch Notes
 
-This branch adds WebAuthn Ed25519 hardware signing via varsig encoding and
-fallbacks to P-256 or worker-based Ed25519 when hardware Ed25519 is not
-available.
+This branch adds WebAuthn Ed25519 hardware signing via ChainAgnostic varsig
+encoding and fallbacks to P-256 or worker-based Ed25519 when hardware Ed25519
+is not available.
 
 ## What Changed
 
@@ -16,6 +16,8 @@ available.
 - The browser uses le-space ucanto via tarball overrides in `web/package.json`.
 - Upload-api tests use a varsig-aware principal in
   `web/tests/delegation-upload-flow.spec.ts` to avoid 64-byte Ed25519 checks.
+- Varsig discriminants are WebAuthn-specific (`0xd1ed` for Ed25519,
+  `0xd1f2` for P-256 pending registration).
 
 ## Tests
 

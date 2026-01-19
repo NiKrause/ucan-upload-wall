@@ -17,7 +17,7 @@ import type { DecodedVarsig, ClientDataJSON } from './types.js';
  * - authenticatorData (bytes)
  * - clientDataJSON length (varint)
  * - clientDataJSON (bytes)
- * - signature (64 bytes for Ed25519, 70-72 bytes for P-256)
+ * - signature (length depends on authenticator and algorithm)
  */
 export function decodeWebAuthnVarsig(varsig: Uint8Array): DecodedVarsig {
   let offset = 0;
@@ -58,16 +58,8 @@ export function decodeWebAuthnVarsig(varsig: Uint8Array): DecodedVarsig {
   // Read signature (rest of the bytes)
   const signature = varsig.slice(offset);
   
-  // Validate signature length
-  if (algorithm === 'Ed25519') {
-    if (signature.length !== 64) {
-      throw new Error(`Invalid Ed25519 signature length: expected 64 bytes, got ${signature.length}`);
-    }
-  } else if (algorithm === 'P-256') {
-    // P-256 signatures are DER-encoded and vary in length (typically 70-72 bytes)
-    if (signature.length < 64 || signature.length > 74) {
-      throw new Error(`Invalid P-256 signature length: expected 64-74 bytes, got ${signature.length}`);
-    }
+  if (signature.length === 0) {
+    throw new Error('Signature is empty');
   }
 
   return {

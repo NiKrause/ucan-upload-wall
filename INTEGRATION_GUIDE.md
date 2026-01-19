@@ -269,4 +269,4 @@ test('create hardware delegation', async ({ page }) => {
 See:
 - `web/src/lib/webauthn-varsig/README.md` - Varsig documentation
 - `SECURITY.md` - Security analysis
-- `IMPLEMENTATION_SUMMARY.md` - Implementation status
+- `docs/varsig-branch-notes.md` - Branch-specific varsig status

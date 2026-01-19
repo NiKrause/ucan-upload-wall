@@ -27,7 +27,7 @@
  * 
  * Note: For authorization to work, the local service must either:
  * - Have requirePaymentPlan: false and auto-accept spaces, OR
- * - The space must be provisioned separately (see LOCAL_SPACE_PROVISIONING_FIX.md)
+ * - The space must be provisioned separately (see docs/local-dev.md)
  */
 
 import * as Client from '@storacha/client'
@@ -365,7 +365,7 @@ async function main() {
     if (error.message.includes('provisions')) {
       console.error('💡 This error means billing provisions are not set up.')
       console.error('   The local server needs manual provision configuration.')
-      console.error('   See LOCAL_UPLOAD_SERVICE_SETUP.md for details.')
+      console.error('   See docs/local-dev.md for details.')
     } else if (error.message.includes('ECONNREFUSED')) {
       console.error('💡 Cannot connect to local server.')
       console.error('   Make sure the server is running:')
