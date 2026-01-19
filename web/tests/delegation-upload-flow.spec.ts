@@ -13,6 +13,7 @@
 import http from 'node:http';
 import { test, expect, BrowserContext, Page } from '@playwright/test';
 import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpers/webauthn';
+import { Verifier as BaseVerifier, WebAuthnEd25519 } from '@ucanto/principal';
 import * as ed25519 from '@ucanto/principal/ed25519';
 import { delegate, Message } from '@ucanto/core';
 import { createServer, handle } from '@storacha/upload-api';
@@ -65,6 +66,35 @@ type HeliaNode = {
   stop: () => Promise<void>;
 };
 
+const createVarsigPrincipal = () => {
+  if (!WebAuthnEd25519?.Verifier?.create) {
+    return BaseVerifier;
+  }
+
+  const wrapVerifier = (did: string) => {
+    const edVerifier = BaseVerifier.parse(did);
+    const webauthnVerifier = WebAuthnEd25519.Verifier.create(edVerifier.publicKey, did);
+
+    return {
+      code: edVerifier.code,
+      signatureCode: edVerifier.signatureCode,
+      signatureAlgorithm: edVerifier.signatureAlgorithm,
+      did: () => did,
+      toDIDKey: () => edVerifier.toDIDKey(),
+      verify: (payload: Uint8Array, signature: { raw?: Uint8Array }) => {
+        const raw = signature?.raw ?? signature;
+        if (raw?.byteLength && raw.byteLength !== 64) {
+          return webauthnVerifier.verify(payload, signature);
+        }
+        return edVerifier.verify(payload, signature);
+      },
+      withDID: (nextId: string) => wrapVerifier(nextId),
+    };
+  };
+
+  return { parse: wrapVerifier };
+};
+
 // Import test context from upload-api
 // Note: This provides in-memory storage and services
 let createContext: CreateContext;
@@ -86,7 +116,48 @@ test.beforeAll(async () => {
   }
 });
 
-test.describe('Delegation and Upload Flow - E2E', () => {
+const HARDWARE_SIGNER_KEY = 'webauthn_ed25519_hardware_signer';
+
+type TestMode = 'hardware-ed25519' | 'hardware-p256' | 'worker';
+
+type TestModeConfig = {
+  mode: TestMode;
+  titleSuffix: string;
+  forceWorker: boolean;
+  seedHardwareSigner?: {
+    did: string;
+    algorithm: 'Ed25519' | 'P-256';
+    publicKeyHex: string;
+    credentialIdBytes: number[];
+  };
+};
+
+const TEST_MODES: TestModeConfig[] = [
+  {
+    mode: 'hardware-ed25519',
+    titleSuffix: 'Hardware Ed25519',
+    forceWorker: false,
+  },
+  {
+    mode: 'hardware-p256',
+    titleSuffix: 'Hardware P-256 (Fallback)',
+    forceWorker: false,
+    seedHardwareSigner: {
+      did: 'did:key:zDnaHardwareP256',
+      algorithm: 'P-256',
+      publicKeyHex: '22'.repeat(65),
+      credentialIdBytes: [5, 6, 7, 8],
+    },
+  },
+  {
+    mode: 'worker',
+    titleSuffix: 'Worker Fallback (Forced)',
+    forceWorker: true,
+  },
+];
+
+for (const modeConfig of TEST_MODES) {
+  test.describe(`Delegation and Upload Flow - E2E (${modeConfig.titleSuffix})`, () => {
   const IPFS_BOOTSTRAP = [
     '/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN',
     '/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa',
@@ -225,7 +296,11 @@ test.describe('Delegation and Upload Flow - E2E', () => {
   async function startUploadApiServer(
     context: UploadApiContext
   ): Promise<{ server: http.Server; url: string }> {
-    const agent = createServer({ ...context, codec: CAR.inbound });
+    const agent = createServer({
+      ...context,
+      codec: CAR.inbound,
+      principal: createVarsigPrincipal(),
+    });
 
     const server = http.createServer(async (req, res) => {
       console.log(`🌐 upload-api HTTP ${req.method} ${req.url}`);
@@ -399,7 +474,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
 
     // Provide service overrides before app boot
     await page.addInitScript(
-      ({ url, did, heliaBootstrap }) => {
+      ({ url, did, heliaBootstrap, forceWorker }) => {
         const globalOverrides = globalThis as typeof globalThis & {
           __UPLOAD_SERVICE_URL__?: string;
           __UPLOAD_SERVICE_DID__?: string;
@@ -413,12 +488,13 @@ test.describe('Delegation and Upload Flow - E2E', () => {
           globalOverrides.__RECEIPTS_URL__ = `${url}/receipt/`;
         }
         globalOverrides.__HELIA_BOOTSTRAP__ = heliaBootstrap;
-        globalOverrides.__FORCE_WORKER_MODE__ = true;
+        globalOverrides.__FORCE_WORKER_MODE__ = forceWorker;
       },
       {
         url: uploadApiUrl,
         did: uploadServiceContext.id.did(),
         heliaBootstrap: { peerId: heliaPeerId, addrs: [heliaWsMultiaddr] },
+        forceWorker: modeConfig.forceWorker,
       }
     );
 
@@ -434,6 +510,10 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     await page.reload();
     await page.waitForLoadState('networkidle');
     console.log('✅ Browser setup complete');
+
+    if (modeConfig.seedHardwareSigner) {
+      await seedHardwareSigner(page, modeConfig.seedHardwareSigner);
+    }
   });
 
   test.afterEach(async () => {
@@ -466,7 +546,26 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     await context?.close().catch(() => {});
   });
 
-  async function createDIDInUI(): Promise<string> {
+  async function seedHardwareSigner(page: Page, seed: NonNullable<TestModeConfig['seedHardwareSigner']>) {
+    await page.evaluate(
+      ({ key, payload }) => {
+        const credentialId = btoa(String.fromCharCode(...payload.credentialIdBytes));
+        localStorage.setItem(
+          key,
+          JSON.stringify({
+            credentialId,
+            did: payload.did,
+            publicKey: payload.publicKeyHex,
+            algorithm: payload.algorithm,
+            created: new Date().toISOString(),
+          })
+        );
+      },
+      { key: HARDWARE_SIGNER_KEY, payload: seed }
+    );
+  }
+
+  async function createDIDInUI(mode: TestMode): Promise<string> {
     console.log('📝 Creating DID in React UI...');
 
     await page.getByRole('button', { name: /Upload Files/i }).click();
@@ -488,7 +587,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
       await expect(didElement).toBeVisible({ timeout: 10000 });
       const browserDID = (await didElement.textContent())?.trim();
       expect(browserDID).toBeTruthy();
-      expect(browserDID).toMatch(/^did:key:z6Mk/);
+      expect(browserDID).toMatch(/^did:key:/);
       return browserDID as string;
     };
 
@@ -496,11 +595,19 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         await createButton.click();
-        await page.waitForFunction(
-          () => Boolean(localStorage.getItem('ed25519_keypair')),
-          null,
-          { timeout: 20000 }
-        );
+        if (mode === 'worker') {
+          await page.waitForFunction(
+            () => Boolean(localStorage.getItem('ed25519_keypair')),
+            null,
+            { timeout: 20000 }
+          );
+        } else {
+          await page.waitForFunction(
+            (key) => Boolean(localStorage.getItem(key)),
+            HARDWARE_SIGNER_KEY,
+            { timeout: 20000 }
+          );
+        }
         const browserDID = await getDidDisplay();
         console.log('✅ Browser DID:', browserDID);
         return browserDID;
@@ -521,7 +628,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
     // STEP 1: Create DID in React UI (on Upload tab)
     // ========================================
     console.log('📝 STEP 1: Creating DID in React UI...');
-    const browserDID = await createDIDInUI();
+    const browserDID = await createDIDInUI(modeConfig.mode);
     
     // Navigate away and back to reset UI state
     console.log('🔄 Navigating away and back to Delegations tab...');
@@ -853,7 +960,7 @@ test.describe('Delegation and Upload Flow - E2E', () => {
 
     // Create DID in UI
     console.log('📝 Creating DID in React UI...');
-    const browserDID = await createDIDInUI();
+    const browserDID = await createDIDInUI(modeConfig.mode);
     
     // Navigate away and back to reset state
     await page.getByRole('button', { name: /Upload Files/i }).click();
@@ -959,4 +1066,5 @@ test.describe('Delegation and Upload Flow - E2E', () => {
 
     console.log('\n✅ TEST PASSED: All delegation formats work correctly!\n');
   });
-});
+  });
+}
