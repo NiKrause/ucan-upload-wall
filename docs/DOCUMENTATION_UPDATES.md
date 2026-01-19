@@ -60,33 +60,18 @@ This document tracks the updates made to the architecture documentation to inclu
 
 ### Implementation Documentation ✅
 1. **web/src/lib/webauthn-varsig/README.md**
-   - Complete API documentation
-   - Usage examples
-   - Browser support
-   - Security benefits
+   - API documentation and usage examples
+   - Browser support notes
+   - Security considerations
 
 2. **INTEGRATION_GUIDE.md**
-   - How to integrate with existing service
-   - Migration path
-   - Feature detection
-   - Code examples
+   - Integration patterns and migration guidance
 
-3. **IMPLEMENTATION_SUMMARY.md**
-   - What was implemented
-   - Test results
-   - File structure
-   - Next steps
+3. **docs/local-dev.md**
+   - Local upload-service configuration and troubleshooting
 
-4. **COMPLETION_REPORT.md**
-   - Achievement summary
-   - Metrics
-   - Key deliverables
-   - Status
-
-5. **.github-issue-webauthn-varsig.md**
-   - GitHub issue template
-   - Implementation plan
-   - Phase breakdown
+4. **docs/varsig-branch-notes.md**
+   - Branch-specific notes for varsig, fallbacks, and tests
 
 ## Key Changes Across Docs
 
@@ -163,20 +148,7 @@ This document tracks the updates made to the architecture documentation to inclu
 ### High Priority
 1. [ ] Update KEYSTORE_ARCHITECTURE.md with hardware mode
 2. [ ] Update README.md with both modes
-3. [ ] Add migration guide for existing users
-4. [ ] Create video walkthrough
-
-### Medium Priority
-1. [ ] Update SECURITY.md with varsig solution
-2. [ ] Create troubleshooting guide
-3. [ ] Add FAQ section
-4. [ ] Document common errors
-
-### Low Priority
-1. [ ] Create architecture decision records (ADRs)
-2. [ ] Add performance benchmarks
-3. [ ] Create deployment guide
-4. [ ] Add contributing guidelines
+3. [ ] Update SECURITY.md with varsig solution
 
 ## Review Checklist
 

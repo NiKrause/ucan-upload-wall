@@ -287,6 +287,8 @@ See **[SECURITY.md § WebAuthn UCAN Signing](./SECURITY.md#-webauthn-ucan-signin
 ### Core Documents
 - **[SECURITY.md](./SECURITY.md)** - Security warnings, attack vectors, and limitations
 - **[PLANNING.md](./PLANNING.md)** - Future roadmap and planned features (5 phases)
+- **[INTEGRATION_GUIDE.md](./INTEGRATION_GUIDE.md)** - Hardware-backed signing integration notes
+- **[docs/local-dev.md](./docs/local-dev.md)** - Local upload-service setup and troubleshooting
 - **[LICENSE](./LICENSE)** - MIT License
 
 ### Architecture & Flow Diagrams
@@ -308,6 +310,7 @@ See **[SECURITY.md § WebAuthn UCAN Signing](./SECURITY.md#-webauthn-ucan-signin
 - **[REVOCATION_QUICKSTART.md](./docs/REVOCATION_QUICKSTART.md)** - Revocation testing guide
 - **[UX_IMPROVEMENT_AUTO_NAVIGATION.md](./docs/UX_IMPROVEMENT_AUTO_NAVIGATION.md)** - Auto-navigation UX improvement
 - **[BUGFIX_DID_WEB_REVOCATION.md](./docs/BUGFIX_DID_WEB_REVOCATION.md)** - did:web support bug fixes
+- **[varsig-branch-notes.md](./docs/varsig-branch-notes.md)** - Branch-specific varsig notes and tests
 
 ## 🔗 Related Projects
 
