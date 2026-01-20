@@ -6,13 +6,24 @@ let hardwareInitResult = true;
 let hardwareDid = 'did:key:z6MkHardwareEd';
 let hardwareAlgorithm: 'Ed25519' | 'P-256' = 'Ed25519';
 
-const mockGenerateWorkerEd25519DID = vi.fn(async () => ({
-  publicKey: new Uint8Array([1, 2, 3]),
-  did: 'did:key:z6MkWorkerFallback',
-  archive: { id: 'archive', keys: {} as Record<string, Uint8Array> },
+const {
+  mockGenerateWorkerEd25519DID,
+  mockInitKeystore,
+  mockEncryptArchive,
+  mockDecryptArchive,
+} = vi.hoisted(() => ({
+  mockGenerateWorkerEd25519DID: vi.fn(async () => ({
+    publicKey: new Uint8Array([1, 2, 3]),
+    did: 'did:key:z6MkWorkerFallback',
+    archive: { id: 'archive', keys: {} as Record<string, Uint8Array> },
+  })),
+  mockInitKeystore: vi.fn(async () => {}),
+  mockEncryptArchive: vi.fn(async () => ({
+    ciphertext: new Uint8Array([10, 11]),
+    iv: new Uint8Array([12, 13]),
+  })),
+  mockDecryptArchive: vi.fn(async () => ({ id: 'archive', keys: {} as Record<string, Uint8Array> })),
 }));
-
-const mockInitKeystore = vi.fn(async () => {});
 
 vi.mock('./hardware-ucan-service', () => ({
   HardwareUCANDelegationService: class {
@@ -35,11 +46,8 @@ vi.mock('./webauthn-ed25519-signer', () => ({
 vi.mock('./secure-ed25519-did', () => ({
   initEd25519KeystoreWithPrfSeed: mockInitKeystore,
   generateWorkerEd25519DID: mockGenerateWorkerEd25519DID,
-  encryptArchive: vi.fn(async () => ({
-    ciphertext: new Uint8Array([10, 11]),
-    iv: new Uint8Array([12, 13]),
-  })),
-  decryptArchive: vi.fn(async () => ({ id: 'archive', keys: {} as Record<string, Uint8Array> })),
+  encryptArchive: mockEncryptArchive,
+  decryptArchive: mockDecryptArchive,
 }));
 
 vi.mock('./webauthn-did', () => {
