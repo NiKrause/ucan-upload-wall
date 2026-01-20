@@ -12,6 +12,36 @@ References:
 We emit and verify a strict varsig v1 header (`0x34 0x01`) with signature
 metadata that follows the spec table ordering. Legacy formats are rejected.
 
+## Library Plan (Reusable Varsig + WebAuthn)
+
+Goal: turn this implementation into a reusable library for UCAN signing and
+other signed payloads (e.g., OrbitDB oplog entries), while keeping all policy
+and encoding decisions locked.
+
+Package layout (initially local, can split later):
+- Core: `web/src/lib/webauthn-varsig` (encode/decode/verify helpers)
+- Browser adapter: WebAuthn credential create/get + signing helpers
+- Optional worker adapter: PRF + worker Ed25519 fallback
+
+P-256 support is a dependency (not finished yet):
+- Hardware P‑256 must be implemented end-to-end before being enabled.
+- Until then, hardware mode is Ed25519-only and P‑256 remains disabled.
+- Docs and policy must continue to state "hardware P‑256 not supported yet."
+
+Planned integration:
+- UCAN (current): hardware-backed varsig v1 for delegation signing.
+- OrbitDB: integrate later via
+  https://github.com/Le-Space/orbitdb-identity-provider-webauthn-did
+  with canonical payload bytes passed into the same varsig signing API.
+
+Implementation checklist:
+1) Core API: `encodeVarsigV1`, `decodeVarsigV1`, `verifyAssertion`.
+2) Browser adapter: `createCredentialEd25519`, `signPayloadEd25519`,
+   `verifyPayloadEd25519`.
+3) Worker adapter: PRF + Ed25519 worker signer for fallback mode only.
+4) P‑256 dependency: add ECDSA metadata + verification path + tests, then
+   enable hardware P‑256 support.
+
 ## Wire Format (Varsig v1 + WebAuthn Extension)
 
 Header:

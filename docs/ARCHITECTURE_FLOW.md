@@ -8,11 +8,11 @@ This document provides a detailed visual representation of the entire UCAN Uploa
   - [Table of Contents](#table-of-contents)
   - [High-Level Architecture](#high-level-architecture)
     - [Current Architecture (Two Modes)](#current-architecture-two-modes)
-      - [Mode 1: Worker-Based (Current/Legacy - Vulnerable)](#mode-1-worker-based-currentlegacy---vulnerable)
-      - [Mode 2: Hardware-Backed (New - Secure) ⭐](#mode-2-hardware-backed-new---secure-)
-  - [Hardware-Backed WebAuthn Ed25519/P-256 Flow ⭐ NEW](#hardware-backed-webauthn-ed25519p-256-flow--new)
+      - [Mode 1: Worker-Based (Fallback)](#mode-1-worker-based-fallback)
+      - [Mode 2: Hardware-Backed (Varsig v1) ⭐](#mode-2-hardware-backed-varsig-v1-)
+  - [Hardware-Backed WebAuthn Ed25519 Flow (Varsig v1) ⭐](#hardware-backed-webauthn-ed25519-flow-varsig-v1-)
     - [Overview](#overview)
-    - [WebAuthn Ed25519/P-256 Credential Creation](#webauthn-ed25519p-256-credential-creation)
+    - [WebAuthn Ed25519 Credential Creation](#webauthn-ed25519-credential-creation)
     - [Hardware-Backed UCAN Delegation Creation](#hardware-backed-ucan-delegation-creation)
     - [Hardware-Backed Delegation Verification](#hardware-backed-delegation-verification)
   - [WebAuthn Authentication \& PRF Flow (Worker Mode)](#webauthn-authentication--prf-flow-worker-mode)
@@ -50,7 +50,7 @@ This document provides a detailed visual representation of the entire UCAN Uploa
 
 ### Current Architecture (Two Modes)
 
-#### Mode 1: Worker-Based (Current/Legacy - Vulnerable)
+#### Mode 1: Worker-Based (Fallback)
 
 ```mermaid
 graph TB
@@ -115,7 +115,7 @@ graph TB
     style StorachaAPI fill:#e1f5ff
 ```
 
-#### Mode 2: Hardware-Backed (New - Secure) ⭐
+#### Mode 2: Hardware-Backed (Varsig v1) ⭐
 
 ```mermaid
 graph TB
@@ -179,20 +179,18 @@ graph TB
 
 ---
 
-## Hardware-Backed WebAuthn Ed25519/P-256 Flow ⭐ NEW
+## Hardware-Backed WebAuthn Ed25519 Flow (Varsig v1) ⭐
 
 ### Overview
 
-The hardware-backed approach eliminates the web worker vulnerability by signing UCANs directly with WebAuthn credentials stored in secure hardware (TPM/Secure Enclave).
+The hardware-backed approach eliminates the web worker vulnerability by signing UCANs directly with WebAuthn Ed25519 credentials stored in secure hardware (TPM/Secure Enclave) and wrapping signatures in varsig v1.
 
 **Algorithm Selection (Automatic):**
-- **Preferred**: Ed25519 (if supported by hardware)
-- **Fallback**: P-256 (most common - supported by all platforms)
-- **Compatibility**: P-256 requires ucanto fork with P-256 support - currently not implemented but available https://github.com/NiKrause/ucanto/tree/p256
+- **Preferred**: Ed25519 hardware-backed WebAuthn (varsig v1)
+- **Fallback**: Worker-based PRF + Ed25519 (Mode 1)
+- **Not supported yet**: Hardware P-256 (explicitly disabled until varsig/ucanto alignment is complete)
 
-The system automatically detects hardware capabilities and uses the best available algorithm.
-
-### WebAuthn Ed25519/P-256 Credential Creation
+### WebAuthn Ed25519 Credential Creation
 
 ```mermaid
 sequenceDiagram
@@ -205,30 +203,26 @@ sequenceDiagram
     User->>UI: Click "Use Hardware Signing"
     UI->>HardwareService: initializeHardwareSigner()
     
-    HardwareService->>Browser: navigator.credentials.create({<br/>  pubKeyCredParams: [<br/>    { type: 'public-key', alg: -8 },  // Ed25519 (preferred)<br/>    { type: 'public-key', alg: -7 }   // P-256 (fallback)<br/>  ]<br/>})
+    HardwareService->>Browser: navigator.credentials.create({<br/>  pubKeyCredParams: [<br/>    { type: 'public-key', alg: -8 }   // Ed25519 only<br/>  ]<br/>})
     Browser->>Hardware: Create key in secure hardware
     Hardware->>User: Show biometric prompt<br/>(Face ID/Touch ID/Windows Hello)
     User->>Hardware: Provide biometric
     
-    alt Ed25519 Supported (Rare)
+    alt Ed25519 Supported
         Hardware->>Hardware: Generate Ed25519 keypair<br/>PRIVATE KEY NEVER LEAVES HARDWARE
         Hardware-->>Browser: PublicKeyCredential {<br/>  attestationObject (Ed25519 public key)<br/>}
         Browser-->>HardwareService: credential
         HardwareService->>HardwareService: Extract Ed25519 public key (32 bytes)
         HardwareService->>HardwareService: Create DID: did:key:z6Mk... (Ed25519)
-    else P-256 Used (Common)
-        Hardware->>Hardware: Generate P-256 keypair<br/>PRIVATE KEY NEVER LEAVES HARDWARE
-        Hardware-->>Browser: PublicKeyCredential {<br/>  attestationObject (P-256 public key)<br/>}
-        Browser-->>HardwareService: credential
-        HardwareService->>HardwareService: Try Ed25519 extraction → Fails
-        HardwareService->>HardwareService: Extract P-256 public key (65 bytes)
-        HardwareService->>HardwareService: Create DID: did:key:zDna... (P-256)
+    else Ed25519 Not Supported
+        HardwareService->>HardwareService: Fallback to worker-based signer (Mode 1)
+        HardwareService-->>UI: Worker-based signer ready
     end
     
     HardwareService->>HardwareService: Store credential info (NOT private key)
     
-    HardwareService-->>UI: Signer {<br/>  did: "did:key:z...",<br/>  algorithm: "Ed25519" | "P-256",<br/>  credentialId,<br/>  publicKey<br/>}
-    UI->>User: ✅ Hardware signer ready!<br/>Algorithm: Ed25519 or P-256
+    HardwareService-->>UI: Signer {<br/>  did: "did:key:z...",<br/>  algorithm: "Ed25519",<br/>  credentialId,<br/>  publicKey<br/>}
+    UI->>User: ✅ Hardware signer ready!<br/>Algorithm: Ed25519
 ```
 
 ### Hardware-Backed UCAN Delegation Creation
@@ -256,19 +250,11 @@ sequenceDiagram
     Hardware->>User: 🔐 Biometric prompt<br/>"Sign UCAN delegation?"
     User->>Hardware: Provide biometric
     
-    alt Ed25519 Mode
-        Hardware->>Hardware: Sign with Ed25519 private key:<br/>signature = Ed25519.sign(<br/>  authenticatorData || sha256(clientDataJSON)<br/>)
-        Hardware-->>Browser: WebAuthn Assertion {<br/>  authenticatorData,<br/>  clientDataJSON,<br/>  signature (64 bytes)<br/>}
-        Browser-->>HardwareService: assertion
-        HardwareService->>VarsigEncoder: encodeWebAuthnVarsig(..., 'Ed25519')
-        VarsigEncoder->>VarsigEncoder: Encode as varsig:<br/>[0xd1ed][len][authData][len][clientData][sig]
-    else P-256 Mode (Common)
-        Hardware->>Hardware: Sign with P-256 private key:<br/>signature = P-256.sign(<br/>  authenticatorData || sha256(clientDataJSON)<br/>)
-        Hardware-->>Browser: WebAuthn Assertion {<br/>  authenticatorData,<br/>  clientDataJSON,<br/>  signature (70-72 bytes DER)<br/>}
-        Browser-->>HardwareService: assertion
-        HardwareService->>VarsigEncoder: encodeWebAuthnVarsig(..., 'P-256')
-        VarsigEncoder->>VarsigEncoder: Encode as varsig:<br/>[0xd1f2][len][authData][len][clientData][sig]
-    end
+    Hardware->>Hardware: Sign with Ed25519 private key:<br/>signature = Ed25519.sign(<br/>  authenticatorData || sha256(clientDataJSON)<br/>)
+    Hardware-->>Browser: WebAuthn Assertion {<br/>  authenticatorData,<br/>  clientDataJSON,<br/>  signature (64 bytes)<br/>}
+    Browser-->>HardwareService: assertion
+    HardwareService->>VarsigEncoder: encodeWebAuthnVarsigV1(..., 'Ed25519')
+    VarsigEncoder->>VarsigEncoder: Encode varsig v1:<br/>[0x34 0x01][alg][payload-enc][webauthn-wrapper][authData][clientData][sig]
     
     VarsigEncoder-->>HardwareService: varsig bytes
     
@@ -303,7 +289,7 @@ sequenceDiagram
     HardwareService->>HardwareService: Extract signature from delegation
     HardwareService->>VarsigDecoder: decodeWebAuthnVarsig(signature)
     
-    VarsigDecoder->>VarsigDecoder: Read multicodec:<br/>0xd1ed (Ed25519) or 0xd1f2 (P-256)
+    VarsigDecoder->>VarsigDecoder: Read varsig v1 header:<br/>0x34 0x01 + algorithm metadata
     VarsigDecoder->>VarsigDecoder: Extract authenticatorData
     VarsigDecoder->>VarsigDecoder: Extract clientDataJSON
     VarsigDecoder->>VarsigDecoder: Extract signature
@@ -314,7 +300,7 @@ sequenceDiagram
     VarsigVerifier->>VarsigVerifier: Parse clientDataJSON
     VarsigVerifier->>VarsigVerifier: Verify origin matches
     VarsigVerifier->>VarsigVerifier: Verify challenge matches payload
-    VarsigVerifier->>VarsigVerifier: Check authenticator flags<br/>(UP=User Present, UV=User Verified)
+    VarsigVerifier->>VarsigVerifier: Check authenticator flags<br/>(UP required, UV optional)
     VarsigVerifier-->>HardwareService: structure valid ✅
     
     HardwareService->>VarsigVerifier: reconstructSignedData()
@@ -323,11 +309,7 @@ sequenceDiagram
     
     HardwareService->>HardwareService: Extract public key from issuer DID
     
-    alt Ed25519 Signature
-        HardwareService->>WebCrypto: crypto.subtle.verify(<br/>  'Ed25519',<br/>  publicKey,<br/>  signature,<br/>  signedData<br/>)
-    else P-256 Signature
-        HardwareService->>WebCrypto: crypto.subtle.verify(<br/>  'ECDSA P-256',<br/>  publicKey,<br/>  signature,<br/>  signedData<br/>)
-    end
+    HardwareService->>WebCrypto: crypto.subtle.verify(<br/>  'Ed25519',<br/>  publicKey,<br/>  signature,<br/>  signedData<br/>)
     
     WebCrypto-->>HardwareService: signature valid ✅
     
@@ -1047,20 +1029,18 @@ sequenceDiagram
 
 ### 🔐 Hardware-Backed Security (NEW MODE) ⭐
 
-**Mode 2: WebAuthn Ed25519/P-256 with Varsig**
+**Mode 2: WebAuthn Ed25519 with Varsig v1**
 
 ✅ **Private keys NEVER leave hardware**
-- Ed25519 or P-256 keys generated in TPM/Secure Enclave
-- Automatic algorithm selection: Ed25519 preferred, P-256 fallback
+- Ed25519 keys generated in TPM/Secure Enclave
+- Hardware P-256 is not supported yet
 - Signing operations performed in secure hardware
 - Cryptographically impossible to extract keys
 - Even with full code injection, keys are safe
 
 ✅ **Algorithm compatibility**
-- **Ed25519**: Native UCAN support (rare - future hardware)
-- **P-256**: Requires ucanto fork (common - all current platforms)
-- Both provide identical security guarantees
-- Automatic detection and fallback
+- **Ed25519**: Native UCAN support (hardware-backed)
+- **P-256**: Not supported in hardware mode yet
 
 ✅ **Biometric authentication per operation**
 - Each UCAN delegation creation requires biometric
@@ -1110,6 +1090,7 @@ sequenceDiagram
 **Hardware Mode (New):**
 - ⚠️ Biometric prompt for every delegation (UX trade-off for security)
 - ⚠️ Requires WebAuthn Ed25519 support (Chrome 108+, Safari 17+)
+- ⚠️ Hardware P-256 is not supported yet
 - ⚠️ Origin-bound signatures (cannot be used across different domains)
 - ⚠️ Larger signature size (~200-300 bytes vs 64 bytes)
 
@@ -1146,10 +1127,9 @@ sequenceDiagram
 
 ### 🎯 Recommendation
 
-- **For Maximum Security**: Use Hardware Mode (WebAuthn Ed25519/P-256 + Varsig)
-  - ✅ Works on all platforms (P-256 fallback)
+- **For Maximum Security**: Use Hardware Mode (WebAuthn Ed25519 + Varsig v1)
   - ✅ Keys never leave secure hardware
-  - ✅ Future-proof (auto-upgrades to Ed25519 when available)
+  - ⚠️ Hardware P-256 not supported yet
 - **For Maximum Compatibility**: Use Worker Mode (P-256 + PRF + Worker Ed25519)
   - ✅ Works with standard ucanto/Storacha
   - ⚠️  Lower security (keys in worker memory)
@@ -1175,24 +1155,25 @@ sequenceDiagram
 - **Hardware authenticators** - TPM, Secure Enclave (for P-256 only)
 
 **Hardware Mode (New):** ⭐
-- **WebAuthn API** - Ed25519 (hardware-backed) or P-256 (fallback)
-- **Web Crypto API** - Ed25519/P-256 signature verification only
-- **Hardware authenticators** - TPM, Secure Enclave (Ed25519 or P-256)
-- **Varsig encoding** - Custom multiformat signature encoding (supports both algorithms)
+- **WebAuthn API** - Ed25519 (hardware-backed)
+- **Web Crypto API** - Ed25519 signature verification only
+- **Hardware authenticators** - TPM, Secure Enclave (Ed25519 only)
+- **Varsig encoding** - Custom multiformat signature encoding (Ed25519 only)
+  - Note: Hardware P-256 is not supported yet
 
 ### Signing Methods Comparison
 
-| Aspect | Worker Mode | Hardware Mode (Ed25519) | Hardware Mode (P-256) |
-|--------|------------|------------------------|----------------------|
-| **Signing Key** | Software Ed25519 | Hardware Ed25519 | Hardware P-256 |
-| **Key Generation** | crypto.subtle.generateKey() | WebAuthn credential | WebAuthn credential |
-| **Key Storage** | Encrypted in localStorage | Secure hardware | Secure hardware |
-| **Signing API** | crypto.subtle.sign() | navigator.credentials.get() | navigator.credentials.get() |
-| **Signature Format** | Raw Ed25519 (64 bytes) | Varsig (200-300 bytes) | Varsig (220-330 bytes) |
-| **Biometric** | Once for unlock | Per signature | Per signature |
-| **UCAN Compat** | Native | Native | Ucanto fork required |
-| **Hardware Support** | All platforms | Rare (future) | All platforms |
-| **Security** | Medium | High | High |
+| Aspect | Worker Mode | Hardware Mode (Ed25519) |
+|--------|------------|------------------------|
+| **Signing Key** | Software Ed25519 | Hardware Ed25519 |
+| **Key Generation** | crypto.subtle.generateKey() | WebAuthn credential |
+| **Key Storage** | Encrypted in localStorage | Secure hardware |
+| **Signing API** | crypto.subtle.sign() | navigator.credentials.get() |
+| **Signature Format** | Raw Ed25519 (64 bytes) | Varsig (200-300 bytes) |
+| **Biometric** | Once for unlock | Per signature |
+| **UCAN Compat** | Native | Native |
+| **Hardware Support** | All platforms | Rare (future) |
+| **Security** | Medium | High |
 
 ### Storage
 - **localStorage** - Encrypted archives, delegations

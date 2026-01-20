@@ -6,6 +6,94 @@ This project is an experimental proof-of-concept for WebAuthn-based UCAN delegat
 
 ---
 
+Default behavior: the app attempts **hardware-backed WebAuthn Ed25519 + varsig v1** first. It only falls back to the **worker-based flow** when hardware Ed25519 is unavailable or unsupported.
+
+See **[docs/varsig-implementation.md](./docs/varsig-implementation.md)** for the wire format, locked parameters, and verification policy.
+
+---
+
+## 🛡️ Recommended Secure Architecture: Hardware-Backed WebAuthn + Varsig v1
+
+### Current Secure Approach
+
+The most secure architecture implemented here is **hardware-backed WebAuthn Ed25519** with a **varsig v1 wrapper**. The WebAuthn assertion stays intact (authenticatorData + clientDataJSON + signature), but the signature is wrapped in a varsig v1 header so UCAN tooling can carry and validate it while preserving WebAuthn security properties.
+
+✅ **Private keys never leave hardware**  
+✅ **Signing operations performed in secure enclaves** (TPM, Secure Element, Trusted Execution Environment)  
+✅ **No key material exposed to JavaScript**  
+✅ **Biometric authentication required for each operation**  
+✅ **No encrypted keystores in localStorage**  
+
+**Important:** Hardware P-256 is **not supported yet**. If hardware Ed25519 is unavailable, the system **falls back to the worker-based flow** (Mode 1).
+
+### Why Hardware-Backed WebAuthn is Superior
+
+| Feature | Worker Mode (Ed25519 + Worker) | Hardware Mode (WebAuthn Ed25519 + Varsig v1) |
+|---------|-------------------------------|----------------------------------------------|
+| **Private Key Exposure** | ❌ Exists in worker memory | ✅ Never leaves hardware |
+| **Attack Surface** | ❌ Large (JS injection, worker compromise) | ✅ Minimal (hardware isolation) |
+| **Storage Security** | ❌ Encrypted in localStorage | ✅ No storage needed |
+| **Signature Operations** | ❌ In JavaScript/WASM | ✅ In secure hardware |
+| **Key Extraction** | ❌ Possible with code injection | ✅ Cryptographically impossible |
+| **Biometric Gate** | ❌ One-time (PRF seed unlock) | ✅ Per-operation |
+
+### Architecture Comparison
+
+**Worker Mode (Fallback):**
+```
+WebAuthn (P-256) → PRF Seed → Worker AES Key → Decrypt Ed25519 Key → Sign in JS
+      ↑                                                   ↑
+   Hardware Secure                                   Software (Vulnerable)
+```
+
+**Hardware Mode (Varsig v1):**
+```
+WebAuthn (Ed25519) → WebAuthn Assertion → Varsig v1 Wrapper → UCAN
+      ↑
+   Hardware Secure (End-to-End)
+```
+
+---
+
+## 🔐 WebAuthn Signature Format + Varsig v1 Wrapper
+
+### The WebAuthn Signature Format
+
+WebAuthn does **not** sign arbitrary bytes directly. It signs:
+```
+signature = sign(authenticatorData || sha256(clientDataJSON))
+```
+
+`clientDataJSON` wraps the application challenge:
+```json
+{
+  "type": "webauthn.get",
+  "challenge": "base64url(yourData)",
+  "origin": "https://your-domain.com",
+  "crossOrigin": false
+}
+```
+
+### How Varsig v1 Makes This UCAN-Compatible
+
+Varsig v1 lets us **describe the signature configuration and payload encoding** without changing WebAuthn’s security model. We wrap the WebAuthn assertion bytes in a varsig v1 header:
+
+- Varsig prefix + version
+- Signature algorithm metadata (Ed25519)
+- Payload encoding metadata (raw bytes)
+- WebAuthn wrapper payload (authenticatorData + clientDataJSON + signature)
+
+This keeps **origin binding**, **challenge binding**, and **hardware-backed signing**, while allowing UCAN tooling to transport and validate the signature.
+
+### Verification Policy (Enforced)
+
+- **Origin** must match expected origin
+- **rpIdHash** must match expected RP ID
+- **UP** (User Present) must be set; **UV** optional
+- **signCount** must be monotonic
+
+---
+
 ## 🔓 Web Worker Security Vulnerabilities
 
 ### Attack Surface
@@ -68,135 +156,9 @@ For more information on Web Worker security limitations:
 
 ---
 
-## 🛡️ Recommended Secure Architecture: Hardware-Backed WebAuthn Keys
+## 🚧 Hardware P-256 Status
 
-### The Ideal Approach
-
-The **most secure architecture** for this application would be to exclusively use **hardware-backed WebAuthn keys** (P-256 or Ed25519), where:
-
-✅ **Private keys never leave hardware**  
-✅ **Signing operations performed in secure enclaves** (TPM, Secure Element, Trusted Execution Environment)  
-✅ **No key material exposed to JavaScript**  
-✅ **Biometric authentication required for each operation**  
-✅ **No encrypted keystores in localStorage**  
-
-### Why Hardware-Backed WebAuthn is Superior
-
-| Feature | Current (Ed25519 + Worker) | Ideal (WebAuthn Hardware Keys) |
-|---------|---------------------------|--------------------------|
-| **Private Key Exposure** | ❌ Exists in worker memory | ✅ Never leaves hardware |
-| **Attack Surface** | ❌ Large (JS injection, worker compromise) | ✅ Minimal (hardware isolation) |
-| **Storage Security** | ❌ Encrypted in localStorage | ✅ No storage needed |
-| **Signature Operations** | ❌ In JavaScript/WASM | ✅ In secure hardware |
-| **Key Extraction** | ❌ Possible with code injection | ✅ Cryptographically impossible |
-| **Biometric Gate** | ❌ One-time (for PRF seed) | ✅ Per-operation |
-
-### Architecture Comparison
-
-**Current Implementation (Insecure):**
-```
-WebAuthn (P-256) → PRF Seed → Worker AES Key → Decrypt Ed25519 Key → Sign in JS
-      ↑                                                   ↑
-   Hardware Secure                                   Software (Vulnerable)
-```
-
-**Ideal Implementation (If Possible):**
-```
-WebAuthn (P-256 or Ed25519) → Sign UCAN → Done
-      ↑
-   Hardware Secure (End-to-End)
-```
-
-However, this ideal implementation **is not possible** with current web standards (see next section).
-
----
-
-## 🚧 Current Limitation: WebAuthn Signature Format Incompatibility
-
-### Why P-256 Support Doesn't Solve This
-
-While P-256 signature **verification** support has been explored (see [experimental fork](https://github.com/NiKrause/ucanto/tree/p256)), adding P-256 to ucanto/Storacha **does not solve the core WebAuthn signature format problem**:
-
-- ❌ Still requires **raw** signatures (not WebAuthn-wrapped)
-- ❌ Does not enable hardware-backed WebAuthn signing
-- ❌ Application must still use software-based key generation
-- ❌ Worker security vulnerability remains
-
-**Reality Check**: P-256 and Ed25519 are both affected equally by the WebAuthn signature format incompatibility. Using P-256 instead of Ed25519 would **not** improve security - both would still require software-based keys in web workers.
-
----
-
-## 🔐 WebAuthn UCAN Signing: Why It's Not Possible
-
-### The WebAuthn Signature Format Problem
-
-**WebAuthn supports both P-256 (ES256) and Ed25519 (EdDSA) algorithms**, but **neither can be used for UCAN signing** due to the WebAuthn signature format.
-
-> **Note**: Ed25519 (EdDSA) support in WebAuthn was added in the [WebAuthn Level 3 specification](https://www.w3.org/TR/webauthn-3/) finalized in 2025. Browser and hardware support is still rolling out. However, **even with Ed25519 support, the WebAuthn signature format limitation remains** - you still cannot produce raw Ed25519 signatures for UCAN signing.
-
-According to the **[W3C WebAuthn Level 3 Specification](https://www.w3.org/TR/webauthn-3/)**, WebAuthn doesn't sign arbitrary data directly. Instead, it creates signatures over a specific structure (§6.5.5):
-
-```
-signature = sign(authenticatorData || sha256(clientDataJSON))
-```
-
-Where `clientDataJSON` wraps your data (§6.5):
-```json
-{
-  "type": "webauthn.get",
-  "challenge": "base64url(yourData)",
-  "origin": "https://your-domain.com",
-  "crossOrigin": false
-}
-```
-
-**This is fundamentally incompatible with what UCAN requires:**
-```
-signature = sign(rawUcanPayloadBytes)
-```
-
-This limitation applies **equally to P-256 AND Ed25519** keys in WebAuthn - the problem is not the cryptographic algorithm, but the signature format specification.
-
-### The Missing Piece
-
-To achieve true hardware-backed UCAN signing, we would need:
-
-1. **Raw signature capability** (not WebAuthn-wrapped) - **Missing**
-2. **Hardware-backed keys** (TPM/Secure Enclave) - **✅ Available via WebAuthn**
-3. **Both simultaneously** ← This is what WebAuthn doesn't provide today
-
-WebAuthn provides #2 but not #1. You can have hardware security **OR** raw UCAN-compatible signatures, but not both with current web standards.
-
-This limitation applies equally to:
-- ❌ WebAuthn P-256 keys
-- ❌ WebAuthn Ed25519 keys  
-- ❌ WebCrypto API P-256 keys (not hardware-backed)
-- ❌ WebCrypto API Ed25519 keys (not hardware-backed)
-
-### Why the Current Architecture Exists
-
-The Ed25519-in-worker approach is a **pragmatic compromise** given the constraints:
-
-1. **WebAuthn Limitation**: Neither P-256 nor Ed25519 keys in WebAuthn can produce raw signatures for UCAN
-2. **UCAN Ecosystem**: Expects standard signature formats (raw ECDSA/EdDSA), not WebAuthn-wrapped assertions
-3. **Storacha Requirement**: Only accepts Ed25519 signatures
-4. **Browser-Only Goal**: Must work entirely in browser without native applications
-5. **Immediate Functionality**: Requires working signatures today, not in 2-5 years
-
-This architectural limitation is **not a design flaw** but rather **the reality of current web cryptography standards**.
-
-### WebAuthn Specification References
-
-The signature format limitation is defined in:
-
-- **[WebAuthn Level 3 § 6.5.5](https://www.w3.org/TR/webauthn-3/#sctn-op-get-assertion)** - Generating an Authentication Assertion
-- **[WebAuthn Level 3 § 6.5](https://www.w3.org/TR/webauthn-3/#dictdef-collectedclientdata)** - CollectedClientData Structure
-
-Key points from the specification:
-
-> "Let signature be the assertion signature of the concatenation `authenticatorData || hash`..."
-
-Where `hash = SHA-256(UTF-8 encoding of clientDataJSON)`, and `clientDataJSON` is origin-bound.
+Hardware P-256 is currently **not supported** in hardware mode. Even if WebAuthn P-256 is available, the varsig v1 integration and UCAN verification path are locked to Ed25519 only. P-256 support will be revisited once a spec-aligned WebAuthn extension strategy is finalized.
 
 This means:
 - ❌ Signatures cannot be verified independently of the web origin

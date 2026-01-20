@@ -4,7 +4,7 @@
 
 > **⚠️ SECURITY WARNING**: This code has **NOT been security audited** and should **NOT be used in production**. See **[SECURITY.md](./SECURITY.md)** for critical security considerations, attack vectors, and limitations.
 
-A browser-only file upload application powered by **WebAuthn DIDs**, **worker-based Ed25519 keystore**, and **UCAN delegations** on Storacha.
+A browser-only file upload application powered by **hardware-backed WebAuthn Ed25519 + varsig v1**, with a **worker-based Ed25519 fallback**, and **UCAN delegations** on Storacha.
 
 ## 📑 Table of Contents
 
@@ -44,19 +44,19 @@ A browser-only file upload application powered by **WebAuthn DIDs**, **worker-ba
 > **📊 For detailed visual diagrams and flow charts, see [ARCHITECTURE_FLOW.md](./docs/ARCHITECTURE_FLOW.md)**  
 > Includes sequence diagrams for WebAuthn, Ed25519 keystore, delegation flows, and complete end-to-end scenarios with Mermaid visualizations.
 
-### **WebAuthn DID (P-256)**
-- Hardware-secured identity using device biometrics (Face ID, Touch ID, Windows Hello)
-- P-256 elliptic curve cryptography (WebAuthn also supports Ed25519)
-- DID format: `did:key:zDna...` (P-256 public key)
-- Used for: Initial authentication, PRF seed derivation
-- **Note**: Cannot sign UCANs due to WebAuthn signature format (see [SECURITY.md](./SECURITY.md))
+### **WebAuthn Ed25519 + Varsig v1 (Hardware Mode)**
+- Hardware-secured signing using device biometrics (Face ID, Touch ID, Windows Hello)
+- Ed25519 keys stored in secure hardware (TPM/Secure Enclave)
+- Varsig v1 wrapper preserves WebAuthn assertion format for UCAN compatibility
+- Used for: UCAN signing when hardware Ed25519 is available
+- **Note**: Hardware P-256 is not supported yet (see [SECURITY.md](./SECURITY.md))
 
-### **Worker-Based Ed25519 Keystore**
+### **Worker-Based Ed25519 Keystore (Fallback)**
 - Ed25519 keypair generated in a dedicated web worker
 - AES-GCM encryption key derived from WebAuthn PRF seed (deterministic)
 - Private key never leaves the worker (see Security warnings)
 - DID format: `did:key:z6Mk...` (Ed25519 public key)
-- Used for: UCAN signing, Storacha client principal
+- Used for: UCAN signing, Storacha client principal when hardware Ed25519 is unavailable
 
 **Worker Functions:**
 - `init(prfSeed)` - Initialize AES key from WebAuthn PRF seed
@@ -68,9 +68,9 @@ A browser-only file upload application powered by **WebAuthn DIDs**, **worker-ba
 
 ### **Key Flow**
 ```
-WebAuthn Credential (P-256)
+WebAuthn Credential (Ed25519, hardware if supported)
     ↓
-rawCredentialId (PRF seed)
+rawCredentialId (PRF seed if falling back)
     ↓
 Worker: HKDF-SHA-256 → AES-GCM key
     ↓
@@ -80,7 +80,7 @@ Worker: Create Ed25519Signer archive
     ↓
 Encrypt archive with AES key → localStorage
     ↓
-Reconstruct Ed25519Signer for Storacha client
+Reconstruct Ed25519Signer for Storacha client (fallback mode)
 ```
 
 ## 🚀 Features
@@ -276,11 +276,11 @@ See **[PLANNING.md](./PLANNING.md)** for the complete roadmap and technical deta
 - [Storacha Documentation](https://docs.storacha.network/) - Decentralized storage platform
 - [WebAuthn Guide](https://webauthn.guide/) - Interactive WebAuthn tutorial
 
-### Why WebAuthn Can't Sign UCANs
+### Why Varsig v1 Is Required
 
-WebAuthn (both P-256 and Ed25519) cannot produce raw signatures suitable for UCAN tokens due to the signature format specification. WebAuthn signs `authenticatorData || hash(clientDataJSON)` which includes origin, ceremony type, and other metadata - making signatures non-portable and incompatible with UCAN's requirement for raw cryptographic signatures.
+WebAuthn signs `authenticatorData || hash(clientDataJSON)`, which is origin-bound and structured. Varsig v1 wraps the WebAuthn assertion with explicit signature metadata and payload encoding so UCAN tooling can transport and verify it without changing WebAuthn security properties.
 
-See **[SECURITY.md § WebAuthn UCAN Signing](./SECURITY.md#-webauthn-ucan-signing-why-its-not-possible)** for detailed technical explanation.
+See **[SECURITY.md](./SECURITY.md)** and **[docs/varsig-implementation.md](./docs/varsig-implementation.md)** for details.
 
 ## 📚 Project Documentation
 
@@ -343,6 +343,14 @@ See **[SECURITY.md § WebAuthn UCAN Signing](./SECURITY.md#-webauthn-ucan-signin
   2. Replace Lit Protocol's key management with WebAuthn PRF + worker-based key derivation
   3. Maintain UCAN-based delegation for access control
   4. Benefits: Hardware-backed security without external key management service
+
+## Credits
+
+- https://github.com/expede for hints on Bluesky
+- https://github.com/hugomrdias for quick introduction to varsig
+- https://github.com/Fatumayattani for the original idea
+- https://github.com/Patrick-Ehimen for finishing E2E tests
+- https://github.com/Nkovaturient for general support
 
 ### Integration Roadmap
 

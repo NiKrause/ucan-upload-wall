@@ -21,6 +21,11 @@ This directory contains detailed technical documentation for the UCAN Upload Wal
   - Browser support and security benefits
   - Implementation details and code examples
   - Storage strategy and migration path
+
+- **[varsig-implementation.md](./varsig-implementation.md)** - Varsig v1 + WebAuthn wrapper
+  - Wire format and locked parameters
+  - Verification policy
+  - Library plan + OrbitDB integration target
   
 - **[KEYSTORE_ARCHITECTURE.md](./KEYSTORE_ARCHITECTURE.md)** - Complete Architecture
   - Web worker-based Ed25519 keystore
@@ -55,9 +60,9 @@ This directory contains detailed technical documentation for the UCAN Upload Wal
 | Topic | Status | Documents |
 |-------|--------|-----------|
 | Phase 0: Revocation | ✅ Complete | 2 docs |
-| WebAuthn & Keystore | ✅ Complete | 2 docs |
+| WebAuthn & Keystore | ✅ Complete | 3 docs |
 | Phase 1.5: Secure Storage | 📋 Planned | 1 design doc |
-| Phase 1: P-256 | 📋 Planned | TBD |
+| Phase 1: P-256 | 📋 Planned | Blocked (hardware P-256 not supported yet) |
 | Phase 2: Multi-Device DKG | 📋 Planned | TBD |
 | Phase 3: Production Hardening | 📋 Planned | TBD |
 
@@ -65,6 +70,7 @@ This directory contains detailed technical documentation for the UCAN Upload Wal
 
 ### For Developers
 - [WebAuthn PRF Implementation](./WEBAUTHN_PRF_IMPLEMENTATION.md)
+- [Varsig v1 WebAuthn Implementation](./varsig-implementation.md)
 - [Keystore Architecture](./KEYSTORE_ARCHITECTURE.md)
 - [Phase 0 Revocation](./REVOCATION_IMPLEMENTATION.md)
 - [Phase 1.5 Secure Storage](./SECURE_CREDENTIAL_STORAGE.md)
@@ -87,8 +93,5 @@ This documentation is actively maintained. When implementing new features:
 
 ---
 
-**Last Updated:** January 5, 2026  
-**Total Documents:** 5
-
-
-
+**Last Updated:** January 19, 2026  
+**Total Documents:** 6

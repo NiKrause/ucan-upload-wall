@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the implementation of WebAuthn PRF (Pseudo-Random Function) extension support with fallback to `rawCredentialId` for key derivation in the UCAN Upload Wall application.
+This document describes the implementation of WebAuthn PRF (Pseudo-Random Function) extension support with fallback to `rawCredentialId` for key derivation in the UCAN Upload Wall application. This flow is used only when hardware-backed WebAuthn Ed25519 (varsig v1) is unavailable.
 
 ## What is PRF?
 
@@ -285,4 +285,3 @@ This allows us to:
 2. **PRF Output Caching**: Store PRF output temporarily to avoid re-authentication
 3. **Multiple PRF Inputs**: Support different PRF inputs for different purposes
 4. **PRF Availability Detection**: Proactively check PRF support before credential creation
-
