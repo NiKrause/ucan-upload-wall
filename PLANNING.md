@@ -8,7 +8,7 @@ The project will evolve through five major phases:
 
 0. **UCAN Revocation** - Implement delegation revocation and lifecycle management ✅
 1. **Hardware Varsig v1** - Hardware-backed WebAuthn Ed25519 with varsig v1 wrapper (PARTIAL)
-2. **Secure Credential Storage** - Move from localStorage to largeBlob + Storacha (PRIORITY)
+2. **Secure Credential Storage** - Worker fallback hardening (largeBlob + Storacha) (PRIORITY)
 3. **Multi-Device DKG** - Distributed key generation across multiple devices
 4. **Production Hardening** - Security audits and deployment
 
@@ -109,9 +109,13 @@ This is a **security vulnerability** that must be addressed before any other maj
 
 ---
 
-## Phase 1: Secure Credential Storage (High Priority)
+## Phase 2: Secure Credential Storage (High Priority)
 
-**Goal**: Eliminate localStorage vulnerabilities by implementing a hybrid storage architecture using WebAuthn largeBlob and Storacha decentralized storage.
+**Goal**: Eliminate localStorage vulnerabilities for the **worker fallback** path by implementing a hybrid storage architecture using WebAuthn largeBlob and Storacha decentralized storage.
+
+### Scope and Priority
+
+This phase applies **only** when hardware-backed WebAuthn (Passkeys) is unavailable and we fall back to the worker-based Ed25519 path. Hardware-backed keys do not store extractable key material, so secure credential storage is **not required** for the primary path.
 
 ### Why This Comes After Revocation
 
@@ -234,7 +238,7 @@ Tier 3: localStorage (Cache Only)
 
 ---
 
-## Phase 2: Multi-Device DKG Architecture (Long-term)
+## Phase 3: Multi-Device DKG Architecture (Long-term)
 
 **Goal**: Implement true multi-device security using Distributed Key Generation (DKG) with threshold cryptography.
 
@@ -311,7 +315,7 @@ Device 1 (Browser)     Device 2 (Mobile)
 
 ---
 
-## Phase 3: Production Hardening
+## Phase 4: Production Hardening
 
 **Goal**: Prepare the application for production use with comprehensive security validation.
 
