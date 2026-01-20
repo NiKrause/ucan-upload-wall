@@ -4,12 +4,13 @@ This document outlines the planned evolution of the UCAN Upload Wall project tow
 
 ## Overview
 
-The project will evolve through four major phases:
+The project will evolve through five major phases:
 
 0. **UCAN Revocation** - Implement delegation revocation and lifecycle management ✅
-1. **Secure Credential Storage** - Move from localStorage to largeBlob + Storacha (PRIORITY)
-2. **Multi-Device DKG** - Distributed key generation across multiple devices
-3. **Production Hardening** - Security audits and deployment
+1. **Hardware Varsig v1** - Hardware-backed WebAuthn Ed25519 with varsig v1 wrapper (PARTIAL)
+2. **Secure Credential Storage** - Move from localStorage to largeBlob + Storacha (PRIORITY)
+3. **Multi-Device DKG** - Distributed key generation across multiple devices
+4. **Production Hardening** - Security audits and deployment
 
 ---
 
@@ -29,37 +30,37 @@ This is a **security vulnerability** that must be addressed before any other maj
 
 ### Roadmap
 
-- [ ] **Revocation API Implementation**
-  - [ ] Add `revokeDelegation()` method to `UCANDelegationService`
-  - [ ] Implement revocation invocation using `@storacha/capabilities/ucan`
-  - [ ] Send revocation requests to Storacha service (`did:web:up.storacha.network`)
-  - [ ] Handle revocation responses and error cases
+- [x] **Revocation API Implementation**
+  - [x] Add `revokeDelegation()` method to `UCANDelegationService`
+  - [x] Implement revocation invocation using `@storacha/capabilities/ucan`
+  - [x] Send revocation requests to Storacha service (`did:web:up.storacha.network`)
+  - [x] Handle revocation responses and error cases
 
-- [ ] **Revocation Status Checking**
-  - [ ] Implement `isDelegationRevoked()` using Storacha revocation registry
-  - [ ] Query `https://up.storacha.network/revocations/[CID]` API
-  - [ ] Add `validateDelegation()` to check expiration and revocation status
-  - [ ] Cache revocation checks to minimize API calls
+- [x] **Revocation Status Checking**
+  - [x] Implement `isDelegationRevoked()` using Storacha revocation registry
+  - [x] Query `https://up.storacha.network/revocations/[CID]` API
+  - [x] Add `validateDelegation()` to check expiration and revocation status
+  - [x] Cache revocation checks to minimize API calls
 
-- [ ] **Pre-Operation Validation**
-  - [ ] Add revocation checks before upload operations
-  - [ ] Add revocation checks before list operations
-  - [ ] Add revocation checks before delete operations
-  - [ ] Return clear error messages when using revoked delegations
+- [x] **Pre-Operation Validation**
+  - [x] Add revocation checks before upload operations
+  - [x] Add revocation checks before list operations
+  - [x] Add revocation checks before delete operations
+  - [x] Return clear error messages when using revoked delegations
 
-- [ ] **User Interface**
-  - [ ] Add "Revoke" button to created delegations in `DelegationManager`
-  - [ ] Show revocation status badges (Active, Revoked, Expired) on delegation cards
-  - [ ] Add confirmation dialog when revoking ("This action cannot be undone")
-  - [ ] Visual indicators for revoked/expired delegations (red banner, strikethrough)
-  - [ ] Show revocation timestamp and revoker DID when applicable
+- [x] **User Interface**
+  - [x] Add "Revoke" button to created delegations in `DelegationManager`
+  - [x] Show revocation status badges (Active, Revoked, Expired) on delegation cards
+  - [x] Add confirmation dialog when revoking ("This action cannot be undone")
+  - [x] Visual indicators for revoked/expired delegations (red banner, strikethrough)
+  - [x] Show revocation timestamp and revoker DID when applicable
 
 - [ ] **Testing & Documentation**
-  - [ ] Test revocation flow: create → share → revoke → verify blocked
-  - [ ] Test that issuer can revoke their created delegations
-  - [ ] Test that audience can revoke delegations they received
-  - [ ] Document revocation API in README
-  - [ ] Add revocation examples to user guide
+  - [x] Test revocation flow: create → share → revoke → verify blocked
+  - [x] Test that issuer can revoke their created delegations
+  - [x] Test that audience can revoke delegations they received
+  - [x] Document revocation API in README
+  - [x] Add revocation examples to user guide
 
 **Timeline**: 1-2 weeks
 
@@ -82,6 +83,29 @@ This is a **security vulnerability** that must be addressed before any other maj
 - [Agent Revoke Implementation](https://github.com/storacha/upload-service/blob/main/packages/access-client/src/agent.js#L259)
 - Revocation Registry: `https://up.storacha.network/revocations/`
 - [Implementation Details](./docs/REVOCATION_IMPLEMENTATION.md)
+
+---
+
+## Phase 1: Hardware Varsig v1 (Partial)
+
+**Goal**: Use hardware-backed WebAuthn Ed25519 signatures wrapped in varsig v1 for UCAN signing, with a worker-based fallback where hardware Ed25519 is unavailable.
+
+**Status**: ✅ Ed25519 supported, ❌ hardware P-256 not supported yet.
+
+### Current Implementation
+- [x] Varsig v1 header + strict parsing (`0x34 0x01`)
+- [x] WebAuthn Ed25519 assertion wrapper + verification policy
+- [x] Hardware-first signing flow with worker fallback
+- [ ] Hardware P-256 support (blocked)
+
+### Remaining Work (P-256 Dependency)
+- [ ] Add ECDSA metadata path (0xEC + secp256r1)
+- [ ] Implement P-256 WebAuthn verification path (DER conversion if needed)
+- [ ] Enable hardware P-256 flow and update docs/tests
+
+**References**:
+- [Varsig v1 WebAuthn Implementation](./docs/varsig-implementation.md)
+- [Architecture Flow](./docs/ARCHITECTURE_FLOW.md)
 
 ---
 
