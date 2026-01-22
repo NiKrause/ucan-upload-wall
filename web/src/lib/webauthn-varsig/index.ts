@@ -7,7 +7,6 @@
 // Types
 export type {
   WebAuthnAssertion,
-  DecodedVarsig,
   DecodedVarsigV1,
   ClientDataJSON,
   SignatureAlgorithm,
@@ -36,14 +35,12 @@ export {
 
 // Encoder
 export {
-  encodeWebAuthnVarsig,
   encodeWebAuthnVarsigV1,
   validateWebAuthnAssertion
 } from './encoder.js';
 
 // Decoder
 export {
-  decodeWebAuthnVarsig,
   decodeWebAuthnVarsigV1,
   parseClientDataJSON
 } from './decoder.js';

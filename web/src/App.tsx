@@ -162,7 +162,7 @@ function App() {
   const handleFileSelect = useCallback(async (file: File) => {
     const result = await uploadFile(file);
 
-    if (result && result.ok) {
+    if (result.ok) {
       const newFile: UploadedFile = {
         id: crypto.randomUUID(),
         cid: result.cid,
@@ -185,13 +185,13 @@ function App() {
         console.error('Failed to reload Storacha files after upload:', error);
       }
       
-    } else if (error) {
+    } else {
       setAlert({
         type: 'error',
-        message: error,
+        message: result.error,
       });
     }
-  }, [uploadFile, error, delegationService]);
+  }, [uploadFile, delegationService]);
 
   const handleCloseAlert = useCallback(() => {
     setAlert(null);

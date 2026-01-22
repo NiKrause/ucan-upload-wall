@@ -6,9 +6,6 @@
 
 import { varintDecode } from './utils.js';
 import {
-  WEBAUTHN_ED25519,
-  WEBAUTHN_P256,
-  getAlgorithm,
   VARSIG_PREFIX,
   VARSIG_VERSION,
   INNER_EDDSA,
@@ -20,70 +17,7 @@ import {
   WEBAUTHN_WRAPPER,
   PAYLOAD_ENCODING_RAW
 } from './multicodec.js';
-import type { DecodedVarsig, DecodedVarsigV1, ClientDataJSON, SignatureAlgorithm } from './types.js';
-
-/**
- * Decode a WebAuthn varsig into its components
- * 
- * Format:
- * - multicodec (varint)
- * - authenticatorData length (varint)
- * - authenticatorData (bytes)
- * - clientDataJSON length (varint)
- * - clientDataJSON (bytes)
- * - signature (length depends on authenticator and algorithm)
- */
-export function decodeWebAuthnVarsig(varsig: Uint8Array): DecodedVarsig {
-  let offset = 0;
-
-  // Read multicodec
-  const [multicodec, multicodecLen] = varintDecode(varsig, offset);
-  offset += multicodecLen;
-
-  // Validate multicodec
-  if (multicodec !== WEBAUTHN_ED25519 && multicodec !== WEBAUTHN_P256) {
-    throw new Error(`Unsupported multicodec: 0x${multicodec.toString(16)}`);
-  }
-
-  const algorithm = getAlgorithm(multicodec);
-
-  // Read authenticatorData
-  const [authDataLen, authDataLenLen] = varintDecode(varsig, offset);
-  offset += authDataLenLen;
-  
-  if (offset + authDataLen > varsig.length) {
-    throw new Error('Invalid authenticatorData length');
-  }
-  
-  const authenticatorData = varsig.slice(offset, offset + authDataLen);
-  offset += authDataLen;
-
-  // Read clientDataJSON
-  const [clientDataLen, clientDataLenLen] = varintDecode(varsig, offset);
-  offset += clientDataLenLen;
-  
-  if (offset + clientDataLen > varsig.length) {
-    throw new Error('Invalid clientDataJSON length');
-  }
-  
-  const clientDataJSON = varsig.slice(offset, offset + clientDataLen);
-  offset += clientDataLen;
-
-  // Read signature (rest of the bytes)
-  const signature = varsig.slice(offset);
-  
-  if (signature.length === 0) {
-    throw new Error('Signature is empty');
-  }
-
-  return {
-    multicodec,
-    algorithm,
-    authenticatorData,
-    clientDataJSON,
-    signature
-  };
-}
+import type { DecodedVarsigV1, ClientDataJSON, SignatureAlgorithm } from './types.js';
 
 /**
  * Decode a WebAuthn varsig v1 into its components

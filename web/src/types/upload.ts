@@ -7,7 +7,7 @@ export interface UploadedFile {
 }
 
 export interface UploadResponse {
-  ok: boolean;
+  ok: true;
   cid: string;
 }
 
@@ -15,3 +15,5 @@ export interface UploadError {
   ok: false;
   error: string;
 }
+
+export type UploadResult = UploadResponse | UploadError;

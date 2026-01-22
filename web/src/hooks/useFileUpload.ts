@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { UploadResponse } from '../types/upload';
+import { UploadResult } from '../types/upload';
 import { UCANDelegationService } from '../lib/ucan-delegation';
 
 const delegationService = new UCANDelegationService();
@@ -8,7 +8,7 @@ export function useFileUpload() {
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const uploadFile = async (file: File): Promise<UploadResponse | null> => {
+  const uploadFile = async (file: File): Promise<UploadResult> => {
     console.log('🚀 Upload started for file:', file.name, 'Size:', file.size);
     setIsUploading(true);
     setError(null);
@@ -51,7 +51,7 @@ export function useFileUpload() {
       console.error('❌ Upload failed:', message);
       console.error('Full error:', err);
       setError(message);
-      return null;
+      return { ok: false, error: message };
     } finally {
       setIsUploading(false);
       console.log('Upload process finished');

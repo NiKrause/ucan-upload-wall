@@ -1,5 +1,6 @@
 import { Shield } from 'lucide-react';
 import { UCANDelegationService } from '../lib/ucan-delegation';
+import { getServiceConfig } from '../lib/service-config';
 
 interface HeaderProps {
   delegationService?: UCANDelegationService;
@@ -7,6 +8,10 @@ interface HeaderProps {
 
 export function Header({ delegationService }: HeaderProps) {
   const currentDID = delegationService?.getCurrentDID();
+  const serviceConfig = getServiceConfig();
+  const uploadUrl = serviceConfig.uploadServiceUrl ?? '';
+  const isLocalService =
+    uploadUrl.startsWith('http://127.0.0.1') || uploadUrl.startsWith('http://localhost');
   
   return (
     <header className="w-full bg-white border-b border-gray-200">
@@ -15,6 +20,14 @@ export function Header({ delegationService }: HeaderProps) {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">
               🔐 UCAN Upload Wall <span className="text-lg text-blue-600">(Browser-Only)</span>
+              {isLocalService && (
+                <span
+                  className="ml-3 inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800"
+                  title={`Local upload service: ${uploadUrl || 'unknown'}`}
+                >
+                  LOCAL API
+                </span>
+              )}
             </h1>
             <p className="text-sm text-gray-600">
               WebAuthn DID +{' '}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Share, Copy, Check, Plus, Download, Upload, Shield, Trash2, ArrowRight, User, Clock, Key, XCircle, Ban } from 'lucide-react';
+import { Share, Copy, Check, Plus, Download, Upload, Shield, Trash2, ArrowRight, User, Clock, Key, XCircle, Ban, Lock, Cpu } from 'lucide-react';
 import { UCANDelegationService, DelegationInfo } from '../lib/ucan-delegation';
 import { Setup } from './Setup';
 
@@ -14,6 +14,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
   const [isNativeEd25519, setIsNativeEd25519] = useState(false);
   const [createdDelegations, setCreatedDelegations] = useState<DelegationInfo[]>([]);
   const [receivedDelegations, setReceivedDelegations] = useState<DelegationInfo[]>([]);
+  const [delegationStatus, setDelegationStatus] = useState<Record<string, { status: 'checking' | 'valid' | 'revoked' | 'expired' | 'invalid'; reason?: string }>>({});
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showImportForm, setShowImportForm] = useState(false);
   const [targetDID, setTargetDID] = useState('');
@@ -35,6 +36,12 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
   const [savedCredentials, setSavedCredentials] = useState(false);
   const [showCredentialsForm, setShowCredentialsForm] = useState(false);
   const [revokingDelegation, setRevokingDelegation] = useState<string | null>(null);
+  const [signingMode, setSigningMode] = useState<{
+    mode: 'hardware' | 'worker';
+    did: string | null;
+    secure: boolean;
+    algorithm?: 'Ed25519' | 'P-256';
+  } | null>(null);
 
   // Available capabilities with descriptions
   const availableCapabilities = [
@@ -58,6 +65,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
     setCurrentDID(delegationService.getCurrentDID());
     setCreatedDelegations(delegationService.getCreatedDelegations());
     setReceivedDelegations(delegationService.getReceivedDelegations());
+    setSigningMode(delegationService.getSigningMode());
     
     // Check if using native Ed25519 (cannot create delegations)
     const credInfo = localStorage.getItem('webauthn_credential_info');
@@ -81,6 +89,48 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       setSavedCredentials(true);
     }
   }, [delegationService, loadData]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkDelegations = async () => {
+      if (receivedDelegations.length === 0) {
+        return;
+      }
+
+      const initialStatuses: Record<string, { status: 'checking' }> = {};
+      for (const delegation of receivedDelegations) {
+        initialStatuses[delegation.id] = { status: 'checking' };
+      }
+      setDelegationStatus((prev) => ({ ...prev, ...initialStatuses }));
+
+      const results = await Promise.all(
+        receivedDelegations.map(async (delegation) => {
+          const validation = await delegationService.validateDelegation(delegation);
+          if (!validation.valid) {
+            const reason = validation.reason ?? 'Delegation is not valid';
+            if (reason.toLowerCase().includes('expired')) {
+              return [delegation.id, { status: 'expired', reason }] as const;
+            }
+            if (reason.toLowerCase().includes('revoked')) {
+              return [delegation.id, { status: 'revoked', reason }] as const;
+            }
+            return [delegation.id, { status: 'invalid', reason }] as const;
+          }
+          return [delegation.id, { status: 'valid' }] as const;
+        })
+      );
+
+      if (cancelled) return;
+      setDelegationStatus((prev) => ({ ...prev, ...Object.fromEntries(results) }));
+    };
+
+    checkDelegations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [receivedDelegations, delegationService]);
 
   const handleCredentialChange = (field: keyof typeof credentials, value: string) => {
     setCredentials(prev => ({ ...prev, [field]: value }));
@@ -200,6 +250,51 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
     }
   };
 
+  const handleDeleteReceivedDelegation = (delegationId: string) => {
+    const delegation = receivedDelegations.find((item) => item.id === delegationId);
+    const label = delegation?.name ? `"${delegation.name}"` : delegationId;
+    if (!confirm(`Delete this received delegation ${label}? This action cannot be undone.`)) {
+      return;
+    }
+    delegationService.deleteReceivedDelegation(delegationId);
+    setReceivedDelegations(delegationService.getReceivedDelegations());
+    setDelegationStatus((prev) => {
+      const next = { ...prev };
+      delete next[delegationId];
+      return next;
+    });
+  };
+
+  const handleClearRevocationCache = async (delegationId: string) => {
+    delegationService.clearRevocationCacheForDelegation(delegationId);
+    setDelegationStatus((prev) => ({
+      ...prev,
+      [delegationId]: { status: 'checking' },
+    }));
+    const delegation = receivedDelegations.find((item) => item.id === delegationId);
+    if (!delegation) {
+      return;
+    }
+    const validation = await delegationService.validateDelegation(delegation);
+    if (!validation.valid) {
+      const reason = validation.reason ?? 'Delegation is not valid';
+      const status = reason.toLowerCase().includes('expired')
+        ? 'expired'
+        : reason.toLowerCase().includes('revoked')
+        ? 'revoked'
+        : 'invalid';
+      setDelegationStatus((prev) => ({
+        ...prev,
+        [delegationId]: { status, reason },
+      }));
+      return;
+    }
+    setDelegationStatus((prev) => ({
+      ...prev,
+      [delegationId]: { status: 'valid' },
+    }));
+  };
+
   const handleRevokeDelegation = async (delegationCID: string) => {
     if (!confirm('Are you sure you want to revoke this delegation?\n\nThis action CANNOT be undone. The recipient will immediately lose access.')) {
       return;
@@ -260,6 +355,24 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
               <div className="flex-1">
                 <h3 className="text-lg font-bold text-blue-900 mb-1">Your Ed25519 DID</h3>
                 <p className="text-sm text-blue-700 mb-2">Share this DID to receive UCAN delegations from Storacha CLI</p>
+                {signingMode && (
+                  <div className="flex items-center gap-2 mb-2">
+                    {signingMode.mode === 'hardware' ? (
+                      <>
+                        <Lock className="h-4 w-4 text-green-600" />
+                        <span className="text-sm text-green-800 font-medium">Hardware Mode</span>
+                        {signingMode.algorithm ? (
+                          <span className="text-xs text-green-700">({signingMode.algorithm})</span>
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <Cpu className="h-4 w-4 text-yellow-600" />
+                        <span className="text-sm text-yellow-800 font-medium">Worker Mode</span>
+                      </>
+                    )}
+                  </div>
+                )}
                 <code className="text-sm text-blue-800 break-all bg-white/60 px-3 py-2 rounded border border-blue-200 block" data-testid="did-display">{currentDID}</code>
               </div>
             </div>
@@ -278,12 +391,12 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
         </div>
       )}
 
-      {/* Primary Action: Import UCAN Token */}
+      {/* Primary Action: Import UCAN Delegation */}
       <div className="bg-white rounded-lg border-2 border-green-300 p-6 shadow-sm">
         <div className="flex items-center mb-4">
           <Download className="h-6 w-6 text-green-600 mr-3" />
           <div>
-            <h3 className="text-xl font-bold text-gray-900">Import UCAN Delegation Token</h3>
+            <h3 className="text-xl font-bold text-gray-900">Import UCAN Delegation</h3>
             <p className="text-sm text-gray-600">Recommended: Paste your UCAN token to get upload access</p>
           </div>
         </div>
@@ -301,7 +414,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
           className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 flex items-center font-medium"
         >
           <Download className="h-5 w-5 mr-2" />
-          {showImportForm ? 'Hide Import Form' : 'Import UCAN Token'}
+          {showImportForm ? 'Hide Import Form' : 'Import UCAN Delegation'}
         </button>
       </div>
 
@@ -618,11 +731,11 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
         </div>
       )}
 
-      {/* Import UCAN Token Form */}
+      {/* Import UCAN Delegation Form */}
       {showImportForm && (
         <div className="bg-white rounded-lg border-2 border-green-300 p-6">
           <h3 className="text-xl font-bold text-gray-900 mb-2">
-            Import UCAN Delegation Token
+            Import UCAN Delegation
           </h3>
           <p className="text-sm text-gray-600 mb-4">
             Paste the base64 UCAN token that was delegated to your Ed25519 DID
@@ -674,7 +787,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                 className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 flex items-center font-medium"
               >
                 <Download className="h-5 w-5 mr-2" />
-                Import UCAN Token
+                Import UCAN Delegation
               </button>
               
               <button
@@ -981,9 +1094,37 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                           {delegation.format}
                         </div>
                       )}
-                    <div className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded font-medium">
-                      Active
-                      </div>
+                      {(() => {
+                        const status = delegationStatus[delegation.id]?.status ?? 'checking';
+                        const label =
+                          status === 'valid'
+                            ? 'Active'
+                            : status === 'revoked'
+                            ? 'Revoked'
+                            : status === 'expired'
+                            ? 'Expired'
+                            : status === 'invalid'
+                            ? 'Invalid'
+                            : 'Checking...';
+                        const className =
+                          status === 'valid'
+                            ? 'bg-green-100 text-green-800'
+                            : status === 'revoked'
+                            ? 'bg-red-100 text-red-700'
+                            : status === 'expired'
+                            ? 'bg-orange-100 text-orange-700'
+                            : status === 'invalid'
+                            ? 'bg-gray-200 text-gray-700'
+                            : 'bg-yellow-100 text-yellow-800';
+                        return (
+                          <div
+                            className={`${className} text-xs px-2 py-1 rounded font-medium`}
+                            title={delegationStatus[delegation.id]?.reason}
+                          >
+                            {label}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                   
@@ -1095,16 +1236,35 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                     <div className="text-xs text-gray-500">
                       This delegation allows you to upload files using another browser's permissions
                     </div>
-                    <button
-                      onClick={() => copyToClipboard(delegation.proof, `received-${delegation.id}`)}
-                      className="flex items-center text-blue-600 hover:text-blue-800 text-sm"
-                      title="Copy delegation proof"
-                    >
-                      {copiedField === `received-${delegation.id}` ? 
-                        <><Check className="h-4 w-4 mr-1" /> Copied!</> : 
-                        <><Copy className="h-4 w-4 mr-1" /> Copy Proof</>
-                      }
-                    </button>
+                    <div className="flex items-center gap-3">
+                      {delegationStatus[delegation.id]?.status === 'revoked' && (
+                        <button
+                          onClick={() => handleClearRevocationCache(delegation.id)}
+                          className="flex items-center text-amber-700 hover:text-amber-800 text-sm"
+                          title="Clear cached revocation status for this delegation"
+                        >
+                          🧹 Clear Revocation Cache
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteReceivedDelegation(delegation.id)}
+                        className="flex items-center text-red-600 hover:text-red-700 text-sm"
+                        title="Delete this received delegation"
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Delete
+                      </button>
+                      <button
+                        onClick={() => copyToClipboard(delegation.proof, `received-${delegation.id}`)}
+                        className="flex items-center text-blue-600 hover:text-blue-800 text-sm"
+                        title="Copy delegation proof"
+                      >
+                        {copiedField === `received-${delegation.id}` ? 
+                          <><Check className="h-4 w-4 mr-1" /> Copied!</> : 
+                          <><Copy className="h-4 w-4 mr-1" /> Copy Proof</>
+                        }
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

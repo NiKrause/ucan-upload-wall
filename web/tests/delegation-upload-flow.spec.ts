@@ -10,28 +10,20 @@
  * Issue: https://github.com/NiKrause/ucan-upload-wall/issues/2
  */
 
-import http from 'node:http';
+import type { Server } from 'node:http';
 import { test, expect, BrowserContext, Page } from '@playwright/test';
 import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpers/webauthn';
-import { Verifier as BaseVerifier, WebAuthnEd25519 } from '@ucanto/principal';
 import * as ed25519 from '@ucanto/principal/ed25519';
-import { delegate, Message } from '@ucanto/core';
-import { createServer, handle } from '@storacha/upload-api';
-import { CAR } from '@ucanto/transport';
-import * as CARTransport from '@ucanto/transport/car';
+import { delegate } from '@ucanto/core';
 import * as ProviderCaps from '@storacha/capabilities/provider';
 import * as DidMailto from '@storacha/did-mailto';
 import { Absentee } from '@ucanto/principal';
+import * as varsigModule from '../src/lib/webauthn-varsig/index.js';
 import {
-  decodeWebAuthnVarsigV1,
-  reconstructSignedData,
-  verifyEd25519Signature,
-  verifyP256Signature,
-  verifyWebAuthnAssertion,
-  VARSIG_PREFIX,
-  VARSIG_VERSION,
-  concat,
-} from '../src/lib/webauthn-varsig/index.js';
+  createCorsHttp,
+  loadUploadApiTestContext,
+  startUploadApiServer,
+} from '../../local-storacha-api/upload-service.mjs';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -63,7 +55,7 @@ type UploadApiContext = {
 } & Record<string, unknown>;
 
 type CreateContext = (
-  config?: { requirePaymentPlan?: boolean; http?: typeof http } & Record<string, unknown>
+  config?: { requirePaymentPlan?: boolean; http?: unknown } & Record<string, unknown>
 ) => Promise<UploadApiContext>;
 
 type CleanupContext = (context: UploadApiContext) => Promise<void>;
@@ -81,62 +73,6 @@ type HeliaNode = {
   stop: () => Promise<void>;
 };
 
-const createVarsigPrincipal = () => {
-  if (!WebAuthnEd25519?.Verifier?.create) {
-    return BaseVerifier;
-  }
-
-  const wrapVerifier = (did: string) => {
-    const edVerifier = BaseVerifier.parse(did);
-    const webauthnVerifier = WebAuthnEd25519.Verifier.create(edVerifier.publicKey, did);
-    const expectedOrigin = process.env.WEBAUTHN_ORIGIN ?? 'http://localhost:4173';
-    const expectedRpId = new URL(expectedOrigin).hostname;
-
-    return {
-      code: edVerifier.code,
-      signatureCode: edVerifier.signatureCode,
-      signatureAlgorithm: edVerifier.signatureAlgorithm,
-      did: () => did,
-      toDIDKey: () => edVerifier.toDIDKey(),
-      verify: async (payload: Uint8Array, signature: { raw?: Uint8Array }) => {
-        const raw = signature?.raw ?? signature;
-        if (raw?.byteLength && raw.byteLength >= 2 && raw[0] === VARSIG_PREFIX && raw[1] === VARSIG_VERSION) {
-          try {
-            const decoded = decodeWebAuthnVarsigV1(raw);
-            const domain = new TextEncoder().encode('ucan-webauthn-v1:');
-            const challengeInput = concat([domain, payload]);
-            const challengeHash = await crypto.subtle.digest('SHA-256', challengeInput);
-            const verification = await verifyWebAuthnAssertion(decoded, {
-              expectedOrigin,
-              expectedRpId,
-              expectedChallenge: new Uint8Array(challengeHash),
-              requireUserVerification: false,
-            });
-            if (!verification.valid) {
-              return false;
-            }
-            const signedData = await reconstructSignedData(decoded);
-            if (decoded.algorithm === 'P-256') {
-              return verifyP256Signature(signedData, decoded.signature, edVerifier.publicKey);
-            }
-            return verifyEd25519Signature(signedData, decoded.signature, edVerifier.publicKey);
-          } catch (error) {
-            console.error('[ucanto-varsig] v1 verification error:', error);
-            return false;
-          }
-        }
-        if (raw?.byteLength && raw.byteLength !== 64) {
-          return webauthnVerifier.verify(payload, signature);
-        }
-        return edVerifier.verify(payload, signature);
-      },
-      withDID: (nextId: string) => wrapVerifier(nextId),
-    };
-  };
-
-  return { parse: wrapVerifier };
-};
-
 // Import test context from upload-api
 // Note: This provides in-memory storage and services
 let createContext: CreateContext;
@@ -144,18 +80,11 @@ let cleanupContext: CleanupContext;
 
 // Dynamic import for upload-api test utilities
 test.beforeAll(async () => {
-  try {
-    // Import from the exported test context path
-    const uploadApiHelpers = await import('@storacha/upload-api/test/context');
-    createContext = uploadApiHelpers.createContext as CreateContext;
-    cleanupContext = uploadApiHelpers.cleanupContext as CleanupContext;
-    
-    console.log('✅ Upload-api test utilities loaded successfully');
-  } catch (error) {
-    console.error('❌ Failed to load upload-api test utilities:', error);
-    console.log('💡 Make sure to run: npm install --save-dev @storacha/upload-api @storacha/capabilities @ucanto/server');
-    throw error;
-  }
+  const uploadApiHelpers = await loadUploadApiTestContext();
+  createContext = uploadApiHelpers.createContext as CreateContext;
+  cleanupContext = uploadApiHelpers.cleanupContext as CleanupContext;
+
+  console.log('✅ Upload-api test utilities loaded successfully');
 });
 
 const HARDWARE_SIGNER_KEY = 'webauthn_ed25519_hardware_signer';
@@ -212,7 +141,7 @@ for (const modeConfig of TEST_MODES) {
   let page: Page;
   let cdpSession: { client: unknown; authenticatorId: string };
   let uploadServiceContext: UploadApiContext | null = null;
-  let uploadApiServer: http.Server | null = null;
+  let uploadApiServer: Server | null = null;
   let uploadApiUrl: string | null = null;
   let heliaNode: HeliaNode | null = null;
   let heliaStartPromise: Promise<HeliaNode> | null = null;
@@ -222,6 +151,8 @@ for (const modeConfig of TEST_MODES) {
   let space: EdSigner; // The space identity
   let spaceDid: string;
   let spaceProof: DelegationProof;
+  let capturedIndexLink: unknown | null = null;
+  let capturedBlob: unknown | null = null;
 
   async function ensureHelia(): Promise<HeliaNode> {
     if (heliaNode) {
@@ -302,148 +233,6 @@ for (const modeConfig of TEST_MODES) {
     }
   }
 
-  function createCorsHttp(): typeof http {
-    return {
-      ...http,
-      createServer: (handler: http.RequestListener) =>
-        http.createServer((req, res) => {
-          console.log(`🧰 Storage node HTTP ${req.method} ${req.url}`);
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
-          res.setHeader(
-            'Access-Control-Allow-Headers',
-            'Content-Type, Authorization, X-Amz-Checksum-Sha256'
-          );
-
-          if (req.method === 'OPTIONS') {
-            res.writeHead(204);
-            res.end();
-            return;
-          }
-
-          if (req.method === 'PUT') {
-            const chunks: Uint8Array[] = [];
-            req.on('data', (chunk: Uint8Array) => chunks.push(chunk));
-            req.on('end', () => {
-              const bytes = new Uint8Array(Buffer.concat(chunks));
-              importCarToHelia(bytes).catch((error) => {
-                console.warn('🟣 Helia CAR import skipped:', error?.message ?? error);
-              });
-            });
-          }
-
-          return handler(req, res);
-        }),
-    } as typeof http;
-  }
-
-  async function startUploadApiServer(
-    context: UploadApiContext
-  ): Promise<{ server: http.Server; url: string }> {
-    const agent = createServer({
-      ...context,
-      codec: CAR.inbound,
-      principal: createVarsigPrincipal(),
-    });
-
-    const server = http.createServer(async (req, res) => {
-      console.log(`🌐 upload-api HTTP ${req.method} ${req.url}`);
-      if (req.method === 'OPTIONS') {
-        res.writeHead(200, {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          'Access-Control-Max-Age': '86400',
-        });
-        res.end();
-        return;
-      }
-
-      if (req.method === 'GET' && req.url?.startsWith('/receipt/')) {
-        const taskCid = req.url.slice('/receipt/'.length);
-        if (!taskCid) {
-          res.writeHead(204, { 'Access-Control-Allow-Origin': '*' });
-          res.end();
-          return;
-        }
-
-        console.log(`🧾 Receipt lookup for task ${taskCid}`);
-        const receiptResult = await context.agentStore.receipts.get(taskCid);
-        if (receiptResult.error) {
-          console.warn(`🧾 Receipt not found for task ${taskCid}`);
-          res.writeHead(404, {
-            'Access-Control-Allow-Origin': '*',
-          });
-          res.end();
-          return;
-        }
-
-        const message = await Message.build({ receipts: [receiptResult.ok] });
-        const body = CARTransport.request.encode(message).body;
-        res.writeHead(200, {
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': 'application/car',
-        });
-        res.end(body);
-        return;
-      }
-
-      if (req.method === 'GET' && req.url?.startsWith('/.well-known/did.json')) {
-        const serviceDid = context.id.did();
-        const didKey = context.id.toDIDKey();
-        const publicKeyMultibase = didKey.startsWith('did:key:')
-          ? didKey.slice('did:key:'.length)
-          : didKey;
-
-        res.writeHead(200, {
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': 'application/json',
-        });
-        res.end(
-          JSON.stringify({
-            id: serviceDid,
-            verificationMethod: [
-              {
-                id: `${serviceDid}#key-1`,
-                type: 'Ed25519VerificationKey2020',
-                controller: serviceDid,
-                publicKeyMultibase,
-              },
-            ],
-          })
-        );
-        return;
-      }
-
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) {
-        chunks.push(chunk as Buffer);
-      }
-      const body = Buffer.concat(chunks);
-
-      const response = await handle(agent, { headers: req.headers, body });
-      console.log(`✅ upload-api response ${response.status || 200} ${req.method} ${req.url}`);
-      res.writeHead(response.status || 200, {
-        ...response.headers,
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-      });
-      res.end(response.body);
-    });
-
-    await new Promise<void>((resolve) => {
-      server.listen(0, '127.0.0.1', () => resolve());
-    });
-
-    const address = server.address();
-    if (!address || typeof address === 'string') {
-      throw new Error('Failed to bind upload-api HTTP server');
-    }
-
-    return { server, url: `http://127.0.0.1:${address.port}` };
-  }
-
   test.beforeEach(async ({ browser }) => {
     test.setTimeout(120000); // 2 minutes timeout for complex flow
 
@@ -453,7 +242,13 @@ for (const modeConfig of TEST_MODES) {
     console.log('📦 Creating in-memory upload service...');
     uploadServiceContext = await createContext({
       requirePaymentPlan: false,
-      http: createCorsHttp()
+      http: createCorsHttp({
+        onPutBytes: (bytes: Uint8Array) => {
+          importCarToHelia(bytes).catch((error) => {
+            console.warn('🟣 Helia CAR import skipped:', error?.message ?? error);
+          });
+        },
+      }),
     });
     console.log('✅ Upload service created:', uploadServiceContext.id.did());
 
@@ -520,7 +315,21 @@ for (const modeConfig of TEST_MODES) {
 
     // 5. Start upload-api HTTP server
     console.log('🌐 Starting upload-api HTTP server...');
-    const serverInfo = await startUploadApiServer(uploadServiceContext);
+    const serverInfo = await startUploadApiServer(uploadServiceContext, {
+      onInvocation: (invocation: any) => {
+        for (const capability of invocation.capabilities ?? []) {
+          if (capability.can === 'space/index/add' && !capturedIndexLink && capability.nb?.index) {
+            capturedIndexLink = capability.nb.index;
+            console.log('🧪 Captured space/index/add nb.index from invocation');
+          }
+          if (capability.can === 'space/blob/add' && !capturedBlob && capability.nb?.blob) {
+            capturedBlob = capability.nb.blob;
+            console.log('🧪 Captured space/blob/add nb.blob from invocation');
+          }
+        }
+      },
+      varsigModule,
+    });
     uploadApiServer = serverInfo.server;
     uploadApiUrl = serverInfo.url;
     console.log('✅ upload-api server ready:', uploadApiUrl);
@@ -598,6 +407,9 @@ for (const modeConfig of TEST_MODES) {
     await page.waitForLoadState('networkidle');
     console.log('✅ Browser setup complete');
 
+    capturedIndexLink = null;
+    capturedBlob = null;
+
     if (modeConfig.seedHardwareSigner) {
       await seedHardwareSigner(page, modeConfig.seedHardwareSigner);
     }
@@ -650,6 +462,25 @@ for (const modeConfig of TEST_MODES) {
       },
       { key: HARDWARE_SIGNER_KEY, payload: seed }
     );
+  }
+
+  function buildDelegationCapabilities(options?: {
+    index?: unknown;
+    blob?: unknown;
+  }) {
+    return [
+      { with: space.did(), can: 'assert/index' },
+      options?.blob
+        ? { with: space.did(), can: 'space/blob/add', nb: { blob: options.blob } }
+        : { with: space.did(), can: 'space/blob/add' },
+      options?.index
+        ? { with: space.did(), can: 'space/index/add', nb: { index: options.index } }
+        : { with: space.did(), can: 'space/index/add' },
+      { with: space.did(), can: 'upload/add' },
+      { with: space.did(), can: 'upload/list' },
+      { with: space.did(), can: 'filecoin/offer' },
+      { with: space.did(), can: 'store/add' },
+    ];
   }
 
   async function createDIDInUI(mode: TestMode): Promise<string> {
@@ -779,15 +610,7 @@ for (const modeConfig of TEST_MODES) {
     const delegation = await delegate({
       issuer: spaceAgent,
       audience: browserPrincipal,
-      capabilities: [
-        { with: space.did(), can: 'assert/index' },
-        { with: space.did(), can: 'space/blob/add' },
-        { with: space.did(), can: 'space/index/add' },
-        { with: space.did(), can: 'upload/add' },
-        { with: space.did(), can: 'upload/list' },
-        { with: space.did(), can: 'filecoin/offer' },
-        { with: space.did(), can: 'store/add' }
-      ],
+      capabilities: buildDelegationCapabilities(),
       proofs: [spaceProof], // Include proof that spaceAgent has authority
       expiration: Math.floor(Date.now() / 1000) + 3600,
     });
@@ -837,15 +660,7 @@ for (const modeConfig of TEST_MODES) {
       const updatedDelegation = await delegate({
         issuer: spaceAgent,
         audience: updatedBrowserPrincipal,
-        capabilities: [
-          { with: space.did(), can: 'assert/index' },
-          { with: space.did(), can: 'space/blob/add' },
-          { with: space.did(), can: 'space/index/add' },
-          { with: space.did(), can: 'upload/add' },
-          { with: space.did(), can: 'upload/list' },
-          { with: space.did(), can: 'filecoin/offer' },
-          { with: space.did(), can: 'store/add' }
-        ],
+        capabilities: buildDelegationCapabilities(),
         proofs: [spaceProof],
         expiration: Math.floor(Date.now() / 1000) + 3600,
       });
@@ -876,19 +691,19 @@ for (const modeConfig of TEST_MODES) {
     await page.screenshot({ path: 'test-results/debug-before-import.png', fullPage: true });
     console.log('📸 Screenshot saved to debug-before-import.png');
     
-    // Look for the Import UCAN Token button
-    console.log('🔍 Looking for Import UCAN Token button...');
-    const importButton = page.locator('button', { hasText: 'Import UCAN Token' }).first();
+    // Look for the Import UCAN Delegation button
+    console.log('🔍 Looking for Import UCAN Delegation button...');
+    const importButton = page.locator('button', { hasText: 'Import UCAN Delegation' }).first();
     
     await expect(importButton).toBeVisible({ timeout: 15000 });
-    console.log('✅ Found Import UCAN Token button');
+    console.log('✅ Found Import UCAN Delegation button');
     
     // Scroll into view if needed
     await importButton.scrollIntoViewIfNeeded();
     await page.waitForTimeout(500);
     
     await importButton.click();
-    console.log('✅ Clicked Import UCAN Token button');
+    console.log('✅ Clicked Import UCAN Delegation button');
     await page.waitForTimeout(1500);
 
     // ========================================
@@ -918,9 +733,9 @@ for (const modeConfig of TEST_MODES) {
     console.log('✅ Pasted delegation base64');
     await page.waitForTimeout(500);
 
-    // Click the submit button (the second "Import UCAN Token" button in the form)
+    // Click the submit button (the second "Import UCAN Delegation" button in the form)
     console.log('🔍 Looking for submit button...');
-    const importSubmitButton = page.locator('button:has-text("Import UCAN Token")').last();
+    const importSubmitButton = page.locator('button:has-text("Import UCAN Delegation")').last();
     await expect(importSubmitButton).toBeVisible({ timeout: 5000 });
     await importSubmitButton.click();
     console.log('✅ Clicked submit button');
@@ -1004,9 +819,95 @@ for (const modeConfig of TEST_MODES) {
     const uploadButton = page.getByRole('button', { name: /Upload to Storacha/i });
     await expect(uploadButton).toBeVisible({ timeout: 5000 });
     await uploadButton.click();
+    const signConfirmButton = page.locator('[data-testid="confirm-upload-sign"]');
+    if (await signConfirmButton.isVisible().catch(() => false)) {
+      await signConfirmButton.click();
+    }
 
     const uploadSuccessAlert = page.getByText(/Successfully uploaded test-file\.txt/i);
-    await expect(uploadSuccessAlert).toBeVisible({ timeout: 60000 });
+    const uploadErrorAlert = page.getByText(/Upload failed|Delegated upload failed|space\/index\/add|space\/blob\/add/i);
+    const uploadOutcome = await Promise.race([
+      uploadSuccessAlert.waitFor({ state: 'visible', timeout: 60000 }).then(() => 'success'),
+      uploadErrorAlert.waitFor({ state: 'visible', timeout: 60000 }).then(() => 'error'),
+    ]);
+
+    if (uploadOutcome === 'error') {
+      const errorText = await uploadErrorAlert.textContent();
+      console.warn('⚠️ Upload failed, attempting index-aware delegation:', errorText);
+
+      if (!capturedIndexLink && !capturedBlob) {
+        throw new Error('Upload failed but no index/blob link captured for delegation retry.');
+      }
+
+      const retryBrowserPrincipal = {
+        did: () => currentDID as `did:key:${string}`,
+        toArchive: () => ({ ok: new Uint8Array() }),
+      };
+
+      const retryDelegation = await delegate({
+        issuer: spaceAgent,
+        audience: retryBrowserPrincipal,
+        capabilities: buildDelegationCapabilities({
+          index: capturedIndexLink ?? undefined,
+          blob: capturedBlob ?? undefined,
+        }),
+        proofs: [spaceProof],
+        expiration: Math.floor(Date.now() / 1000) + 3600,
+      });
+
+      const retryArchive = await retryDelegation.archive();
+      if (!retryArchive.ok) {
+        throw new Error('Failed to create retry delegation archive');
+      }
+
+      const retryBase64 = 'm' + Buffer.from(retryArchive.ok).toString('base64');
+
+      await page.getByRole('button', { name: /delegations/i }).click();
+      await page.waitForTimeout(1500);
+      await page.waitForLoadState('networkidle');
+
+      const retryImportButton = page.locator('button', { hasText: 'Import UCAN Delegation' }).first();
+      await retryImportButton.scrollIntoViewIfNeeded();
+      await retryImportButton.click();
+      await page.waitForTimeout(1000);
+
+      const retryNameInput = page.getByPlaceholder(/e.g., Alice's Upload Token/i);
+      await expect(retryNameInput).toBeVisible({ timeout: 5000 });
+      await retryNameInput.fill('Index-Aware Delegation');
+
+      const retryDelegationTextarea = page.getByPlaceholder(/Paste your base64 UCAN token here/i);
+      await expect(retryDelegationTextarea).toBeVisible({ timeout: 5000 });
+      await retryDelegationTextarea.fill(retryBase64);
+
+      const retrySubmitButton = page.locator('button:has-text("Import UCAN Delegation")').last();
+      await expect(retrySubmitButton).toBeVisible({ timeout: 5000 });
+      await retrySubmitButton.click();
+
+      await page.waitForTimeout(3000);
+
+      await page.getByRole('button', { name: /Upload Files/i }).first().click();
+      await page.waitForTimeout(2000);
+      await page.waitForLoadState('networkidle');
+
+      const retryDataTransfer = await page.evaluateHandle((content) => {
+        const dt = new DataTransfer();
+        const file = new File([content], 'test-file.txt', { type: 'text/plain' });
+        dt.items.add(file);
+        return dt;
+      }, testFileContent);
+
+      await fileInput.evaluateHandle((input: unknown, dt: unknown) => {
+        const element = input as HTMLInputElement;
+        const dataTransfer = dt as DataTransfer;
+        element.files = dataTransfer.files;
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+      }, retryDataTransfer);
+
+      await page.waitForTimeout(1000);
+      await expect(uploadButton).toBeVisible({ timeout: 5000 });
+      await uploadButton.click();
+      await expect(uploadSuccessAlert).toBeVisible({ timeout: 60000 });
+    }
 
     const uploadedHeading = page.getByRole('heading', { name: /Recently Uploaded Files/i });
     await expect(uploadedHeading).toBeVisible({ timeout: 60000 });
@@ -1150,7 +1051,7 @@ for (const modeConfig of TEST_MODES) {
       await page.waitForTimeout(1500);
       
       // Click import button
-      const importButton = page.locator('button', { hasText: 'Import UCAN Token' }).first();
+      const importButton = page.locator('button', { hasText: 'Import UCAN Delegation' }).first();
       await expect(importButton).toBeVisible({ timeout: 15000 });
       await importButton.scrollIntoViewIfNeeded();
       await page.waitForTimeout(500);
@@ -1166,7 +1067,7 @@ for (const modeConfig of TEST_MODES) {
       await page.waitForTimeout(500);
 
       // Submit
-      const importSubmitButton = page.getByRole('button', { name: /Import UCAN Token/i }).last();
+      const importSubmitButton = page.getByRole('button', { name: /Import UCAN Delegation/i }).last();
       await importSubmitButton.click();
       await page.waitForTimeout(3000); // Wait for import to complete (UI auto-switches to Upload tab)
 

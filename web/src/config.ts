@@ -7,6 +7,7 @@ export const config = {
   uploadService: {
     url: import.meta.env.VITE_UPLOAD_SERVICE_URL || 'https://up.storacha.network',
     did: import.meta.env.VITE_UPLOAD_SERVICE_DID || 'did:web:up.storacha.network',
+    revocationUrl: import.meta.env.VITE_REVOCATION_URL || 'https://revocation.storacha.network',
   }
 } as const;
 

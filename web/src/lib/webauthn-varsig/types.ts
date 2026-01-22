@@ -14,17 +14,6 @@ export interface WebAuthnAssertion {
 }
 
 /**
- * Decoded varsig data
- */
-export interface DecodedVarsig {
-  multicodec: number;
-  algorithm: SignatureAlgorithm;
-  authenticatorData: Uint8Array;
-  clientDataJSON: Uint8Array;
-  signature: Uint8Array;
-}
-
-/**
  * Decoded varsig v1 data
  */
 export interface DecodedVarsigV1 {

@@ -17,6 +17,7 @@ import { test, expect, BrowserContext, Page } from '@playwright/test';
 import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpers/webauthn';
 import * as ed25519 from '@ucanto/principal/ed25519';
 import { delegate } from '@ucanto/core';
+import { loadUploadApiTestContext } from '../../local-storacha-api/upload-service.mjs';
 
 // Import test context from upload-api
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -26,17 +27,11 @@ let cleanupContext: (context: any) => Promise<void>;
 
 // Dynamic import for upload-api test utilities
 test.beforeAll(async () => {
-  try {
-    const uploadApiHelpers = await import('@storacha/upload-api/test/context');
-    createContext = uploadApiHelpers.createContext;
-    cleanupContext = uploadApiHelpers.cleanupContext;
+  const uploadApiHelpers = await loadUploadApiTestContext();
+  createContext = uploadApiHelpers.createContext;
+  cleanupContext = uploadApiHelpers.cleanupContext;
 
-    console.log('✅ Upload-api test utilities loaded successfully');
-  } catch (error) {
-    console.error('❌ Failed to load upload-api test utilities:', error);
-    console.log('💡 Make sure to run: npm install --save-dev @storacha/upload-api @storacha/capabilities @ucanto/server');
-    throw error;
-  }
+  console.log('✅ Upload-api test utilities loaded successfully');
 });
 
 test.describe('UCAN Revocation Flow - E2E', () => {
@@ -215,7 +210,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(1500);
 
-    const importButton = page.locator('button', { hasText: 'Import UCAN Token' }).first();
+    const importButton = page.locator('button', { hasText: 'Import UCAN Delegation' }).first();
     await expect(importButton).toBeVisible({ timeout: 15000 });
     await importButton.scrollIntoViewIfNeeded();
     await page.waitForTimeout(500);
@@ -231,7 +226,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     await delegationTextarea.fill(delegationBase64);
     await page.waitForTimeout(500);
 
-    const importSubmitButton = page.locator('button:has-text("Import UCAN Token")').last();
+    const importSubmitButton = page.locator('button:has-text("Import UCAN Delegation")').last();
     await expect(importSubmitButton).toBeVisible({ timeout: 5000 });
     await importSubmitButton.click();
 

@@ -6,7 +6,6 @@
  */
 
 import {
-  ALGORITHM_TO_MULTICODEC,
   VARSIG_PREFIX,
   VARSIG_VERSION,
   INNER_EDDSA,
@@ -20,41 +19,6 @@ import {
 } from './multicodec.js';
 import type { WebAuthnAssertion, SignatureAlgorithm } from './types.js';
 import { varintEncode, concat } from './utils.js';
-
-/**
- * Encode a WebAuthn assertion as varsig
- * 
- * @param assertion - WebAuthn assertion data
- * @param algorithm - Signature algorithm used ('Ed25519' or 'P-256')
- * @returns Uint8Array containing the varsig-encoded data
- */
-export function encodeWebAuthnVarsig(
-  assertion: WebAuthnAssertion,
-  algorithm: SignatureAlgorithm = 'Ed25519'
-): Uint8Array {
-  const { authenticatorData, clientDataJSON, signature } = assertion;
-  
-  // Get multicodec for the algorithm
-  const multicodec = ALGORITHM_TO_MULTICODEC[algorithm];
-  const multicodecBytes = varintEncode(multicodec);
-  
-  // Encode lengths as varints
-  const authDataLenBytes = varintEncode(authenticatorData.length);
-  const clientDataLenBytes = varintEncode(clientDataJSON.length);
-  
-  // Concatenate all parts
-  // Format: [multicodec][authData_len][authData][clientData_len][clientData][signature]
-  const varsig = concat([
-    multicodecBytes,
-    authDataLenBytes,
-    authenticatorData,
-    clientDataLenBytes,
-    clientDataJSON,
-    signature
-  ]);
-  
-  return varsig;
-}
 
 /**
  * Encode a WebAuthn assertion as varsig v1

@@ -33,6 +33,20 @@ interface HardwareSignerInfo {
   created: string;
 }
 
+export function getStoredHardwareSignerInfo(): Pick<HardwareSignerInfo, 'did' | 'algorithm'> | null {
+  const stored = localStorage.getItem(HARDWARE_SIGNER_KEY);
+  if (!stored) return null;
+  try {
+    const parsed = JSON.parse(stored) as HardwareSignerInfo;
+    if (typeof parsed.did !== 'string') return null;
+    const algorithm = parsed.algorithm === 'P-256' ? 'P-256' : 'Ed25519';
+    return { did: parsed.did, algorithm };
+  } catch (error) {
+    console.warn('Failed to parse stored hardware signer info:', error);
+    return null;
+  }
+}
+
 /**
  * Enhanced UCANDelegationService with hardware-backed signing
  */
@@ -190,6 +204,7 @@ export class HardwareUCANDelegationService {
     error?: string;
     issuerDid?: string;
     audienceDid?: string;
+    spaceDid?: string;
   }> {
     try {
       // Decode delegation
@@ -298,13 +313,15 @@ export class HardwareUCANDelegationService {
         const capabilities = delegation.capabilities.map((cap: any) => 
           cap.can || cap.capability || cap
         );
+        const spaceDid = delegation.capabilities.find((cap: any) => cap?.with)?.with;
         
         return {
           valid: true,
           issuer: delegation.issuer.did(),
           audience: delegation.audience.did(),
           capabilities: capabilities,
-          expiration: delegation.expiration
+          expiration: delegation.expiration,
+          spaceDid
         };
       } catch (error) {
         if (isVarsigV1) {
@@ -320,13 +337,15 @@ export class HardwareUCANDelegationService {
         const capabilities = delegation.capabilities.map((cap: any) => 
           cap.can || cap.capability || cap
         );
+        const spaceDid = delegation.capabilities.find((cap: any) => cap?.with)?.with;
         
         return {
           valid: true,
           issuer: delegation.issuer.did(),
           audience: delegation.audience.did(),
           capabilities: capabilities,
-          expiration: delegation.expiration
+          expiration: delegation.expiration,
+          spaceDid
         };
       }
     } catch (error) {

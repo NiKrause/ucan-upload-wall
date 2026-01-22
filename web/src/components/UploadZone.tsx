@@ -20,6 +20,11 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
   const [copiedDID, setCopiedDID] = useState(false);
   const [encryptionSupported] = useState(false); // Currently always false - encryption handled in worker
   const [authenticatorMode, setAuthenticatorMode] = useState<'platform' | 'cross-platform'>('platform');
+  const [showSignConfirm, setShowSignConfirm] = useState(false);
+  const [skipSignConfirm, setSkipSignConfirm] = useState(
+    () => localStorage.getItem('skip_upload_sign_confirm') === 'true'
+  );
+  const [rememberSignChoice, setRememberSignChoice] = useState(false);
 
   useEffect(() => {
     // Check WebAuthn support
@@ -111,11 +116,16 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
   }, []);
 
   const handleUpload = useCallback(() => {
-    if (selectedFile) {
-      onFileSelect(selectedFile);
-      setSelectedFile(null);
+    if (!selectedFile) {
+      return;
     }
-  }, [selectedFile, onFileSelect]);
+    if (!skipSignConfirm) {
+      setShowSignConfirm(true);
+      return;
+    }
+    onFileSelect(selectedFile);
+    setSelectedFile(null);
+  }, [selectedFile, skipSignConfirm, onFileSelect]);
 
   const handleClear = useCallback(() => {
     setSelectedFile(null);
@@ -131,12 +141,100 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
     return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
   };
 
+  const handleConfirmSign = useCallback(() => {
+    if (!selectedFile) {
+      setShowSignConfirm(false);
+      return;
+    }
+    if (rememberSignChoice) {
+      localStorage.setItem('skip_upload_sign_confirm', 'true');
+      setSkipSignConfirm(true);
+    }
+    setShowSignConfirm(false);
+    onFileSelect(selectedFile);
+    setSelectedFile(null);
+  }, [rememberSignChoice, onFileSelect, selectedFile]);
+
+  const handleCancelSign = useCallback(() => {
+    setShowSignConfirm(false);
+  }, []);
+
   const hasCredentials = !!delegationService.getStorachaCredentials();
   const hasReceivedDelegations = delegationService.getReceivedDelegations().length > 0;
   const canUpload = hasCredentials || hasReceivedDelegations;
 
   return (
     <div className="w-full max-w-2xl space-y-6">
+      {showSignConfirm && selectedFile && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-lg w-full p-6">
+            <div className="flex items-start justify-between">
+              <div className="flex items-center">
+                <Lock className="h-5 w-5 text-blue-600 mr-2" />
+                <h3 className="text-lg font-semibold text-gray-900">Confirm WebAuthn Signatures</h3>
+              </div>
+              <button
+                onClick={handleCancelSign}
+                className="text-gray-400 hover:text-gray-600"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3 text-sm text-gray-700">
+              <div>
+                <span className="font-medium">File:</span> {selectedFile.name} ({formatFileSize(selectedFile.size)})
+              </div>
+              <div>
+                <span className="font-medium">Capabilities to sign:</span>
+                <ul className="mt-2 grid grid-cols-2 gap-2 text-xs text-gray-600">
+                  <li className="bg-gray-100 rounded px-2 py-1">space/blob/add</li>
+                  <li className="bg-gray-100 rounded px-2 py-1">space/index/add</li>
+                  <li className="bg-gray-100 rounded px-2 py-1">filecoin/offer</li>
+                  <li className="bg-gray-100 rounded px-2 py-1">upload/add</li>
+                </ul>
+              </div>
+              {currentDID && (
+                <div className="text-xs text-gray-500">
+                  <span className="font-medium">Signer DID:</span> {currentDID}
+                </div>
+              )}
+              <div className="text-xs text-gray-500">
+                WebAuthn signatures are generated per invocation. Large files may produce multiple
+                <code className="mx-1">space/blob/add</code> and <code className="mx-1">filecoin/offer</code>
+                invocations, so you may see multiple passkey prompts. A single signature for the
+                entire upload is not supported in the current UCAN flow.
+              </div>
+              <label className="flex items-center text-xs text-gray-600">
+                <input
+                  type="checkbox"
+                  className="mr-2"
+                  checked={rememberSignChoice}
+                  onChange={(e) => setRememberSignChoice(e.target.checked)}
+                />
+                Don’t show this confirmation again
+              </label>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                onClick={handleCancelSign}
+                className="px-3 py-2 text-sm text-gray-700 hover:text-gray-900"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmSign}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                data-testid="confirm-upload-sign"
+              >
+                Continue to Passkey
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* WebAuthn DID Setup */}
       {!webauthnSupported && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">

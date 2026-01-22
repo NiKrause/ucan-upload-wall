@@ -5,7 +5,7 @@
  */
 
 import { parseClientDataJSON } from './decoder.js';
-import type { DecodedVarsig, DecodedVarsigV1, ClientDataJSON, WebAuthnDecoded } from './types.js';
+import type { DecodedVarsigV1, ClientDataJSON, WebAuthnDecoded } from './types.js';
 import { base64urlToBytes, bytesEqual } from './utils.js';
 
 /**

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Key, Shield, Copy, Check, AlertCircle, Lock, Cpu } from 'lucide-react';
 import { UCANDelegationService } from '../lib/ucan-delegation';
+import { getStoredHardwareSignerInfo } from '../lib/hardware-ucan-service';
 import { WebAuthnDIDProvider } from '../lib/webauthn-did';
 
 interface SetupProps {
@@ -60,6 +61,12 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
       } catch (e) {
         console.error('Failed to parse credential info:', e);
       }
+    } else {
+      const storedHardware = getStoredHardwareSignerInfo();
+      if (storedHardware) {
+        setKeyAlgorithm(storedHardware.algorithm);
+        setIsNativeEd25519(false);
+      }
     }
   }, [delegationService]);
 
@@ -103,6 +110,12 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
           setIsNativeEd25519(parsed.isNativeEd25519 || false);
         } catch (e) {
           console.error('Failed to parse credential info:', e);
+        }
+      } else {
+        const storedHardware = getStoredHardwareSignerInfo();
+        if (storedHardware) {
+          setKeyAlgorithm(storedHardware.algorithm);
+          setIsNativeEd25519(false);
         }
       }
       

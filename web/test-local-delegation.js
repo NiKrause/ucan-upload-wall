@@ -235,15 +235,16 @@ async function main() {
     // This ensures the issuer is the space DID and avoids missing-chain issues.
     console.log('🎫 Creating delegation for:', targetDID)
     
+    // Keep capabilities to the minimum required for upload.
     const capabilities = [
+      'upload/list',
       'space/blob/add',
       'space/blob/list',
-      'space/blob/remove',
       'space/index/add',
+      'space/index/list',
       'filecoin/offer',
       'upload/add',
       'upload/list',
-      'upload/remove',
     ]
     
     console.log('  Capabilities:')
@@ -346,10 +347,10 @@ async function main() {
     console.log()
     console.log('1. Copy the delegation proof above (starts with "m")')
     console.log('2. Open UCAN Upload Wall UI (http://localhost:5173)')
-    console.log('3. Click "Import UCAN Token" button')
+    console.log('3. Click "Import UCAN Delegation" button')
     console.log('4. Paste the proof in the text area')
     console.log('5. (Optional) Give it a friendly name')
-    console.log('6. Click "Import UCAN Token"')
+    console.log('6. Click "Import UCAN Delegation"')
     console.log('7. Try uploading a file!')
     console.log()
     console.log('✅ Format: Multibase-encoded CAR file (compatible with Storacha CLI)')

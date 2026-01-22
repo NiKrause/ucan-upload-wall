@@ -6,6 +6,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
+    "dev:local": "VITE_UPLOAD_SERVICE_URL=http://127.0.0.1:8787 VITE_UPLOAD_SERVICE_DID=did:web:test.up.storacha.network VITE_REVOCATION_URL=http://127.0.0.1:8787 VITE_HELIA_PEER_ID=12D3KooWG7eC38Tfd1qC14vM6AEPHvpBiWaceHUcDqxmmh13aasY VITE_HELIA_ADDRS=/ip4/127.0.0.1/tcp/55965/ws/p2p/12D3KooWCzrhrc7Enr2c33bnziWE3o52JpSqFsFPDd2EhHPGuYqV vite",
     "build": "vite build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -18,7 +19,8 @@
     "test:e2e:headed": "HEADLESS=false playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "HEADLESS=false playwright test --debug",
-    "playwright:install": "playwright install chromium"
+    "playwright:install": "playwright install chromium",
+    "storacha:memory": "node --import tsx ../local-storacha-api/index.mjs"
   },
   "dependencies": {
     "@chainsafe/libp2p-noise": "^16.1.5",
@@ -61,6 +63,7 @@
     "jsdom": "^27.4.0",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.19.2",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.3.0",
     "vite": "^5.4.2",

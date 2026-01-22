@@ -192,11 +192,21 @@ test.describe('Basic UI - Happy Path', () => {
     // 2. Verify localStorage does NOT contain prfSeed (security check)
     const localStorageData = await page.evaluate(() => {
       const credInfo = localStorage.getItem('webauthn_credential_info');
-      return credInfo ? JSON.parse(credInfo) : null;
+      const hardwareInfo = localStorage.getItem('webauthn_ed25519_hardware_signer');
+      return {
+        credInfo: credInfo ? JSON.parse(credInfo) : null,
+        hardwareInfo: hardwareInfo ? JSON.parse(hardwareInfo) : null
+      };
     });
 
-    expect(localStorageData).toBeTruthy();
-    expect(localStorageData.prfSeed).toBeUndefined();
+    expect(localStorageData.credInfo || localStorageData.hardwareInfo).toBeTruthy();
+    if (localStorageData.credInfo) {
+      expect(localStorageData.credInfo.prfSeed).toBeUndefined();
+    }
+    if (localStorageData.hardwareInfo) {
+      expect(localStorageData.hardwareInfo.prfSeed).toBeUndefined();
+      expect(localStorageData.hardwareInfo.did).toBeTruthy();
+    }
     console.log('✅ Security check passed: prfSeed is NOT stored in localStorage');
 
     // 3. Reload page
@@ -256,4 +266,3 @@ test.describe('Basic UI - Error Handling', () => {
     console.log('✅ App handles navigation gracefully');
   });
 });
-

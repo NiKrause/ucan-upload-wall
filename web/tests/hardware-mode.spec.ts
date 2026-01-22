@@ -35,9 +35,17 @@ async function openDelegations(page: Page) {
 
 async function createDidFromUI(page: Page) {
   const createButton = page.getByTestId('create-did-button');
-  await expect(createButton).toBeVisible({ timeout: 10000 });
-  await expect(createButton).toBeEnabled({ timeout: 5000 });
-  await createButton.click();
+  const didDisplay = page.getByTestId('did-display');
+
+  const target = await Promise.race([
+    createButton.waitFor({ state: 'visible', timeout: 10000 }).then(() => 'create'),
+    didDisplay.waitFor({ state: 'visible', timeout: 10000 }).then(() => 'did'),
+  ]);
+
+  if (target === 'create') {
+    await expect(createButton).toBeEnabled({ timeout: 5000 });
+    await createButton.click();
+  }
 }
 
 async function setupContext(browser: BrowserContext['browser']): Promise<{
@@ -84,6 +92,9 @@ test.describe('Hardware mode fallbacks', () => {
       credentialIdBase64: btoa(String.fromCharCode(...new Uint8Array([1, 2, 3, 4]))),
     });
 
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+
     await openDelegations(page);
     await createDidFromUI(page);
 
@@ -102,6 +113,9 @@ test.describe('Hardware mode fallbacks', () => {
       publicKeyHex: '22'.repeat(65),
       credentialIdBase64: btoa(String.fromCharCode(...new Uint8Array([5, 6, 7, 8]))),
     });
+
+    await page.reload();
+    await page.waitForLoadState('networkidle');
 
     await openDelegations(page);
     await createDidFromUI(page);

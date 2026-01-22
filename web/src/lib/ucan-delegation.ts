@@ -23,7 +23,7 @@ import {
   encryptArchive,
   decryptArchive
 } from './secure-ed25519-did';
-import { HardwareUCANDelegationService } from './hardware-ucan-service';
+import { HardwareUCANDelegationService, getStoredHardwareSignerInfo } from './hardware-ucan-service';
 import { checkEd25519Support } from './webauthn-ed25519-signer';
 import { config } from '../config';
 
@@ -64,6 +64,7 @@ export interface DelegationInfo {
   toAudience: string;     // Who the delegation is for
   proof: string;
   capabilities: string[];
+  spaceDid?: string;      // Space DID from delegation capabilities (when available)
   createdAt: string;
   expiresAt?: string;     // When the delegation expires (ISO string)
   format?: string;        // Format of the imported delegation (e.g. "multibase-base64", "multibase-base64url", "storacha-cli")
@@ -82,6 +83,15 @@ export class UCANDelegationService {
   private hardwareService: HardwareUCANDelegationService | null = null;
   private useHardwareMode = false;
   private hardwareModeChecked = false;
+
+  private getSpaceDidFromCapabilities(capabilities: Array<{ with?: string }>): string | undefined {
+    for (const cap of capabilities) {
+      if (cap?.with && cap.with.startsWith('did:')) {
+        return cap.with;
+      }
+    }
+    return undefined;
+  }
 
   private async createServiceConnection() {
     const serviceConfig = getServiceConfig();
@@ -292,7 +302,19 @@ export class UCANDelegationService {
         secure: true,
         algorithm: this.hardwareService.getHardwareAlgorithm() || undefined
       };
-    } else if (this.ed25519Keypair) {
+    }
+
+    const storedHardware = getStoredHardwareSignerInfo();
+    if (storedHardware) {
+      return {
+        mode: 'hardware',
+        did: storedHardware.did,
+        secure: true,
+        algorithm: storedHardware.algorithm
+      };
+    }
+
+    if (this.ed25519Keypair) {
       return {
         mode: 'worker',
         did: this.ed25519Keypair.did,
@@ -548,7 +570,17 @@ export class UCANDelegationService {
         }
       }
     }
-    return this.ed25519Keypair?.did || this.webauthnProvider?.did || null;
+
+    if (this.ed25519Keypair?.did) {
+      return this.ed25519Keypair.did;
+    }
+
+    const storedHardware = getStoredHardwareSignerInfo();
+    if (storedHardware?.did) {
+      return storedHardware.did;
+    }
+
+    return this.webauthnProvider?.did || null;
   }
 
   /**
@@ -634,6 +666,9 @@ export class UCANDelegationService {
    * Get appropriate principal based on current mode (hardware or worker)
    */
   private async getPrincipal(): Promise<UcanSigner<UcanDID<'key'>>> {
+    if (!this.hardwareModeChecked) {
+      await this.checkAndInitializeHardwareMode();
+    }
     // Hardware mode: use hardware signer
     if (this.useHardwareMode && this.hardwareService) {
       const hardwareSigner = this.hardwareService.getSigner();
@@ -672,6 +707,53 @@ export class UCANDelegationService {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const principal = Ed25519Principal.from(this.ed25519Archive as any) as UcanSigner<UcanDID<'key'>>;
     return principal;
+  }
+
+  private async ensureUploadCapabilities(): Promise<void> {
+    const { invoke } = await import('@ucanto/core');
+    const [{ add: blobAdd }, { add: indexAdd }, { offer: filecoinOffer }, { add: uploadAdd }] =
+      await Promise.all([
+        import('@storacha/capabilities/space/blob'),
+        import('@storacha/capabilities/space/index'),
+        import('@storacha/capabilities/filecoin'),
+        import('@storacha/capabilities/upload'),
+      ]);
+
+    const patchCapability = (
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      capability: any,
+      fallbackCan: string
+    ) => {
+      if (!capability) {
+        return;
+      }
+      if (!capability.can) {
+        capability.can = fallbackCan;
+      }
+      if (typeof capability.invoke !== 'function') {
+        capability.invoke = ({ issuer, audience, with: resource, nb, proofs, nonce, expiration, facts, notBefore, lifetimeInSeconds }: any) =>
+          invoke({
+            issuer,
+            audience,
+            capability: {
+              can: capability.can ?? fallbackCan,
+              with: resource,
+              nb,
+            },
+            proofs,
+            nonce,
+            expiration,
+            facts,
+            notBefore,
+            lifetimeInSeconds,
+          });
+      }
+    };
+
+    patchCapability(blobAdd, 'space/blob/add');
+    patchCapability(indexAdd, 'space/index/add');
+    patchCapability(filecoinOffer, 'filecoin/offer');
+    patchCapability(uploadAdd, 'upload/add');
   }
 
   /**
@@ -890,17 +972,29 @@ export class UCANDelegationService {
     
     // Check if we have received delegations with upload capability (Browser B scenario)
     // Support both exact matches and wildcard capabilities (e.g., 'upload/*' includes 'upload/add')
-    const uploadDelegation = receivedDelegations.find(delegation => 
-      delegation.capabilities?.some(cap => 
+    const candidateDelegations = receivedDelegations.filter(delegation =>
+      delegation.capabilities?.some(cap =>
         cap === 'upload/add' || cap === 'upload/*' ||
         cap === 'space/blob/add' || cap === 'space/*' || cap === 'blob/*' ||
         cap === 'store/add' || cap === 'store/*'
       ) || false
     );
-    
-    if (uploadDelegation) {
-      console.log('\u2705 Found upload delegation:', uploadDelegation.name || uploadDelegation.id);
-      return this.uploadWithDelegation(file, uploadDelegation);
+
+    for (const delegation of candidateDelegations) {
+      const validation = await this.validateDelegation(delegation);
+      if (!validation.valid) {
+        console.warn(`Skipping delegation ${delegation.id}: ${validation.reason}`);
+        continue;
+      }
+      console.log('\u2705 Found upload delegation:', delegation.name || delegation.id);
+      return this.uploadWithDelegation(file, delegation);
+    }
+
+    if (candidateDelegations.length > 0) {
+      throw new Error(
+        'No valid upload delegation found. Your delegations are expired or revoked. ' +
+        'Please import a fresh delegation.'
+      );
     }
     
     console.error('\u274c No upload permissions found!');
@@ -923,7 +1017,11 @@ export class UCANDelegationService {
     try {
       // Convert File to Blob
       const blob = new Blob([await file.arrayBuffer()]);
-      const cid = await this.storachaClient.uploadFile(blob);
+      const shardSize = this.getUploadShardSize();
+      const cid = await this.storachaClient.uploadFile(
+        blob,
+        shardSize ? { shardSize } : undefined
+      );
       
       console.log('✅ File uploaded via Storacha credentials:', cid.toString());
       return { cid: cid.toString() };
@@ -947,17 +1045,22 @@ export class UCANDelegationService {
         return await this.listUploadsWithCredentials();
       }
       
-      // Check if we have received delegations with upload/list capability (Browser B scenario)
-      const uploadDelegation = receivedDelegations.find(delegation => 
-        delegation.capabilities?.some(cap => 
+      // Check delegations with upload/list capability and pick the first valid one
+      const candidateDelegations = receivedDelegations.filter(delegation =>
+        delegation.capabilities?.some(cap =>
           cap === 'upload/list' || cap === 'upload/*' ||
           cap === 'space/info' || cap === 'space/*'
         ) || false
       );
-      
-      if (uploadDelegation) {
+
+      for (const delegation of candidateDelegations) {
+        const validation = await this.validateDelegation(delegation);
+        if (!validation.valid) {
+          console.warn(`Skipping delegation ${delegation.id}: ${validation.reason}`);
+          continue;
+        }
         console.log('Listing uploads using delegation...');
-        return await this.listUploadsWithDelegation(uploadDelegation);
+        return await this.listUploadsWithDelegation(delegation);
       }
       
       console.warn('No credentials or delegations with list capability found');
@@ -1011,6 +1114,14 @@ export class UCANDelegationService {
    */
   private async listUploadsWithDelegation(delegationInfo: DelegationInfo): Promise<Array<{ root: string; shards?: string[]; insertedAt?: string; updatedAt?: string }>> {
     try {
+      console.log('🔎 Using delegation for list:', {
+        id: delegationInfo.id,
+        from: delegationInfo.fromIssuer,
+        to: delegationInfo.toAudience,
+        spaceDid: delegationInfo.spaceDid,
+        caps: delegationInfo.capabilities
+      });
+
       // Validate delegation before use
       const validation = await this.validateDelegation(delegationInfo);
       if (!validation.valid) {
@@ -1117,7 +1228,14 @@ export class UCANDelegationService {
    */
   private async uploadWithDelegation(file: File, delegationInfo: DelegationInfo): Promise<{ cid: string }> {
     try {
-      console.log('Using delegation for upload:', delegationInfo.id);
+      await this.ensureUploadCapabilities();
+      console.log('🔎 Using delegation for upload:', {
+        id: delegationInfo.id,
+        from: delegationInfo.fromIssuer,
+        to: delegationInfo.toAudience,
+        spaceDid: delegationInfo.spaceDid,
+        caps: delegationInfo.capabilities
+      });
       
       // Validate delegation before use
       const validation = await this.validateDelegation(delegationInfo);
@@ -1157,9 +1275,25 @@ export class UCANDelegationService {
       }
       
       const client = await this.createClient(principal);
-      
+
       console.log('✅ Created Storacha client with delegation');
-      
+
+      const unsafeClient = client as unknown as {
+        _invocationConfig?: (abilities: Array<string | undefined>) => Promise<unknown>;
+        __ucanUploadPatchApplied?: boolean;
+      };
+      if (unsafeClient._invocationConfig && !unsafeClient.__ucanUploadPatchApplied) {
+        const original = unsafeClient._invocationConfig.bind(client);
+        unsafeClient._invocationConfig = async (abilities: Array<string | undefined>) => {
+          const filtered = abilities.filter((ability) => typeof ability === 'string' && ability.length > 0);
+          if (filtered.length !== abilities.length) {
+            console.warn('⚠️ Upload invocation abilities contained undefined values:', abilities);
+          }
+          return original(filtered);
+        };
+        unsafeClient.__ucanUploadPatchApplied = true;
+      }
+
       // Get space DID from delegation capabilities
       let spaceDid = 'unknown';
       const uploadSpaceDid = this.getSpaceDidFromDelegation(delegation);
@@ -1180,7 +1314,11 @@ export class UCANDelegationService {
       // Upload file using the Storacha client's high-level API
       console.log('Uploading file...');
       const blob = new Blob([await file.arrayBuffer()]);
-      const cid = await client.uploadFile(blob);
+      const shardSize = this.getUploadShardSize();
+      const cid = await client.uploadFile(
+        blob,
+        shardSize ? { shardSize } : undefined
+      );
       
       console.log('✅ File uploaded successfully:', cid.toString());
       return { cid: cid.toString() };
@@ -1188,6 +1326,17 @@ export class UCANDelegationService {
       this.logUcantoError('Upload with delegation failed', error);
       throw new Error(`Delegated upload failed: ${this.stringifyUcantoError(error)}`);
     }
+  }
+
+  private getUploadShardSize(): number | undefined {
+    const envValue = import.meta.env.VITE_UPLOAD_SHARD_SIZE;
+    if (envValue) {
+      const parsed = Number(envValue);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+    return 8 * 1024 * 1024;
   }
 
   /**
@@ -1501,14 +1650,13 @@ export class UCANDelegationService {
               toAudience: result.audience,
               proof: normalizedProof,
               capabilities: result.capabilities,
+              spaceDid: result.spaceDid,
               createdAt: new Date().toISOString(),
               expiresAt: result.expiration ? new Date(result.expiration * 1000).toISOString() : undefined,
               format: 'hardware-varsig'
             };
             
-            const receivedDelegations = this.getReceivedDelegations();
-            receivedDelegations.unshift(delegationInfo);
-            localStorage.setItem(STORAGE_KEYS.RECEIVED_DELEGATIONS, JSON.stringify(receivedDelegations));
+            this.storeReceivedDelegation(delegationInfo);
             
             console.log('✅ Hardware delegation imported successfully');
             return;
@@ -1628,6 +1776,7 @@ export class UCANDelegationService {
         // Extract capabilities from the delegation
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const capabilities = delegation.capabilities.map((cap: any) => cap.can || cap.capability || cap);
+        const spaceDidFromCaps = this.getSpaceDidFromCapabilities(delegation.capabilities);
         
         // Generate default name if not provided
         const defaultName = name || `Delegation from ${issuerDidString.slice(0, 20)}... (${new Date().toLocaleDateString()})`;
@@ -1645,6 +1794,7 @@ export class UCANDelegationService {
           toAudience: audienceDid,
           proof: normalizedProof,
           capabilities,
+          spaceDid: spaceDidFromCaps,
           createdAt: new Date().toISOString(),
           expiresAt,
           format: detectedFormat + ' (ucanto extract)'
@@ -1698,6 +1848,7 @@ export class UCANDelegationService {
         // Extract capabilities from the delegation
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const capabilities = delegation.capabilities.map((cap: any) => cap.can);
+        const spaceDidFromCaps = this.getSpaceDidFromCapabilities(delegation.capabilities);
         
         // Generate default name if not provided
         const defaultName = name || `Delegation from ${issuerDid.slice(0, 20)}... (${new Date().toLocaleDateString()})`;
@@ -1709,6 +1860,7 @@ export class UCANDelegationService {
           toAudience: audienceDid,
           proof: normalizedProof,
           capabilities,
+          spaceDid: spaceDidFromCaps,
           createdAt: new Date().toISOString(),
           expiresAt: undefined, // Storacha CLI delegations don't include expiration in the parsed object
           format: detectedFormat + ' (Storacha CLI)'
@@ -1807,6 +1959,7 @@ export class UCANDelegationService {
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         ? delegation.capabilities.map((cap: any) => cap.can || cap.capability || cap)
                         : ['space/blob/add', 'space/blob/list', 'space/blob/remove', 'store/add', 'store/list', 'store/remove', 'upload/add', 'upload/list', 'upload/remove'],
+                      spaceDid: this.getSpaceDidFromCapabilities(delegation.capabilities ?? []),
                       createdAt: new Date().toISOString(),
                       expiresAt,
                       format: 'ucanto-result-format (base64-encoded JSON)'
@@ -1849,6 +2002,7 @@ export class UCANDelegationService {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ? jsonDelegation.capabilities.map((cap: any) => cap.can || cap)
                 : [],
+              spaceDid: this.getSpaceDidFromCapabilities(jsonDelegation.capabilities ?? []),
               createdAt: new Date().toISOString(),
               format: 'fallback-json-format (base64-encoded)'
             };
@@ -1917,6 +2071,7 @@ export class UCANDelegationService {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ? delegation.capabilities.map((cap: any) => cap.can || cap.capability || cap)
                 : ['space/blob/add', 'space/blob/list', 'space/blob/remove', 'store/add', 'store/list', 'store/remove', 'upload/add', 'upload/list', 'upload/remove'], // fallback capabilities
+              spaceDid: this.getSpaceDidFromCapabilities(delegation.capabilities ?? []),
               createdAt: new Date().toISOString(),
               expiresAt,
               format: 'car-format (base64-encoded CAR file)'
@@ -1962,7 +2117,16 @@ export class UCANDelegationService {
    */
   private storeReceivedDelegation(delegation: DelegationInfo): void {
     const stored = localStorage.getItem(STORAGE_KEYS.RECEIVED_DELEGATIONS);
-    const delegations: DelegationInfo[] = stored ? JSON.parse(stored) : [];
+    let delegations: DelegationInfo[] = stored ? JSON.parse(stored) : [];
+
+    if (delegation.spaceDid && delegation.toAudience) {
+      delegations = delegations.filter((existing) => {
+        const sameAudience = existing.toAudience === delegation.toAudience;
+        const sameSpace = existing.spaceDid === delegation.spaceDid;
+        const sameIssuer = existing.fromIssuer === delegation.fromIssuer;
+        return !(sameAudience && sameSpace && sameIssuer);
+      });
+    }
     
     // Check if already exists
     if (delegations.find(d => d.id === delegation.id)) {
@@ -1996,6 +2160,17 @@ export class UCANDelegationService {
   clearReceivedDelegations(): void {
     localStorage.removeItem(STORAGE_KEYS.RECEIVED_DELEGATIONS);
     console.log('✅ Cleared all received delegations');
+  }
+
+  /**
+   * Delete a single received delegation by id
+   */
+  deleteReceivedDelegation(delegationId: string): void {
+    const delegations = this.getReceivedDelegations();
+    const next = delegations.filter((delegation) => delegation.id !== delegationId);
+    localStorage.setItem(STORAGE_KEYS.RECEIVED_DELEGATIONS, JSON.stringify(next));
+    this.clearRevocationCacheForDelegation(delegationId);
+    console.log(`✅ Deleted received delegation: ${delegationId}`);
   }
 
   /**
@@ -2070,8 +2245,8 @@ export class UCANDelegationService {
         }
       );
       
-      // If we get a 404, the delegation is not revoked
-      if (response.status === 404) {
+      // If we get a 404/415, the delegation is not revoked (local service may not support revocations)
+      if (response.status === 404 || response.status === 415) {
         this.setRevocationCache(delegationCID, false);
         return false;
       }
@@ -2282,6 +2457,28 @@ export class UCANDelegationService {
   clearRevocationCache(): void {
     localStorage.removeItem(STORAGE_KEYS.REVOCATION_CACHE);
     console.log('✅ Cleared revocation cache');
+  }
+
+  /**
+   * Clear revocation cache for a single delegation
+   */
+  clearRevocationCacheForDelegation(delegationCID: string): void {
+    const cache = localStorage.getItem(STORAGE_KEYS.REVOCATION_CACHE);
+    if (!cache) {
+      return;
+    }
+
+    try {
+      const cacheData = JSON.parse(cache);
+      if (cacheData && typeof cacheData === 'object') {
+        delete cacheData[delegationCID];
+        localStorage.setItem(STORAGE_KEYS.REVOCATION_CACHE, JSON.stringify(cacheData));
+        console.log(`✅ Cleared revocation cache for ${delegationCID}`);
+      }
+    } catch {
+      // If cache is corrupted, clear it entirely
+      localStorage.removeItem(STORAGE_KEYS.REVOCATION_CACHE);
+    }
   }
 
   /**

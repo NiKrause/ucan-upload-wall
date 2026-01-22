@@ -6,9 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  encodeWebAuthnVarsig,
   encodeWebAuthnVarsigV1,
-  decodeWebAuthnVarsig,
   decodeWebAuthnVarsigV1,
   varintEncode,
   varintDecode,
@@ -126,101 +124,22 @@ describe('Multicodec Functions', () => {
 });
 
 describe('WebAuthn Varsig Encoder', () => {
-  it('should encode Ed25519 assertion', () => {
+  it('should encode Ed25519 varsig v1', () => {
     const assertion = createMockEd25519Assertion();
-    const varsig = encodeWebAuthnVarsig(assertion, 'Ed25519');
-    
-    // Verify varsig is non-empty
+    const varsig = encodeWebAuthnVarsigV1(assertion, 'Ed25519');
+
     expect(varsig.length).toBeGreaterThan(0);
-    
-    // Verify it starts with WEBAUTHN_ED25519 multicodec
-    const [multicodec] = varintDecode(varsig);
-    expect(multicodec).toBe(WEBAUTHN_ED25519);
+    expect(varsig[0]).toBe(VARSIG_PREFIX);
+    expect(varsig[1]).toBe(VARSIG_VERSION);
   });
-  
-  it('should encode P-256 assertion', () => {
+
+  it('should encode P-256 varsig v1', () => {
     const assertion = createMockP256Assertion();
-    const varsig = encodeWebAuthnVarsig(assertion, 'P-256');
-    
-    // Verify varsig is non-empty
+    const varsig = encodeWebAuthnVarsigV1(assertion, 'P-256');
+
     expect(varsig.length).toBeGreaterThan(0);
-    
-    // Verify it starts with WEBAUTHN_P256 multicodec
-    const [multicodec] = varintDecode(varsig);
-    expect(multicodec).toBe(WEBAUTHN_P256);
-  });
-  
-  it('should include all assertion components', () => {
-    const assertion = createMockEd25519Assertion();
-    const varsig = encodeWebAuthnVarsig(assertion);
-    
-    // Varsig should be longer than any individual component
-    expect(varsig.length).toBeGreaterThan(assertion.authenticatorData.length);
-    expect(varsig.length).toBeGreaterThan(assertion.clientDataJSON.length);
-    expect(varsig.length).toBeGreaterThan(assertion.signature.length);
-  });
-});
-
-describe('WebAuthn Varsig Decoder', () => {
-  it('should decode Ed25519 varsig', () => {
-    const original = createMockEd25519Assertion();
-    const varsig = encodeWebAuthnVarsig(original, 'Ed25519');
-    const decoded = decodeWebAuthnVarsig(varsig);
-    
-    expect(decoded.multicodec).toBe(WEBAUTHN_ED25519);
-    expect(bytesEqual(decoded.authenticatorData, original.authenticatorData)).toBe(true);
-    expect(bytesEqual(decoded.clientDataJSON, original.clientDataJSON)).toBe(true);
-    expect(bytesEqual(decoded.signature, original.signature)).toBe(true);
-  });
-  
-  it('should decode P-256 varsig', () => {
-    const original = createMockP256Assertion();
-    const varsig = encodeWebAuthnVarsig(original, 'P-256');
-    const decoded = decodeWebAuthnVarsig(varsig);
-    
-    expect(decoded.multicodec).toBe(WEBAUTHN_P256);
-    expect(bytesEqual(decoded.authenticatorData, original.authenticatorData)).toBe(true);
-    expect(bytesEqual(decoded.clientDataJSON, original.clientDataJSON)).toBe(true);
-    expect(bytesEqual(decoded.signature, original.signature)).toBe(true);
-  });
-  
-  it('should throw on invalid multicodec', () => {
-    // Create varsig with standard Ed25519 multicodec (0xed) instead of WebAuthn
-    const assertion = createMockEd25519Assertion();
-    const fakeVarsig = concat([
-      varintEncode(0xed), // Wrong multicodec
-      varintEncode(assertion.authenticatorData.length),
-      assertion.authenticatorData,
-      varintEncode(assertion.clientDataJSON.length),
-      assertion.clientDataJSON,
-      assertion.signature
-    ]);
-    
-    expect(() => decodeWebAuthnVarsig(fakeVarsig)).toThrow('Unsupported multicodec');
-  });
-  
-  it('should throw on empty signature', () => {
-    const assertion = createMockEd25519Assertion();
-    const fakeVarsig = concat([
-      varintEncode(WEBAUTHN_ED25519),
-      varintEncode(assertion.authenticatorData.length),
-      assertion.authenticatorData,
-      varintEncode(assertion.clientDataJSON.length),
-      assertion.clientDataJSON,
-      new Uint8Array(0)
-    ]);
-
-    expect(() => decodeWebAuthnVarsig(fakeVarsig)).toThrow('Signature is empty');
-  });
-  
-  it('should throw on truncated data', () => {
-    const assertion = createMockEd25519Assertion();
-    const varsig = encodeWebAuthnVarsig(assertion);
-    
-    // Truncate the varsig
-    const truncated = varsig.slice(0, 50);
-    
-    expect(() => decodeWebAuthnVarsig(truncated)).toThrow();
+    expect(varsig[0]).toBe(VARSIG_PREFIX);
+    expect(varsig[1]).toBe(VARSIG_VERSION);
   });
 });
 
@@ -272,8 +191,8 @@ describe('Round-trip Encoding/Decoding', () => {
       userVerified: true
     });
     
-    const varsig = encodeWebAuthnVarsig(original, 'Ed25519');
-    const decoded = decodeWebAuthnVarsig(varsig);
+    const varsig = encodeWebAuthnVarsigV1(original, 'Ed25519');
+    const decoded = decodeWebAuthnVarsigV1(varsig);
     
     expect(bytesEqual(decoded.authenticatorData, original.authenticatorData)).toBe(true);
     expect(bytesEqual(decoded.clientDataJSON, original.clientDataJSON)).toBe(true);
@@ -286,8 +205,8 @@ describe('Round-trip Encoding/Decoding', () => {
       origin: 'https://app.example.org'
     });
     
-    const varsig = encodeWebAuthnVarsig(original, 'P-256');
-    const decoded = decodeWebAuthnVarsig(varsig);
+    const varsig = encodeWebAuthnVarsigV1(original, 'P-256');
+    const decoded = decodeWebAuthnVarsigV1(varsig);
     
     expect(bytesEqual(decoded.authenticatorData, original.authenticatorData)).toBe(true);
     expect(bytesEqual(decoded.clientDataJSON, original.clientDataJSON)).toBe(true);

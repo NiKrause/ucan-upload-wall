@@ -4,7 +4,7 @@ Hardware-backed UCAN signing using WebAuthn Ed25519 and P-256 credentials with v
 
 ## Overview
 
-This module enables **hardware-backed UCAN signing** by encoding WebAuthn assertions into the varsig format. This eliminates the need for software-based key storage while maintaining compatibility with the UCAN ecosystem.
+This module enables **hardware-backed UCAN signing** by encoding WebAuthn assertions into the varsig v1 format. This eliminates the need for software-based key storage while maintaining compatibility with the UCAN ecosystem.
 
 ### Key Benefits
 
@@ -36,25 +36,27 @@ WebAuthn Ed25519 → Sign assertion → Encode varsig → Verify → UCAN
   Hardware Secure                              Our verification
 ```
 
-## Varsig Format
+## Varsig v1 Format
 
 ```
-varsig = [multicodec] + [authData_len] + [authData] + [clientData_len] + [clientData] + [signature]
+varsig_v1 = [0x34 0x01] + [alg metadata varints] + [payload encoding varint]
+          + [authData_len] + [authData] + [clientData_len] + [clientData] + [signature]
 ```
 
-- **multicodec**: `0xd1ed` for WebAuthn Ed25519, `0xd1f2` for WebAuthn P-256 (temporary)
-- **authData_len**: Varint-encoded length of authenticatorData
-- **authData**: Raw authenticatorData from WebAuthn assertion
-- **clientData_len**: Varint-encoded length of clientDataJSON
-- **clientData**: Raw clientDataJSON from WebAuthn assertion
-- **signature**: Raw signature (64 bytes for Ed25519, ~70 bytes for P-256)
+- **alg metadata**: inner algorithm + curve + multihash + WebAuthn marker (varints)
+- **payload encoding**: raw payload marker (varint)
+- **authData_len**: varint-encoded length of authenticatorData
+- **authData**: raw authenticatorData from WebAuthn assertion
+- **clientData_len**: varint-encoded length of clientDataJSON
+- **clientData**: raw clientDataJSON from WebAuthn assertion
+- **signature**: raw signature (64 bytes for Ed25519, ~70 bytes for P-256)
 
 ## Usage
 
 ### Encoding
 
 ```typescript
-import { encodeWebAuthnVarsig } from './lib/webauthn-varsig';
+import { encodeWebAuthnVarsigV1 } from './lib/webauthn-varsig';
 
 // Get WebAuthn assertion
 const assertion = await navigator.credentials.get({
@@ -67,7 +69,7 @@ const assertion = await navigator.credentials.get({
 const response = assertion.response as AuthenticatorAssertionResponse;
 
 // Encode as varsig
-const varsig = encodeWebAuthnVarsig({
+const varsig = encodeWebAuthnVarsigV1({
   authenticatorData: new Uint8Array(response.authenticatorData),
   clientDataJSON: new Uint8Array(response.clientDataJSON),
   signature: new Uint8Array(response.signature)
@@ -77,12 +79,12 @@ const varsig = encodeWebAuthnVarsig({
 ### Decoding
 
 ```typescript
-import { decodeWebAuthnVarsig } from './lib/webauthn-varsig';
+import { decodeWebAuthnVarsigV1 } from './lib/webauthn-varsig';
 
 // Decode varsig
-const decoded = decodeWebAuthnVarsig(varsig);
+const decoded = decodeWebAuthnVarsigV1(varsig);
 
-console.log('Algorithm:', decoded.multicodec === 0xd1ed ? 'Ed25519' : 'P-256');
+console.log('Algorithm:', decoded.algorithm);
 console.log('AuthenticatorData:', decoded.authenticatorData);
 console.log('ClientDataJSON:', new TextDecoder().decode(decoded.clientDataJSON));
 console.log('Signature:', decoded.signature);
@@ -141,7 +143,7 @@ const mockAssertion = createMockEd25519Assertion({
 ### Test Coverage
 
 - ✅ Varint encoding/decoding
-- ✅ Varsig encoding/decoding
+- ✅ Varsig v1 encoding/decoding
 - ✅ Ed25519 and P-256 support
 - ✅ Round-trip integrity
 - ✅ Error handling
@@ -160,12 +162,12 @@ const mockAssertion = createMockEd25519Assertion({
 
 ### Encoder
 
-- `encodeWebAuthnVarsig(assertion, algorithm)` - Encode WebAuthn assertion as varsig
+- `encodeWebAuthnVarsigV1(assertion, algorithm)` - Encode WebAuthn assertion as varsig v1
 - `validateWebAuthnAssertion(assertion)` - Validate assertion before encoding
 
 ### Decoder
 
-- `decodeWebAuthnVarsig(varsig)` - Decode varsig into components
+- `decodeWebAuthnVarsigV1(varsig)` - Decode varsig v1 into components
 - `parseClientDataJSON(bytes)` - Parse clientDataJSON bytes
 
 ### Verifier
@@ -229,7 +231,7 @@ const assertion = await navigator.credentials.get({
 });
 
 // 3. Encode as varsig
-const varsig = encodeWebAuthnVarsig({
+const varsig = encodeWebAuthnVarsigV1({
   authenticatorData: new Uint8Array(assertion.response.authenticatorData),
   clientDataJSON: new Uint8Array(assertion.response.clientDataJSON),
   signature: new Uint8Array(assertion.response.signature)
@@ -246,7 +248,7 @@ const signedUcan = {
 
 ```typescript
 // 1. Decode varsig
-const decoded = decodeWebAuthnVarsig(ucan.sig);
+const decoded = decodeWebAuthnVarsigV1(ucan.sig);
 
 // 2. Verify structure
 const result = verifyWebAuthnAssertion(decoded, {

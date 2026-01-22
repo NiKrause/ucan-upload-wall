@@ -29,14 +29,27 @@ export type ServiceConfig = {
   receiptsUrl?: string;
 };
 
+let loggedConfig = false;
+
 export function getServiceConfig(): ServiceConfig {
   const runtime = getRuntimeOverrides();
 
-  return {
+  const config = {
     uploadServiceUrl: runtime.__UPLOAD_SERVICE_URL__ ?? import.meta.env.VITE_UPLOAD_SERVICE_URL,
     uploadServiceDid: runtime.__UPLOAD_SERVICE_DID__ ?? import.meta.env.VITE_UPLOAD_SERVICE_DID,
     revocationUrl: runtime.__REVOCATION_URL__ ?? import.meta.env.VITE_REVOCATION_URL,
     revocationDid: runtime.__REVOCATION_DID__ ?? import.meta.env.VITE_REVOCATION_DID,
     receiptsUrl: runtime.__RECEIPTS_URL__ ?? import.meta.env.VITE_RECEIPTS_URL,
   };
+  if (!loggedConfig) {
+    loggedConfig = true;
+    console.log('📋 Service Configuration:', {
+      uploadServiceUrl: config.uploadServiceUrl,
+      uploadServiceDid: config.uploadServiceDid,
+      revocationUrl: config.revocationUrl,
+      revocationDid: config.revocationDid,
+      receiptsUrl: config.receiptsUrl,
+    });
+  }
+  return config;
 }
