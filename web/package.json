@@ -26,14 +26,13 @@
     "@chainsafe/libp2p-noise": "^16.1.5",
     "@chainsafe/libp2p-yamux": "^7.0.4",
     "@helia/unixfs": "^4.0.0",
-    "@le-space/ucanto-principal": "file:/tmp/le-space-ucanto-principal-9.1.1.tgz",
     "@libp2p/bootstrap": "^11.0.47",
     "@libp2p/identify": "^3.0.39",
     "@libp2p/kad-dht": "^15.1.11",
     "@libp2p/ping": "^2.0.37",
     "@libp2p/websockets": "^9.2.19",
     "@storacha/client": "^1.8.21",
-    "@ucanto/transport": "file:/tmp/le-space-ucanto-transport-9.3.1.tgz",
+    "@ucanto/transport": "^9.2.1",
     "cbor-web": "^9.0.1",
     "helia": "^5.0.0",
     "libp2p": "^2.10.0",
@@ -50,9 +49,9 @@
     "@storacha/upload-api": "^2.8.4",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
-    "@ucanto/server": "file:/tmp/le-space-ucanto-server-11.1.1.tgz",
+    "@ucanto/server": "^11.0.3",
     "@vitejs/plugin-react": "^4.3.1",
-    "@vitest/ui": "^4.0.16",
+    "@vitest/ui": "^2.0.0",
     "@web3-storage/sigv4": "^1.0.2",
     "autoprefixer": "^10.4.18",
     "dotenv": "^17.2.3",
@@ -68,13 +67,6 @@
     "typescript-eslint": "^8.3.0",
     "vite": "^5.4.2",
     "vite-plugin-node-polyfills": "^0.24.0",
-    "vitest": "^4.0.16"
-  },
-  "overrides": {
-    "@ucanto/interface": "file:/tmp/le-space-ucanto-interface-11.1.1.tgz",
-    "@ucanto/core": "file:/tmp/le-space-ucanto-core-10.5.1.tgz",
-    "@ucanto/principal": "file:/tmp/le-space-ucanto-principal-9.1.1.tgz",
-    "@ucanto/client": "file:/tmp/le-space-ucanto-client-9.1.1.tgz",
-    "@ucanto/validator": "file:/tmp/le-space-ucanto-validator-10.1.1.tgz"
+    "vitest": "^2.0.0"
   }
 }

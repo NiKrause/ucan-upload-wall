@@ -241,11 +241,23 @@ export async function verifyP256Signature(
       ['verify']
     );
     
+    // Convert DER signature to Raw format if needed (WebAuthn returns DER, WebCrypto expects Raw)
+    let rawSignature = signature;
+    // P-256 raw signature is always 64 bytes (32 bytes R + 32 bytes S)
+    if (signature.length !== 64) {
+      try {
+        rawSignature = convertAsn1ToRaw(signature, 256);
+      } catch (e) {
+        // If conversion fails, assume it's already raw or invalid, let crypto.subtle.verify handle it (or fail)
+        // console.warn('Failed to convert potential DER signature to Raw:', e);
+      }
+    }
+
     // Verify signature
     return await crypto.subtle.verify(
       { name: 'ECDSA', hash: 'SHA-256' },
       cryptoKey,
-      signature,
+      rawSignature,
       signedData
     );
   } catch (error) {

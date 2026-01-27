@@ -64,5 +64,6 @@ export {
   concat,
   base64urlToBytes,
   bytesToBase64url,
-  bytesEqual
+  bytesEqual,
+  convertAsn1ToRaw
 } from './utils.js';

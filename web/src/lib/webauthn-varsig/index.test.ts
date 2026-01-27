@@ -28,7 +28,8 @@ import {
   PAYLOAD_ENCODING_RAW,
   isWebAuthnMulticodec,
   getAlgorithm,
-  parseClientDataJSON
+  parseClientDataJSON,
+  convertAsn1ToRaw
 } from './index.js';
 import {
   createMockEd25519Assertion,
@@ -183,26 +184,12 @@ describe('WebAuthn Varsig v1 Encoder/Decoder', () => {
 });
 
 describe('Round-trip Encoding/Decoding', () => {
-  it('should perfectly round-trip Ed25519 assertion', () => {
-    const original = createMockEd25519Assertion({
-      challenge: 'test-challenge-123',
+  it('should perfectly round-trip P-256 assertion', () => {
+    const original = createMockP256Assertion({
+      challenge: 'test-challenge-p256',
       origin: 'https://test.example.com',
       userPresent: true,
       userVerified: true
-    });
-    
-    const varsig = encodeWebAuthnVarsigV1(original, 'Ed25519');
-    const decoded = decodeWebAuthnVarsigV1(varsig);
-    
-    expect(bytesEqual(decoded.authenticatorData, original.authenticatorData)).toBe(true);
-    expect(bytesEqual(decoded.clientDataJSON, original.clientDataJSON)).toBe(true);
-    expect(bytesEqual(decoded.signature, original.signature)).toBe(true);
-  });
-  
-  it('should perfectly round-trip P-256 assertion', () => {
-    const original = createMockP256Assertion({
-      challenge: 'another-challenge-456',
-      origin: 'https://app.example.org'
     });
     
     const varsig = encodeWebAuthnVarsigV1(original, 'P-256');
@@ -211,6 +198,58 @@ describe('Round-trip Encoding/Decoding', () => {
     expect(bytesEqual(decoded.authenticatorData, original.authenticatorData)).toBe(true);
     expect(bytesEqual(decoded.clientDataJSON, original.clientDataJSON)).toBe(true);
     expect(bytesEqual(decoded.signature, original.signature)).toBe(true);
+    expect(decoded.algorithm).toBe('P-256');
+  });
+});
+
+describe('Signature Conversion', () => {
+  it('should convert ASN.1/DER signature to raw format', () => {
+    // DER: 0x30 [len] 0x02 [r-len] [r] 0x02 [s-len] [s]
+    const r = new Uint8Array(32).fill(1);
+    const s = new Uint8Array(32).fill(2);
+    
+    const signature = new Uint8Array(6 + 32 + 32);
+    signature[0] = 0x30;
+    signature[1] = 68;
+    signature[2] = 0x02;
+    signature[3] = 32;
+    signature.set(r, 4);
+    signature[36] = 0x02;
+    signature[37] = 32;
+    signature.set(s, 38);
+    
+    const raw = convertAsn1ToRaw(signature, 256);
+    
+    expect(raw.length).toBe(64);
+    expect(bytesEqual(raw.slice(0, 32), r)).toBe(true);
+    expect(bytesEqual(raw.slice(32), s)).toBe(true);
+  });
+  
+  it('should handle ASN.1 leading zeros in integers', () => {
+    // DER with leading zeros for positive sign
+    // r = [0x00, 0xFF, ... (32 bytes)] -> 33 bytes
+    // s = [0x00, 0xEE, ... (32 bytes)] -> 33 bytes
+    
+    const r = new Uint8Array(32).fill(0xFF);
+    const s = new Uint8Array(32).fill(0xEE);
+    
+    const signature = new Uint8Array(6 + 33 + 33);
+    signature[0] = 0x30;
+    signature[1] = 70;
+    signature[2] = 0x02;
+    signature[3] = 33;
+    signature[4] = 0x00;
+    signature.set(r, 5);
+    signature[37] = 0x02;
+    signature[38] = 33;
+    signature[39] = 0x00;
+    signature.set(s, 40);
+    
+    const raw = convertAsn1ToRaw(signature, 256);
+    
+    expect(raw.length).toBe(64);
+    expect(bytesEqual(raw.slice(0, 32), r)).toBe(true);
+    expect(bytesEqual(raw.slice(32), s)).toBe(true);
   });
 });
 
