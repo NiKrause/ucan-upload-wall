@@ -125,9 +125,9 @@ graph TB
     end
     
     subgraph "WebAuthn Layer (Hardware Mode)"
-        PasskeyEd25519[WebAuthn Ed25519<br/>Hardware-Backed<br/>Biometric Per-Op]
-        Ed25519Hardware[Ed25519 in Secure Hardware<br/>TPM/Secure Enclave]
-        Ed25519DIDHw[Ed25519 DID<br/>did:key:z6Mk...]
+        PasskeyWebAuthn[WebAuthn Credential<br/>Ed25519 or P-256<br/>Hardware-Backed]
+        Hardware[Secure Hardware<br/>TPM/Secure Enclave]
+        DIDHw[DID<br/>did:key:z6Mk... (Ed25519)<br/>or did:key:zDna... (P-256)]
     end
     
     subgraph "Varsig Layer"
@@ -149,18 +149,18 @@ graph TB
 
     %% Connections
     UI -->|Create Delegation| HardwareService
-    HardwareService -->|Request Signature| PasskeyEd25519
-    PasskeyEd25519 -->|Biometric Prompt| Ed25519Hardware
-    Ed25519Hardware -->|Sign in Hardware| PasskeyEd25519
-    PasskeyEd25519 -->|WebAuthn Assertion| VarsigEncoder
+    HardwareService -->|Request Signature| PasskeyWebAuthn
+    PasskeyWebAuthn -->|Biometric Prompt| Hardware
+    Hardware -->|Sign in Hardware| PasskeyWebAuthn
+    PasskeyWebAuthn -->|WebAuthn Assertion| VarsigEncoder
     VarsigEncoder -->|Varsig Bytes| HardwareService
     
     HardwareService -->|Verify| VarsigDecoder
     VarsigDecoder -->|Components| VarsigVerifier
     VarsigVerifier -->|Valid| HardwareService
     
-    PasskeyEd25519 -->|Public Key| Ed25519DIDHw
-    Ed25519DIDHw -->|Identity| HardwareService
+    PasskeyWebAuthn -->|Public Key| DIDHw
+    DIDHw -->|Identity| HardwareService
     
     HardwareService -->|Create/Import| UcantoCore2
     HardwareService -->|Upload/List| StorachaClient2
@@ -170,27 +170,27 @@ graph TB
     
     UI -->|Operations| HardwareService
 
-    style PasskeyEd25519 fill:#e1ffe1
-    style Ed25519Hardware fill:#e1ffe1
+    style PasskeyWebAuthn fill:#e1ffe1
+    style Hardware fill:#e1ffe1
     style VarsigEncoder fill:#e1f5ff
-    style Ed25519DIDHw fill:#e1ffe1
+    style DIDHw fill:#e1ffe1
     style StorachaAPI2 fill:#e1f5ff
 ```
 
 ---
 
-## Hardware-Backed WebAuthn Ed25519 Flow (Varsig v1) ⭐
+## Hardware-Backed WebAuthn Flow (Varsig v1) ⭐
 
 ### Overview
 
-The hardware-backed approach eliminates the web worker vulnerability by signing UCANs directly with WebAuthn Ed25519 credentials stored in secure hardware (TPM/Secure Enclave) and wrapping signatures in varsig v1.
+The hardware-backed approach eliminates the web worker vulnerability by signing UCANs directly with WebAuthn credentials (Ed25519 or P-256) stored in secure hardware (TPM/Secure Enclave) and wrapping signatures in varsig v1.
 
 **Algorithm Selection (Automatic):**
 - **Preferred**: Ed25519 hardware-backed WebAuthn (varsig v1)
+- **Alternative**: P-256 hardware-backed WebAuthn (varsig v1) - Used when Ed25519 is not supported
 - **Fallback**: Worker-based PRF + Ed25519 (Mode 1)
-- **Not supported yet**: Hardware P-256 (explicitly disabled until varsig/ucanto alignment is complete)
 
-### WebAuthn Ed25519 Credential Creation
+### WebAuthn Credential Creation
 
 ```mermaid
 sequenceDiagram
@@ -203,26 +203,30 @@ sequenceDiagram
     User->>UI: Click "Use Hardware Signing"
     UI->>HardwareService: initializeHardwareSigner()
     
-    HardwareService->>Browser: navigator.credentials.create({<br/>  pubKeyCredParams: [<br/>    { type: 'public-key', alg: -8 }   // Ed25519 only<br/>  ]<br/>})
+    HardwareService->>Browser: navigator.credentials.create({<br/>  pubKeyCredParams: [<br/>    { type: 'public-key', alg: -8 },  // Ed25519<br/>    { type: 'public-key', alg: -7 }   // ES256 (P-256)<br/>  ]<br/>})
     Browser->>Hardware: Create key in secure hardware
     Hardware->>User: Show biometric prompt<br/>(Face ID/Touch ID/Windows Hello)
     User->>Hardware: Provide biometric
     
     alt Ed25519 Supported
-        Hardware->>Hardware: Generate Ed25519 keypair<br/>PRIVATE KEY NEVER LEAVES HARDWARE
-        Hardware-->>Browser: PublicKeyCredential {<br/>  attestationObject (Ed25519 public key)<br/>}
+        Hardware->>Hardware: Generate Ed25519 keypair
+        Hardware-->>Browser: PublicKeyCredential (Ed25519)
         Browser-->>HardwareService: credential
-        HardwareService->>HardwareService: Extract Ed25519 public key (32 bytes)
         HardwareService->>HardwareService: Create DID: did:key:z6Mk... (Ed25519)
-    else Ed25519 Not Supported
+    else P-256 Supported (Fallback)
+        Hardware->>Hardware: Generate P-256 keypair
+        Hardware-->>Browser: PublicKeyCredential (P-256)
+        Browser-->>HardwareService: credential
+        HardwareService->>HardwareService: Create DID: did:key:zDna... (P-256)
+    else Hardware Not Supported
         HardwareService->>HardwareService: Fallback to worker-based signer (Mode 1)
         HardwareService-->>UI: Worker-based signer ready
     end
     
     HardwareService->>HardwareService: Store credential info (NOT private key)
     
-    HardwareService-->>UI: Signer {<br/>  did: "did:key:z...",<br/>  algorithm: "Ed25519",<br/>  credentialId,<br/>  publicKey<br/>}
-    UI->>User: ✅ Hardware signer ready!<br/>Algorithm: Ed25519
+    HardwareService-->>UI: Signer {<br/>  did,<br/>  algorithm,<br/>  credentialId,<br/>  publicKey<br/>}
+    UI->>User: ✅ Hardware signer ready!
 ```
 
 ### Hardware-Backed UCAN Delegation Creation

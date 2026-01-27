@@ -79,7 +79,7 @@ signature = sign(authenticatorData || sha256(clientDataJSON))
 Varsig v1 lets us **describe the signature configuration and payload encoding** without changing WebAuthn’s security model. We wrap the WebAuthn assertion bytes in a varsig v1 header:
 
 - Varsig prefix + version
-- Signature algorithm metadata (Ed25519)
+- Signature algorithm metadata (Ed25519 or P-256)
 - Payload encoding metadata (raw bytes)
 - WebAuthn wrapper payload (authenticatorData + clientDataJSON + signature)
 
