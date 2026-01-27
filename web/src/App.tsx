@@ -1,15 +1,16 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Upload, Share, Download, Calendar, Clock, Trash2, RefreshCw, X } from 'lucide-react';
+import { Upload, Share, Download, Calendar, Clock, Trash2, RefreshCw, X, QrCode } from 'lucide-react';
 import { Header } from './components/Header';
 import { UploadZone } from './components/UploadZone';
 import { Alert } from './components/Alert';
 import { DelegationManager } from './components/DelegationManager';
+import { SigningFlow } from './components/SigningFlow';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useFileUpload } from './hooks/useFileUpload';
 import { UploadedFile } from './types/upload';
 import { loadIpfsBlobUrl, getGatewayUrl } from './lib/ipfs-fetch';
 
-type AppView = 'upload' | 'delegations';
+type AppView = 'upload' | 'delegations' | 'signing';
 
 function App() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
@@ -36,6 +37,14 @@ function App() {
     // Check delete capability
     setHasDeleteCapability(delegationService.hasDeleteCapability());
   }, [delegationService]);
+
+  // Check for signing action in URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('action') === 'sign') {
+      setCurrentView('signing');
+    }
+  }, []);
   
   // Separate effect to load files only when DID is ready
   useEffect(() => {
@@ -317,6 +326,18 @@ function App() {
               <Share className="h-4 w-4 inline mr-2" />
               Delegations
             </button>
+
+            <button
+              onClick={() => setCurrentView('signing')}
+              className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
+                currentView === 'signing'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <QrCode className="h-4 w-4 inline mr-2" />
+              Sign (Multi-Device)
+            </button>
           </div>
         </div>
       </nav>
@@ -325,6 +346,13 @@ function App() {
 
   const renderContent = () => {
     switch (currentView) {
+      case 'signing':
+        return (
+          <div className="max-w-7xl mx-auto px-6 py-12">
+            <SigningFlow />
+          </div>
+        );
+
       case 'delegations':
         return (
           <DelegationManager 

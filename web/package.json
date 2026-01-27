@@ -18,6 +18,7 @@
     "playwright:install": "playwright install chromium"
   },
   "dependencies": {
+    "@chainsafe/libp2p-gossipsub": "^14.1.2",
     "@chainsafe/libp2p-noise": "^16.1.5",
     "@chainsafe/libp2p-yamux": "^7.0.4",
     "@helia/unixfs": "^4.0.0",
@@ -34,9 +35,11 @@
     "@ucanto/transport": "^9.2.1",
     "cbor-web": "^9.0.1",
     "helia": "^5.0.0",
+    "html5-qrcode": "^2.3.8",
     "libp2p": "^2.10.0",
     "lucide-react": "^0.344.0",
     "multiformats": "^13.0.0",
+    "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
