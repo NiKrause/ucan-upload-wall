@@ -12,17 +12,21 @@ export function Alert({ type, message, onClose }: AlertProps) {
   return (
     <div
       className={`
-        fixed top-6 right-6 max-w-md w-full shadow-lg rounded-lg p-4 flex items-start gap-3
-        ${isSuccess ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}
-        animate-in slide-in-from-top-5 duration-300
+        fixed top-6 right-6 max-w-md w-full shadow-lg rounded-xl p-4 flex items-start gap-3
+        ${isSuccess ? 'bg-green-50 border border-green-200' : 'bg-primary-50 border border-primary-200'}
+        animate-fade-in
       `}
     >
       {isSuccess ? (
-        <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+        <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
+          <CheckCircle className="w-4 h-4 text-white" />
+        </div>
       ) : (
-        <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+        <div className="w-8 h-8 bg-storacha-red rounded-lg flex items-center justify-center flex-shrink-0">
+          <AlertCircle className="w-4 h-4 text-white" />
+        </div>
       )}
-      <div className={`flex-1 text-sm ${isSuccess ? 'text-green-800' : 'text-red-800'}`}>
+      <div className={`flex-1 text-sm ${isSuccess ? 'text-green-800' : 'text-primary-800'}`}>
         {message.split('\n').map((line, index) => (
           <div key={index} className={index === 0 ? 'font-medium' : 'font-normal mt-1'}>
             {line}
@@ -32,11 +36,11 @@ export function Alert({ type, message, onClose }: AlertProps) {
       <button
         onClick={onClose}
         className={`
-          p-1 rounded hover:bg-opacity-20 transition-colors
-          ${isSuccess ? 'hover:bg-green-600' : 'hover:bg-red-600'}
+          p-1.5 rounded-lg transition-colors
+          ${isSuccess ? 'hover:bg-green-100 text-green-600' : 'hover:bg-primary-100 text-primary-600'}
         `}
       >
-        <X className={`w-4 h-4 ${isSuccess ? 'text-green-600' : 'text-red-600'}`} />
+        <X className="w-4 h-4" />
       </button>
     </div>
   );

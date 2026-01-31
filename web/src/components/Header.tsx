@@ -12,48 +12,56 @@ export function Header({ delegationService }: HeaderProps) {
   const uploadUrl = serviceConfig.uploadServiceUrl ?? '';
   const isLocalService =
     uploadUrl.startsWith('http://127.0.0.1') || uploadUrl.startsWith('http://localhost');
-  
+
   return (
-    <header className="w-full bg-white border-b border-gray-200">
-      <div className="max-w-7xl mx-auto px-6 py-6">
+    <header className="w-full bg-white border-b border-neutral-200">
+      <div className="max-w-7xl mx-auto px-6 py-5">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              🔐 UCAN Upload Wall <span className="text-lg text-blue-600">(Browser-Only)</span>
-              {isLocalService && (
-                <span
-                  className="ml-3 inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800"
-                  title={`Local upload service: ${uploadUrl || 'unknown'}`}
-                >
-                  LOCAL API
-                </span>
-              )}
-            </h1>
-            <p className="text-sm text-gray-600">
-              WebAuthn DID +{' '}
-              <a 
-                href="https://storacha.network" 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="font-medium text-blue-600 hover:text-blue-800 border-b border-dotted border-blue-400 transition-colors"
-                title="Storacha network: Uploads use centralized gateways for reliability. Downloads leverage the decentralized IPFS network for resilience and censorship resistance."
-              >
-                Storacha Network
-              </a>
-              {' '}• UCAN Delegation • No Servers
-            </p>
+          <div className="flex items-center gap-4">
+            {/* Logo/Brand */}
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-storacha-red rounded-lg flex items-center justify-center">
+                <Shield className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-xl font-heading font-semibold text-dark flex items-center gap-2">
+                  UCAN Upload Wall
+                  <span className="text-sm font-normal text-accent-blue">(Browser-Only)</span>
+                  {isLocalService && (
+                    <span
+                      className="badge-warning text-2xs"
+                      title={`Local upload service: ${uploadUrl || 'unknown'}`}
+                    >
+                      LOCAL API
+                    </span>
+                  )}
+                </h1>
+                <p className="text-sm text-neutral-500">
+                  WebAuthn DID •{' '}
+                  <a
+                    href="https://storacha.network"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-storacha-red hover:text-storacha-red-dark transition-colors"
+                    title="Storacha network: Uploads use centralized gateways for reliability. Downloads leverage the decentralized IPFS network for resilience and censorship resistance."
+                  >
+                    Storacha Network
+                  </a>
+                  {' '}• UCAN Delegation • No Servers
+                </p>
+              </div>
+            </div>
           </div>
-          
-              {/* Security indicator */}
+
+          {/* Security indicator */}
           {currentDID && (
             <div className="flex items-center gap-3">
-              {/* Security status */}
-              <div 
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 border border-gray-200"
-                title="Ed25519 DID active. Keys are stored locally in your browser (no extra WebAuthn keystore encryption)."
+              <div
+                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-accent-purple border border-accent-purple-dark"
+                title="Ed25519 DID active. Keys are stored locally in your browser."
               >
-                <Shield className="h-4 w-4 text-blue-600" />
-                <span className="text-sm font-medium text-blue-700">Ed25519 DID Active</span>
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse-slow" />
+                <span className="text-sm font-medium text-accent-blue-dark">Ed25519 DID Active</span>
               </div>
             </div>
           )}

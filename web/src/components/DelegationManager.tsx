@@ -338,23 +338,23 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       {currentDID && (
         <>
           <div className="text-center">
-            <h2 className="text-3xl font-bold text-gray-900 mb-3">
+            <h2 className="text-3xl font-bold text-dark mb-3">
               Setup Your Ed25519 DID & Upload Access
             </h2>
-            <p className="text-gray-600">
+            <p className="text-neutral-600">
               Import a UCAN delegation token to get upload access, or add Storacha credentials directly
             </p>
           </div>
 
           {/* Current Ed25519 DID - Most Important! */}
           {currentDID && (
-        <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-300 rounded-lg p-6 shadow-sm">
+        <div className="bg-gradient-to-r from-primary-50 to-accent-purple border-2 border-storacha-red rounded-xl p-6 shadow-soft">
           <div className="flex items-center justify-between">
             <div className="flex items-center flex-1">
-              <Shield className="h-6 w-6 text-blue-600 mr-3" />
+              <Shield className="h-6 w-6 text-storacha-red mr-3" />
               <div className="flex-1">
-                <h3 className="text-lg font-bold text-blue-900 mb-1">Your Ed25519 DID</h3>
-                <p className="text-sm text-blue-700 mb-2">Share this DID to receive UCAN delegations from Storacha CLI</p>
+                <h3 className="text-lg font-bold font-heading text-dark mb-1">Your Ed25519 DID</h3>
+                <p className="text-sm text-neutral-600 mb-2">Share this DID to receive UCAN delegations from Storacha CLI</p>
                 {signingMode && (
                   <div className="flex items-center gap-2 mb-2">
                     {signingMode.mode === 'hardware' ? (
@@ -373,12 +373,12 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                     )}
                   </div>
                 )}
-                <code className="text-sm text-blue-800 break-all bg-white/60 px-3 py-2 rounded border border-blue-200 block" data-testid="did-display">{currentDID}</code>
+                <code className="text-sm text-dark break-all bg-white/60 px-3 py-2 rounded-lg border border-primary-200 block" data-testid="did-display">{currentDID}</code>
               </div>
             </div>
             <button
               onClick={() => copyToClipboard(currentDID, 'current-did')}
-              className="ml-4 flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="btn-primary ml-4"
               data-testid="copy-did-button"
             >
               {copiedField === 'current-did' ? (
@@ -392,26 +392,26 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       )}
 
       {/* Primary Action: Import UCAN Delegation */}
-      <div className="bg-white rounded-lg border-2 border-green-300 p-6 shadow-sm">
+      <div className="card border-2 border-storacha-red">
         <div className="flex items-center mb-4">
-          <Download className="h-6 w-6 text-green-600 mr-3" />
+          <Download className="h-6 w-6 text-storacha-red mr-3" />
           <div>
-            <h3 className="text-xl font-bold text-gray-900">Import UCAN Delegation</h3>
-            <p className="text-sm text-gray-600">Recommended: Paste your UCAN token to get upload access</p>
+            <h3 className="text-xl font-bold font-heading text-dark">Import UCAN Delegation</h3>
+            <p className="text-sm text-neutral-600">Recommended: Paste your UCAN token to get upload access</p>
           </div>
         </div>
-        
+
         {receivedDelegations.length > 0 ? (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
             <p className="text-green-800 text-sm font-medium">
               ✓ You have {receivedDelegations.length} active UCAN delegation(s). You can upload files!
             </p>
           </div>
         ) : null}
-        
+
         <button
           onClick={() => setShowImportForm(!showImportForm)}
-          className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 flex items-center font-medium"
+          className="btn-primary"
         >
           <Download className="h-5 w-5 mr-2" />
           {showImportForm ? 'Hide Import Form' : 'Import UCAN Delegation'}
@@ -419,15 +419,15 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       </div>
 
       {/* Secondary Option: Storacha Credentials */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="card">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center">
-            <Key className="h-6 w-6 text-purple-500 mr-3" />
+            <Key className="h-6 w-6 text-accent-blue mr-3" />
             <div>
-              <h3 className="text-xl font-semibold text-gray-900">
+              <h3 className="text-xl font-semibold font-heading text-dark">
                 Storacha Credentials (Alternative)
               </h3>
-              <p className="text-sm text-gray-600">Advanced: Add credentials directly if you have a Storacha account</p>
+              <p className="text-sm text-neutral-600">Advanced: Add credentials directly if you have a Storacha account</p>
             </div>
           </div>
           {savedCredentials ? (
@@ -438,7 +438,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
           ) : (
             <button
               onClick={() => setShowCredentialsForm(!showCredentialsForm)}
-              className="text-purple-600 hover:text-purple-700 text-sm font-medium"
+              className="text-storacha-red hover:text-storacha-red-dark text-sm font-medium transition-colors"
             >
               {showCredentialsForm ? 'Hide' : 'Add Credentials'}
             </button>
@@ -446,7 +446,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
         </div>
 
         {savedCredentials ? (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4">
             <p className="text-green-800 text-sm">
               ✓ Storacha credentials configured. You can now create delegations and upload files.
             </p>
@@ -455,47 +455,47 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                 setSavedCredentials(false);
                 setShowCredentialsForm(true);
               }}
-              className="mt-2 text-sm text-green-700 hover:text-green-900 underline"
+              className="mt-2 text-sm text-storacha-red hover:text-storacha-red-dark underline transition-colors"
             >
               Update credentials
             </button>
           </div>
         ) : (
           <>
-            <p className="text-gray-600 text-sm mb-4">
+            <p className="text-neutral-600 text-sm mb-4">
               Add Storacha space credentials to enable file uploads and delegation creation. Required if you didn't get a UCAN delegation from another person or device!
             </p>
-            
+
             {showCredentialsForm && (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">
                     Private Key
                   </label>
                   <textarea
                     value={credentials.key}
                     onChange={(e) => handleCredentialChange('key', e.target.value)}
                     placeholder="Paste your Storacha private key here..."
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm"
+                    className="input-field font-mono text-sm"
                     rows={3}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">
                     Space Proof
                   </label>
                   <textarea
                     value={credentials.proof}
                     onChange={(e) => handleCredentialChange('proof', e.target.value)}
                     placeholder="Paste your Storacha space proof here..."
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm"
+                    className="input-field font-mono text-sm"
                     rows={3}
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-neutral-700 mb-1">
                     Space DID
                   </label>
                   <input
@@ -503,13 +503,13 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                     value={credentials.spaceDid}
                     onChange={(e) => handleCredentialChange('spaceDid', e.target.value)}
                     placeholder="did:key:..."
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono text-sm"
+                    className="input-field font-mono text-sm"
                   />
                 </div>
 
                 <button
                   onClick={handleSaveCredentials}
-                  className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 flex items-center"
+                  className="btn-accent"
                 >
                   <Key className="h-4 w-4 mr-2" />
                   Save Credentials
@@ -522,21 +522,21 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
 
       {/* Info message for native Ed25519 users */}
       {isNativeEd25519 && (savedCredentials || receivedDelegations.length > 0) && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="bg-accent-purple border border-accent-blue rounded-xl p-4">
           <div className="flex items-start">
-            <Shield className="h-5 w-5 text-blue-500 mr-3 mt-0.5" />
+            <Shield className="h-5 w-5 text-accent-blue mr-3 mt-0.5" />
             <div>
-              <h4 className="text-sm font-semibold text-blue-900 mb-1">Delegation Creation Disabled</h4>
-              <p className="text-sm text-blue-800">
-                You're using a hardware-backed native Ed25519 WebAuthn key. While this provides excellent security, 
+              <h4 className="text-sm font-semibold text-dark mb-1">Delegation Creation Disabled</h4>
+              <p className="text-sm text-neutral-700">
+                You're using a hardware-backed native Ed25519 WebAuthn key. While this provides excellent security,
                 WebAuthn keys cannot sign arbitrary UCAN delegation data. You can still:
               </p>
-              <ul className="text-sm text-blue-800 mt-2 ml-4 list-disc">
+              <ul className="text-sm text-neutral-700 mt-2 ml-4 list-disc">
                 <li>Import delegations created by others</li>
                 <li>Use imported delegations to upload files</li>
                 <li>Authenticate securely with biometrics</li>
               </ul>
-              <p className="text-xs text-blue-700 mt-2">
+              <p className="text-xs text-neutral-600 mt-2">
                 💡 To create delegations, you'll need to use a P-256 key with the worker-based approach.
               </p>
             </div>
@@ -546,30 +546,30 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
 
       {/* Create Delegation (show if user has credentials OR received delegations for chaining) */}
       {(savedCredentials || receivedDelegations.length > 0) && !isNativeEd25519 && (
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="card">
           <div className="flex items-center mb-4">
-            <Share className="h-6 w-6 text-purple-600 mr-3" />
+            <Share className="h-6 w-6 text-storacha-red mr-3" />
             <div>
-              <h3 className="text-xl font-semibold text-gray-900">Create Delegation for Others</h3>
-              <p className="text-sm text-gray-600">
-                {savedCredentials 
+              <h3 className="text-xl font-semibold font-heading text-dark">Create Delegation for Others</h3>
+              <p className="text-sm text-neutral-600">
+                {savedCredentials
                   ? 'Share upload access with other DIDs using your Storacha credentials'
                   : 'Chain your UCAN delegation - share access with other DIDs'}
               </p>
             </div>
           </div>
-          
+
           {!savedCredentials && receivedDelegations.length > 0 && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
-              <p className="text-blue-800 text-sm">
+            <div className="bg-accent-purple border border-accent-blue rounded-xl p-3 mb-4">
+              <p className="text-accent-blue-dark text-sm">
                 <strong>🔗 UCAN Chaining:</strong> You can re-delegate your received UCAN to another DID. This creates a delegation chain.
               </p>
             </div>
           )}
-          
+
           <button
             onClick={() => setShowCreateForm(!showCreateForm)}
-            className="bg-purple-600 text-white px-6 py-3 rounded-lg hover:bg-purple-700 flex items-center font-medium"
+            className="btn-accent"
           >
             <Plus className="h-5 w-5 mr-2" />
             {showCreateForm ? 'Hide Form' : 'Create New Delegation'}
@@ -579,14 +579,14 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
 
       {/* Create Delegation Form */}
       {showCreateForm && (
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <h3 className="text-xl font-semibold text-gray-900 mb-4">
+        <div className="card">
+          <h3 className="text-xl font-semibold font-heading text-dark mb-4">
             Create New Delegation
           </h3>
-          
+
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-neutral-700 mb-1">
                 Target DID (from another browser)
               </label>
               <input
@@ -594,18 +594,18 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                 value={targetDID}
                 onChange={(e) => setTargetDID(e.target.value)}
                 placeholder="did:key:..."
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm"
+                className="input-field font-mono text-sm"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-neutral-700 mb-1">
                 Delegation Expiration
               </label>
               <select
                 value={expirationHours ?? 'never'}
                 onChange={(e) => setExpirationHours(e.target.value === 'never' ? null : Number(e.target.value))}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="input-field"
               >
                 <option value="never">No expiration (valid forever)</option>
                 <option value={1}>1 hour</option>
@@ -617,7 +617,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                 <option value={8760}>1 year</option>
                 <option value={87600}>10 years</option>
               </select>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-neutral-500 mt-1">
                 {expirationHours === null 
                   ? 'This delegation will never expire' 
                   : 'The delegation will expire after this time period'}
@@ -625,7 +625,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
+              <label className="block text-sm font-medium text-neutral-700 mb-3">
                 Select Capabilities to Delegate
               </label>
               
@@ -636,18 +636,18 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                   if (categoryCapabilities.length === 0) return null;
                   
                   return (
-                    <div key={category} className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors">
-                      <h4 className="text-sm font-medium text-gray-900 mb-3 flex items-center">
-                        {category === 'Upload' && <Upload className="h-4 w-4 mr-2 text-green-600" />}
-                        {category === 'List' && <ArrowRight className="h-4 w-4 mr-2 text-blue-600" />}
-                        {category === 'Delete' && <Trash2 className="h-4 w-4 mr-2 text-red-600" />}
-                        {category === 'Store' && <Shield className="h-4 w-4 mr-2 text-purple-600" />}
+                    <div key={category} className="border border-neutral-200 rounded-xl p-4 hover:border-storacha-red transition-colors">
+                      <h4 className="text-sm font-medium text-dark mb-3 flex items-center">
+                        {category === 'Upload' && <Upload className="h-4 w-4 mr-2 text-storacha-red" />}
+                        {category === 'List' && <ArrowRight className="h-4 w-4 mr-2 text-accent-blue" />}
+                        {category === 'Delete' && <Trash2 className="h-4 w-4 mr-2 text-storacha-red" />}
+                        {category === 'Store' && <Shield className="h-4 w-4 mr-2 text-accent-blue" />}
                         {category} Capabilities
                       </h4>
                       
                       <div className="space-y-2">
                         {categoryCapabilities.map(capability => (
-                          <label key={capability.id} className="flex items-start space-x-3 cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors">
+                          <label key={capability.id} className="flex items-start space-x-3 cursor-pointer hover:bg-primary-50 p-2 rounded-lg transition-colors">
                             <input
                               type="checkbox"
                               checked={selectedCapabilities.includes(capability.id)}
@@ -658,12 +658,12 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                                   setSelectedCapabilities(prev => prev.filter(id => id !== capability.id));
                                 }
                               }}
-                              className="mt-1 h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                              className="mt-1 h-4 w-4 text-storacha-red focus:ring-storacha-red border-neutral-300 rounded"
                             />
                             <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium text-gray-900">{capability.label}</div>
-                              <div className="text-xs text-gray-500">{capability.description}</div>
-                              <code className="text-xs text-gray-400 bg-gray-100 px-1 py-0.5 rounded break-all">{capability.id}</code>
+                              <div className="text-sm font-medium text-dark">{capability.label}</div>
+                              <div className="text-xs text-neutral-500">{capability.description}</div>
+                              <code className="text-xs text-neutral-400 bg-neutral-100 px-1 py-0.5 rounded break-all">{capability.id}</code>
                             </div>
                           </label>
                         ))}
@@ -678,34 +678,34 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                 <button
                   type="button"
                   onClick={() => setSelectedCapabilities(['space/blob/add'])}
-                  className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200"
+                  className="px-3 py-1 text-xs bg-primary-100 text-storacha-red rounded-lg hover:bg-primary-200 transition-colors"
                 >
                   Basic Upload
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedCapabilities(['space/blob/add', 'upload/add', 'upload/list'])}
-                  className="px-3 py-1 text-xs bg-green-100 text-green-700 rounded-lg hover:bg-green-200"
+                  className="px-3 py-1 text-xs bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors"
                 >
                   Recommended
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedCapabilities(availableCapabilities.map(cap => cap.id))}
-                  className="px-3 py-1 text-xs bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200"
+                  className="px-3 py-1 text-xs bg-accent-purple text-accent-blue-dark rounded-lg hover:bg-primary-100 transition-colors"
                 >
                   All Capabilities
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelectedCapabilities([])}
-                  className="px-3 py-1 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                  className="px-3 py-1 text-xs bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 transition-colors"
                 >
                   Clear All
                 </button>
               </div>
               
-              <div className="text-xs text-gray-500 mt-2">
+              <div className="text-xs text-neutral-500 mt-2">
                 Selected: {selectedCapabilities.length} capability(ies)
               </div>
             </div>
@@ -714,15 +714,15 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
               <button
                 onClick={handleCreateDelegation}
                 disabled={isCreating}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Share className="h-4 w-4 mr-2" />
                 {isCreating ? 'Creating...' : 'Create Delegation'}
               </button>
-              
+
               <button
                 onClick={() => setShowCreateForm(false)}
-                className="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400"
+                className="btn-secondary"
               >
                 Cancel
               </button>
@@ -733,17 +733,17 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
 
       {/* Import UCAN Delegation Form */}
       {showImportForm && (
-        <div className="bg-white rounded-lg border-2 border-green-300 p-6">
-          <h3 className="text-xl font-bold text-gray-900 mb-2">
+        <div className="card border-2 border-storacha-red">
+          <h3 className="text-xl font-bold font-heading text-dark mb-2">
             Import UCAN Delegation
           </h3>
-          <p className="text-sm text-gray-600 mb-4">
+          <p className="text-sm text-neutral-600 mb-4">
             Paste the base64 UCAN token that was delegated to your Ed25519 DID
           </p>
-          
+
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-neutral-700 mb-2">
                 Delegation Name (Optional)
               </label>
               <input
@@ -751,48 +751,48 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                 value={delegationName}
                 onChange={(e) => setDelegationName(e.target.value)}
                 placeholder="e.g., Alice's Upload Token, Work Laptop, etc."
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="input-field"
               />
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-neutral-500 mt-1">
                 💡 Give this delegation a friendly name to remember where it came from
               </p>
             </div>
-            
+
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-neutral-700 mb-2">
                 UCAN Token (Base64)
               </label>
               <textarea
                 value={importProof}
                 onChange={(e) => setImportProof(e.target.value)}
                 placeholder="Paste your base64 UCAN token here...\n\nExample: mAYIEAKMYOqJlcm9vdHO..."
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono text-sm"
+                className="input-field font-mono text-sm"
                 rows={6}
               />
-              <p className="text-xs text-gray-500 mt-2">
+              <p className="text-xs text-neutral-500 mt-2">
                 💡 Get this token from `storacha delegation create YOUR_DID --base64`
               </p>
-              
-              <div className="mt-2 bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <div className="text-xs text-blue-800">
-                  <strong>✓ Auto-detects format:</strong> Supports Storacha CLI (multibase-base64 with 'm' prefix), 
+
+              <div className="mt-2 bg-accent-purple border border-accent-blue rounded-xl p-3">
+                <div className="text-xs text-accent-blue-dark">
+                  <strong>✓ Auto-detects format:</strong> Supports Storacha CLI (multibase-base64 with 'm' prefix),
                   base64url ('u' prefix), CAR files, and legacy JSON formats. The detected format will be displayed after import.
                 </div>
               </div>
             </div>
-            
+
             <div className="flex gap-3">
               <button
                 onClick={handleImportDelegation}
-                className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 flex items-center font-medium"
+                className="btn-primary"
               >
                 <Download className="h-5 w-5 mr-2" />
                 Import UCAN Delegation
               </button>
-              
+
               <button
                 onClick={() => setShowImportForm(false)}
-                className="bg-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-400"
+                className="btn-secondary"
               >
                 Cancel
               </button>
@@ -802,18 +802,18 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       )}
 
       {/* Created Delegations */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="card">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center">
-            <Upload className="h-6 w-6 text-green-500 mr-3" />
-            <h3 className="text-xl font-semibold text-gray-900">
+            <Upload className="h-6 w-6 text-storacha-red mr-3" />
+            <h3 className="text-xl font-semibold font-heading text-dark">
               Delegations Created ({createdDelegations.length})
             </h3>
           </div>
           {createdDelegations.length > 0 && (
             <button
               onClick={handleDeleteCreatedDelegations}
-              className="bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 flex items-center text-sm"
+              className="bg-storacha-red text-white px-3 py-1.5 rounded-lg hover:bg-storacha-red-dark flex items-center text-sm transition-colors"
               title="Delete all created delegations"
             >
               <Trash2 className="h-4 w-4 mr-1" />
@@ -823,16 +823,16 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
         </div>
 
         {createdDelegations.length === 0 ? (
-          <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-            <Share className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Delegations Created</h3>
-            <p className="text-gray-500 max-w-sm mx-auto">
-              Create a delegation to share your upload capabilities with another browser. 
+          <div className="text-center py-12 bg-neutral-50 rounded-xl border-2 border-dashed border-neutral-300">
+            <Share className="mx-auto h-12 w-12 text-neutral-400 mb-4" />
+            <h3 className="text-lg font-medium font-heading text-dark mb-2">No Delegations Created</h3>
+            <p className="text-neutral-500 max-w-sm mx-auto">
+              Create a delegation to share your upload capabilities with another browser.
               This allows others to upload files using your Storacha credentials.
             </p>
             <button
               onClick={() => setShowCreateForm(true)}
-              className="mt-4 inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              className="btn-primary mt-4"
             >
               <Plus className="h-4 w-4 mr-2" />
               Create Your First Delegation
@@ -846,14 +846,14 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                   ? 'border-red-300 bg-gradient-to-r from-red-50 to-orange-50 opacity-75' 
                   : delegation.expiresAt && new Date(delegation.expiresAt) < new Date()
                   ? 'border-orange-300 bg-gradient-to-r from-orange-50 to-yellow-50 opacity-75'
-                  : 'border-gray-200 bg-gradient-to-r from-green-50 to-emerald-50'
+                  : 'border-neutral-200 bg-gradient-to-r from-green-50 to-emerald-50'
               }`}>
                 <div className="space-y-4">
                   {/* Header */}
                   <div className="flex items-start justify-between">
                     <div className="flex items-center">
                       <Share className="h-5 w-5 text-green-600 mr-2" />
-                      <span className="font-semibold text-gray-900">Delegation Created</span>
+                      <span className="font-semibold text-dark">Delegation Created</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {delegation.revoked ? (
@@ -877,13 +877,13 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                   
                   {/* Delegation Chain Visualization */}
                   <div className="bg-white rounded-lg p-3 border border-green-200">
-                    <div className="text-xs font-medium text-gray-600 mb-2">DELEGATION FLOW:</div>
+                    <div className="text-xs font-medium text-neutral-600 mb-2">DELEGATION FLOW:</div>
                     <div className="flex items-center space-x-2 text-sm">
                       <div className="flex items-center bg-green-100 px-2 py-1 rounded text-green-800">
                         <Shield className="h-3 w-3 mr-1" />
                         <span className="font-medium">You</span>
                       </div>
-                      <ArrowRight className="h-4 w-4 text-gray-400" />
+                      <ArrowRight className="h-4 w-4 text-neutral-400" />
                       <div className="flex items-center bg-orange-100 px-2 py-1 rounded text-orange-800">
                         <User className="h-3 w-3 mr-1" />
                         <span className="font-medium">Recipient</span>
@@ -892,7 +892,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                     
                     <div className="mt-3 space-y-2">
                       <div className="text-xs">
-                        <span className="font-medium text-gray-600">From:</span>
+                        <span className="font-medium text-neutral-600">From:</span>
                         <code className="ml-1 text-xs bg-green-50 text-green-700 px-1 py-0.5 rounded">
                           {delegation.fromIssuer?.startsWith('did:key:') 
                             ? `${delegation.fromIssuer.slice(0, 20)}...${delegation.fromIssuer.slice(-8)}`
@@ -901,7 +901,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                         </code>
                       </div>
                       <div className="text-xs">
-                        <span className="font-medium text-gray-600">To:</span>
+                        <span className="font-medium text-neutral-600">To:</span>
                         <code className="ml-1 text-xs bg-orange-50 text-orange-700 px-1 py-0.5 rounded">
                           {delegation.toAudience.startsWith('did:key:') 
                             ? `${delegation.toAudience.slice(0, 20)}...${delegation.toAudience.slice(-8)}`
@@ -916,23 +916,23 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <div className="flex items-center text-sm">
-                        <Clock className="h-4 w-4 text-gray-400 mr-2" />
-                        <span className="font-medium text-gray-600">Created:</span>
-                        <span className="ml-1 text-gray-900">
+                        <Clock className="h-4 w-4 text-neutral-400 mr-2" />
+                        <span className="font-medium text-neutral-600">Created:</span>
+                        <span className="ml-1 text-dark">
                           {new Date(delegation.createdAt).toLocaleDateString()}
                         </span>
                       </div>
                       
                       <div className="flex items-center text-sm">
-                        <Clock className="h-4 w-4 text-gray-400 mr-2" />
-                        <span className="font-medium text-gray-600">Expires:</span>
+                        <Clock className="h-4 w-4 text-neutral-400 mr-2" />
+                        <span className="font-medium text-neutral-600">Expires:</span>
                         {delegation.expiresAt ? (
                           <span className={`ml-1 ${
                             new Date(delegation.expiresAt) < new Date() 
                               ? 'text-red-600 font-semibold' 
                               : new Date(delegation.expiresAt).getTime() - Date.now() < 24 * 60 * 60 * 1000
                               ? 'text-orange-600'
-                              : 'text-gray-900'
+                              : 'text-dark'
                           }`}>
                             {new Date(delegation.expiresAt).toLocaleDateString()} {new Date(delegation.expiresAt).toLocaleTimeString()}
                             {new Date(delegation.expiresAt) < new Date() && ' (Expired)'}
@@ -945,15 +945,15 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                       </div>
                       
                       <div className="text-sm">
-                        <span className="font-medium text-gray-600">Delegation ID:</span>
-                        <code className="ml-1 text-xs bg-gray-100 text-gray-700 px-1 py-0.5 rounded">
+                        <span className="font-medium text-neutral-600">Delegation ID:</span>
+                        <code className="ml-1 text-xs bg-neutral-100 text-neutral-700 px-1 py-0.5 rounded">
                           {delegation.id.length > 16 ? `${delegation.id.slice(0, 16)}...` : delegation.id}
                         </code>
                       </div>
                     </div>
                     
                     <div>
-                      <div className="text-sm font-medium text-gray-600 mb-1">Capabilities Granted:</div>
+                      <div className="text-sm font-medium text-neutral-600 mb-1">Capabilities Granted:</div>
                       <div className="flex flex-wrap gap-1">
                         {delegation.capabilities.map((cap, index) => (
                           <span key={index} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
@@ -984,7 +984,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                   
                   {/* Actions */}
                   <div className="flex items-center justify-between pt-2 border-t border-green-200">
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-neutral-500">
                       {delegation.revoked 
                         ? 'This delegation is no longer valid. The recipient cannot use it.' 
                         : 'Share this delegation proof with the recipient to grant them upload permissions'
@@ -1025,18 +1025,18 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       </div>
 
       {/* Received Delegations */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <div className="card">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center">
-            <Download className="h-6 w-6 text-blue-500 mr-3" />
-            <h3 className="text-xl font-semibold text-gray-900">
+            <Download className="h-6 w-6 text-accent-blue mr-3" />
+            <h3 className="text-xl font-semibold font-heading text-dark">
               Delegations Received ({receivedDelegations.length})
             </h3>
           </div>
           {receivedDelegations.length > 0 && (
             <button
               onClick={handleDeleteReceivedDelegations}
-              className="bg-red-600 text-white px-3 py-1.5 rounded-lg hover:bg-red-700 flex items-center text-sm"
+              className="bg-storacha-red text-white px-3 py-1.5 rounded-lg hover:bg-storacha-red-dark flex items-center text-sm transition-colors"
               title="Delete all received delegations"
             >
               <Trash2 className="h-4 w-4 mr-1" />
@@ -1046,23 +1046,23 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
         </div>
 
         {receivedDelegations.length === 0 ? (
-          <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-            <Download className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No Delegations Received</h3>
-            <p className="text-gray-500 max-w-sm mx-auto">
-              Import a delegation from another browser to gain upload capabilities. 
+          <div className="text-center py-12 bg-neutral-50 rounded-xl border-2 border-dashed border-neutral-300">
+            <Download className="mx-auto h-12 w-12 text-neutral-400 mb-4" />
+            <h3 className="text-lg font-medium font-heading text-dark mb-2">No Delegations Received</h3>
+            <p className="text-neutral-500 max-w-sm mx-auto">
+              Import a delegation from another browser to gain upload capabilities.
               Ask someone with Storacha credentials to create a delegation for your DID.
             </p>
             {currentDID && (
-              <div className="mt-4 p-3 bg-blue-50 rounded-lg max-w-md mx-auto">
-                <p className="text-sm font-medium text-blue-900 mb-2">Your DID (share this):</p>
-                <div className="flex items-center justify-between bg-white p-2 rounded border">
-                  <code className="text-xs text-blue-700 flex-1 truncate">
+              <div className="mt-4 p-3 bg-primary-50 rounded-xl max-w-md mx-auto">
+                <p className="text-sm font-medium text-dark mb-2">Your DID (share this):</p>
+                <div className="flex items-center justify-between bg-white p-2 rounded-lg border border-primary-200">
+                  <code className="text-xs text-storacha-red flex-1 truncate">
                     {currentDID}
                   </code>
                   <button
                     onClick={() => copyToClipboard(currentDID, 'current-did-empty')}
-                    className="ml-2 text-blue-600 hover:text-blue-800"
+                    className="ml-2 text-storacha-red hover:text-storacha-red-dark transition-colors"
                   >
                     {copiedField === 'current-did-empty' ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   </button>
@@ -1071,7 +1071,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
             )}
             <button
               onClick={() => setShowImportForm(true)}
-              className="mt-4 inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="btn-primary mt-4"
             >
               <Download className="h-4 w-4 mr-2" />
               Import Delegation
@@ -1080,13 +1080,13 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
         ) : (
           <div className="space-y-4">
             {receivedDelegations.map((delegation) => (
-              <div key={delegation.id} className="border border-gray-200 rounded-lg p-4 bg-gradient-to-r from-blue-50 to-indigo-50">
+              <div key={delegation.id} className="border border-neutral-200 rounded-xl p-4 bg-gradient-to-r from-primary-50 to-accent-purple">
                 <div className="space-y-4">
                   {/* Header */}
                   <div className="flex items-start justify-between">
                     <div className="flex items-center">
-                      <Key className="h-5 w-5 text-blue-600 mr-2" />
-                      <span className="font-semibold text-gray-900">Delegation Chain</span>
+                      <Key className="h-5 w-5 text-storacha-red mr-2" />
+                      <span className="font-semibold text-dark">Delegation Chain</span>
                     </div>
                     <div className="flex items-center gap-2">
                       {delegation.format && (
@@ -1110,15 +1110,15 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                           status === 'valid'
                             ? 'bg-green-100 text-green-800'
                             : status === 'revoked'
-                            ? 'bg-red-100 text-red-700'
+                            ? 'bg-primary-100 text-storacha-red'
                             : status === 'expired'
                             ? 'bg-orange-100 text-orange-700'
                             : status === 'invalid'
-                            ? 'bg-gray-200 text-gray-700'
+                            ? 'bg-neutral-200 text-neutral-700'
                             : 'bg-yellow-100 text-yellow-800';
                         return (
                           <div
-                            className={`${className} text-xs px-2 py-1 rounded font-medium`}
+                            className={`${className} text-xs px-2 py-1 rounded-lg font-medium`}
                             title={delegationStatus[delegation.id]?.reason}
                           >
                             {label}
@@ -1129,34 +1129,34 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                   </div>
                   
                   {/* Delegation Chain Visualization */}
-                  <div className="bg-white rounded-lg p-3 border border-blue-200">
-                    <div className="text-xs font-medium text-gray-600 mb-2">DELEGATION FLOW:</div>
+                  <div className="bg-white rounded-xl p-3 border border-primary-200">
+                    <div className="text-xs font-medium text-neutral-600 mb-2">DELEGATION FLOW:</div>
                     <div className="flex items-center space-x-2 text-sm">
-                      <div className="flex items-center bg-purple-100 px-2 py-1 rounded text-purple-800">
+                      <div className="flex items-center bg-accent-purple px-2 py-1 rounded-lg text-accent-blue-dark">
                         <User className="h-3 w-3 mr-1" />
                         <span className="font-medium">Issuer</span>
                       </div>
-                      <ArrowRight className="h-4 w-4 text-gray-400" />
-                      <div className="flex items-center bg-blue-100 px-2 py-1 rounded text-blue-800">
+                      <ArrowRight className="h-4 w-4 text-neutral-400" />
+                      <div className="flex items-center bg-primary-100 px-2 py-1 rounded-lg text-storacha-red">
                         <Shield className="h-3 w-3 mr-1" />
                         <span className="font-medium">You</span>
                       </div>
                     </div>
-                    
+
                     <div className="mt-3 space-y-2">
                       <div className="text-xs">
-                        <span className="font-medium text-gray-600">From:</span>
-                        <code className="ml-1 text-xs bg-purple-50 text-purple-700 px-1 py-0.5 rounded">
-                          {delegation.fromIssuer?.startsWith('did:key:') 
+                        <span className="font-medium text-neutral-600">From:</span>
+                        <code className="ml-1 text-xs bg-accent-purple text-accent-blue-dark px-1 py-0.5 rounded">
+                          {delegation.fromIssuer?.startsWith('did:key:')
                             ? `${delegation.fromIssuer.slice(0, 20)}...${delegation.fromIssuer.slice(-8)}`
                             : delegation.fromIssuer || 'Unknown Issuer'
                           }
                         </code>
                       </div>
                       <div className="text-xs">
-                        <span className="font-medium text-gray-600">To:</span>
-                        <code className="ml-1 text-xs bg-blue-50 text-blue-700 px-1 py-0.5 rounded">
-                          {delegation.toAudience?.startsWith('did:key:') 
+                        <span className="font-medium text-neutral-600">To:</span>
+                        <code className="ml-1 text-xs bg-primary-50 text-storacha-red px-1 py-0.5 rounded">
+                          {delegation.toAudience?.startsWith('did:key:')
                             ? `${delegation.toAudience.slice(0, 20)}...${delegation.toAudience.slice(-8)}`
                             : delegation.toAudience || 'Unknown Audience'
                           }
@@ -1174,23 +1174,23 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <div className="flex items-center text-sm">
-                        <Clock className="h-4 w-4 text-gray-400 mr-2" />
-                        <span className="font-medium text-gray-600">Received:</span>
-                        <span className="ml-1 text-gray-900">
+                        <Clock className="h-4 w-4 text-neutral-400 mr-2" />
+                        <span className="font-medium text-neutral-600">Received:</span>
+                        <span className="ml-1 text-dark">
                           {new Date(delegation.createdAt).toLocaleDateString()}
                         </span>
                       </div>
                       
                       <div className="flex items-center text-sm">
-                        <Clock className="h-4 w-4 text-gray-400 mr-2" />
-                        <span className="font-medium text-gray-600">Expires:</span>
+                        <Clock className="h-4 w-4 text-neutral-400 mr-2" />
+                        <span className="font-medium text-neutral-600">Expires:</span>
                         {delegation.expiresAt ? (
                           <span className={`ml-1 ${
                             new Date(delegation.expiresAt) < new Date() 
                               ? 'text-red-600 font-semibold' 
                               : new Date(delegation.expiresAt).getTime() - Date.now() < 24 * 60 * 60 * 1000
                               ? 'text-orange-600'
-                              : 'text-gray-900'
+                              : 'text-dark'
                           }`}>
                             {new Date(delegation.expiresAt).toLocaleDateString()} {new Date(delegation.expiresAt).toLocaleTimeString()}
                             {new Date(delegation.expiresAt) < new Date() && ' (Expired)'}
@@ -1203,15 +1203,15 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                       </div>
                       
                       <div className="text-sm">
-                        <span className="font-medium text-gray-600">Delegation ID:</span>
-                        <code className="ml-1 text-xs bg-gray-100 text-gray-700 px-1 py-0.5 rounded">
+                        <span className="font-medium text-neutral-600">Delegation ID:</span>
+                        <code className="ml-1 text-xs bg-neutral-100 text-neutral-700 px-1 py-0.5 rounded">
                           {delegation.id.length > 16 ? `${delegation.id.slice(0, 16)}...` : delegation.id}
                         </code>
                       </div>
                       
                       {delegation.format && (
                         <div className="text-sm">
-                          <span className="font-medium text-gray-600">Import Format:</span>
+                          <span className="font-medium text-neutral-600">Import Format:</span>
                           <span className="ml-1 text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded border border-purple-200">
                             {delegation.format}
                           </span>
@@ -1220,7 +1220,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                     </div>
                     
                     <div>
-                      <div className="text-sm font-medium text-gray-600 mb-1">Capabilities:</div>
+                      <div className="text-sm font-medium text-neutral-600 mb-1">Capabilities:</div>
                       <div className="flex flex-wrap gap-1">
                         {(delegation.capabilities || []).map((cap, index) => (
                           <span key={index} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
@@ -1232,15 +1232,15 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                   </div>
                   
                   {/* Actions */}
-                  <div className="flex items-center justify-between pt-2 border-t border-blue-200">
-                    <div className="text-xs text-gray-500">
+                  <div className="flex items-center justify-between pt-2 border-t border-primary-200">
+                    <div className="text-xs text-neutral-500">
                       This delegation allows you to upload files using another browser's permissions
                     </div>
                     <div className="flex items-center gap-3">
                       {delegationStatus[delegation.id]?.status === 'revoked' && (
                         <button
                           onClick={() => handleClearRevocationCache(delegation.id)}
-                          className="flex items-center text-amber-700 hover:text-amber-800 text-sm"
+                          className="flex items-center text-amber-700 hover:text-amber-800 text-sm transition-colors"
                           title="Clear cached revocation status for this delegation"
                         >
                           🧹 Clear Revocation Cache
@@ -1248,7 +1248,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                       )}
                       <button
                         onClick={() => handleDeleteReceivedDelegation(delegation.id)}
-                        className="flex items-center text-red-600 hover:text-red-700 text-sm"
+                        className="flex items-center text-storacha-red hover:text-storacha-red-dark text-sm transition-colors"
                         title="Delete this received delegation"
                       >
                         <Trash2 className="h-4 w-4 mr-1" />
@@ -1256,11 +1256,11 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                       </button>
                       <button
                         onClick={() => copyToClipboard(delegation.proof, `received-${delegation.id}`)}
-                        className="flex items-center text-blue-600 hover:text-blue-800 text-sm"
+                        className="flex items-center text-accent-blue hover:text-accent-blue-dark text-sm transition-colors"
                         title="Copy delegation proof"
                       >
-                        {copiedField === `received-${delegation.id}` ? 
-                          <><Check className="h-4 w-4 mr-1" /> Copied!</> : 
+                        {copiedField === `received-${delegation.id}` ?
+                          <><Check className="h-4 w-4 mr-1" /> Copied!</> :
                           <><Copy className="h-4 w-4 mr-1" /> Copy Proof</>
                         }
                       </button>
@@ -1279,24 +1279,24 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
           <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-semibold text-gray-900">
+                <h3 className="text-xl font-semibold text-dark">
                   🎉 Delegation Created Successfully!
                 </h3>
                 <button
                   onClick={() => setShowDelegationProof(false)}
-                  className="text-gray-500 hover:text-gray-700"
+                  className="text-neutral-500 hover:text-neutral-700"
                 >
                   ✕
                 </button>
               </div>
               
               <div className="space-y-4">
-                <p className="text-gray-600">
+                <p className="text-neutral-600">
                   Copy this delegation proof and share it with the target browser:
                 </p>
                 
                 {/* Debug info */}
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-neutral-500">
                   Debug: Proof length: {createdDelegationProof?.length || 0}
                 </div>
                 
@@ -1304,7 +1304,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                   <textarea
                     value={createdDelegationProof || 'No delegation proof available'}
                     readOnly
-                    className="w-full p-3 border border-gray-300 rounded-lg font-mono text-xs bg-gray-50"
+                    className="w-full p-3 border border-neutral-300 rounded-lg font-mono text-xs bg-neutral-50"
                     rows={8}
                     placeholder="Delegation proof will appear here..."
                   />
