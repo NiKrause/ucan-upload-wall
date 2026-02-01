@@ -1090,7 +1090,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                     </div>
                     <div className="flex items-center gap-2">
                       {delegation.format && (
-                        <div className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded font-medium" title="Import format">
+                        <div className="bg-accent-purple text-accent-blue-dark text-xs px-2 py-1 rounded-lg font-medium" title="Import format">
                           {delegation.format}
                         </div>
                       )}
@@ -1212,7 +1212,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                       {delegation.format && (
                         <div className="text-sm">
                           <span className="font-medium text-neutral-600">Import Format:</span>
-                          <span className="ml-1 text-xs bg-purple-50 text-purple-700 px-2 py-0.5 rounded border border-purple-200">
+                          <span className="ml-1 text-xs bg-accent-purple text-accent-blue-dark px-2 py-0.5 rounded-lg border border-accent-blue">
                             {delegation.format}
                           </span>
                         </div>
@@ -1276,69 +1276,67 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       {/* Delegation Proof Modal */}
       {showDelegationProof && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[80vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-semibold text-dark">
-                  🎉 Delegation Created Successfully!
-                </h3>
+          <div className="card max-w-2xl w-full max-h-[80vh] overflow-y-auto animate-fade-in">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-semibold font-heading text-dark">
+                🎉 Delegation Created Successfully!
+              </h3>
+              <button
+                onClick={() => setShowDelegationProof(false)}
+                className="text-neutral-500 hover:text-neutral-700 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-neutral-600">
+                Copy this delegation proof and share it with the target browser:
+              </p>
+
+              {/* Debug info */}
+              <div className="text-xs text-neutral-500">
+                Debug: Proof length: {createdDelegationProof?.length || 0}
+              </div>
+
+              <div className="relative">
+                <textarea
+                  value={createdDelegationProof || 'No delegation proof available'}
+                  readOnly
+                  className="input-field font-mono text-xs bg-neutral-50"
+                  rows={8}
+                  placeholder="Delegation proof will appear here..."
+                />
                 <button
-                  onClick={() => setShowDelegationProof(false)}
-                  className="text-neutral-500 hover:text-neutral-700"
+                  onClick={() => copyToClipboard(createdDelegationProof, 'delegation-proof')}
+                  className="absolute top-2 right-2 bg-storacha-red text-white px-3 py-1 rounded-lg text-sm hover:bg-storacha-red-dark flex items-center transition-colors"
                 >
-                  ✕
+                  {copiedField === 'delegation-proof' ? (
+                    <><Check className="h-4 w-4 mr-1" /> Copied!</>
+                  ) : (
+                    <><Copy className="h-4 w-4 mr-1" /> Copy</>
+                  )}
                 </button>
               </div>
-              
-              <div className="space-y-4">
-                <p className="text-neutral-600">
-                  Copy this delegation proof and share it with the target browser:
-                </p>
-                
-                {/* Debug info */}
-                <div className="text-xs text-neutral-500">
-                  Debug: Proof length: {createdDelegationProof?.length || 0}
-                </div>
-                
-                <div className="relative">
-                  <textarea
-                    value={createdDelegationProof || 'No delegation proof available'}
-                    readOnly
-                    className="w-full p-3 border border-neutral-300 rounded-lg font-mono text-xs bg-neutral-50"
-                    rows={8}
-                    placeholder="Delegation proof will appear here..."
-                  />
-                  <button
-                    onClick={() => copyToClipboard(createdDelegationProof, 'delegation-proof')}
-                    className="absolute top-2 right-2 bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 flex items-center"
-                  >
-                    {copiedField === 'delegation-proof' ? (
-                      <><Check className="h-4 w-4 mr-1" /> Copied!</>
-                    ) : (
-                      <><Copy className="h-4 w-4 mr-1" /> Copy</>
-                    )}
-                  </button>
-                </div>
-                
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <h4 className="font-medium text-blue-900 mb-2">📋 Next Steps:</h4>
-                  <ol className="text-blue-800 text-sm space-y-1 list-decimal list-inside">
-                    <li>Copy the delegation proof above</li>
-                    <li>Open the target browser (Browser B)</li>
-                    <li>Go to the Delegations tab</li>
-                    <li>Click "Import Delegation" and paste the proof</li>
-                    <li>Browser B can now upload files using your permissions!</li>
-                  </ol>
-                </div>
-                
-                <div className="flex justify-end">
-                  <button
-                    onClick={() => setShowDelegationProof(false)}
-                    className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
-                  >
-                    Close
-                  </button>
-                </div>
+
+              <div className="bg-accent-purple border border-accent-blue rounded-xl p-4">
+                <h4 className="font-medium text-dark mb-2">📋 Next Steps:</h4>
+                <ol className="text-neutral-700 text-sm space-y-1 list-decimal list-inside">
+                  <li>Copy the delegation proof above</li>
+                  <li>Open the target browser (Browser B)</li>
+                  <li>Go to the Delegations tab</li>
+                  <li>Click "Import Delegation" and paste the proof</li>
+                  <li>Browser B can now upload files using your permissions!</li>
+                </ol>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setShowDelegationProof(false)}
+                  className="btn-secondary"
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>

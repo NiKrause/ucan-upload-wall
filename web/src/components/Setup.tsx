@@ -222,14 +222,14 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
       )}
 
       {/* Step 1: Create or Load DID */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="card">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-            <Key className="w-5 h-5 text-blue-600" />
+          <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center">
+            <Key className="w-5 h-5 text-storacha-red" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Step 1: Create Ed25519 DID</h3>
-            <p className="text-sm text-gray-600">Create your decentralized identity</p>
+            <h3 className="text-lg font-semibold font-heading text-dark">Step 1: Create Ed25519 DID</h3>
+            <p className="text-sm text-neutral-600">Create your decentralized identity</p>
           </div>
         </div>
 
@@ -297,14 +297,14 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
           </div>
         ) : (
           <div className="space-y-4">
-            <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
+            <div className="inline-flex rounded-xl border border-neutral-200 bg-neutral-50 p-1">
               <button
                 type="button"
                 onClick={() => setAuthenticatorMode('platform')}
-                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                   authenticatorMode === 'platform'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-white text-dark shadow-sm'
+                    : 'text-neutral-500 hover:text-neutral-700'
                 }`}
               >
                 Standard (Touch ID / Face ID)
@@ -312,10 +312,10 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
               <button
                 type="button"
                 onClick={() => setAuthenticatorMode('cross-platform')}
-                className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+                className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                   authenticatorMode === 'cross-platform'
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-white text-dark shadow-sm'
+                    : 'text-neutral-500 hover:text-neutral-700'
                 }`}
               >
                 Hardware (Security Key)
@@ -324,7 +324,7 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
             <button
               onClick={() => handleCreateDID(authenticatorMode)}
               disabled={!webauthnSupported || isCreatingDID}
-              className="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+              className="btn-primary w-full py-3 disabled:bg-neutral-400 disabled:cursor-not-allowed"
               data-testid="create-did-button"
             >
               {isCreatingDID ? (
@@ -343,7 +343,7 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
                 </>
               )}
             </button>
-            <div className="text-xs text-gray-500 mt-2 p-3 bg-gray-50 rounded">
+            <div className="text-xs text-neutral-500 mt-2 p-3 bg-neutral-50 rounded-lg">
               <strong>Note:</strong> Switch to Hardware if you want to use a USB/NFC security key.
               Standard uses built-in biometric authentication.
             </div>
@@ -352,20 +352,20 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
       </div>
 
       {/* Step 2: Add Storacha Credentials */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+      <div className="card">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center">
-            <Shield className="w-5 h-5 text-purple-600" />
+          <div className="w-10 h-10 bg-accent-purple rounded-full flex items-center justify-center">
+            <Shield className="w-5 h-5 text-accent-blue" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Step 2: Storacha Credentials (Optional)</h3>
-            <p className="text-sm text-gray-600">Add your Storacha account credentials for direct uploads</p>
+            <h3 className="text-lg font-semibold font-heading text-dark">Step 2: Storacha Credentials (Optional)</h3>
+            <p className="text-sm text-neutral-600">Add your Storacha account credentials for direct uploads</p>
           </div>
         </div>
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-neutral-700 mb-1">
               Private Key
             </label>
             <div className="flex gap-2">
@@ -374,13 +374,13 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
                 value={credentials.key}
                 onChange={(e) => handleCredentialChange('key', e.target.value)}
                 placeholder="MgCY...base64..."
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="input-field flex-1"
                 disabled={savedCredentials}
               />
               {savedCredentials && (
                 <button
                   onClick={() => handleCopyField('key')}
-                  className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                  className="p-2 text-neutral-600 hover:text-dark hover:bg-neutral-100 rounded-lg transition-colors"
                   title="Copy key"
                 >
                   {copiedField === 'key' ? (
@@ -394,7 +394,7 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-neutral-700 mb-1">
               Delegation Proof
             </label>
             <div className="flex gap-2">
@@ -403,13 +403,13 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
                 onChange={(e) => handleCredentialChange('proof', e.target.value)}
                 placeholder="uOqJl..."
                 rows={3}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                className="input-field flex-1 font-mono text-sm"
                 disabled={savedCredentials}
               />
               {savedCredentials && (
                 <button
                   onClick={() => handleCopyField('proof')}
-                  className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                  className="p-2 text-neutral-600 hover:text-dark hover:bg-neutral-100 rounded-lg transition-colors"
                   title="Copy proof"
                 >
                   {copiedField === 'proof' ? (
@@ -423,7 +423,7 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-neutral-700 mb-1">
               Space DID
             </label>
             <div className="flex gap-2">
@@ -432,13 +432,13 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
                 value={credentials.spaceDid}
                 onChange={(e) => handleCredentialChange('spaceDid', e.target.value)}
                 placeholder="did:key:z6Mk..."
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
+                className="input-field flex-1 font-mono text-sm"
                 disabled={savedCredentials}
               />
               {savedCredentials && (
                 <button
                   onClick={() => handleCopyField('spaceDid')}
-                  className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded transition-colors"
+                  className="p-2 text-neutral-600 hover:text-dark hover:bg-neutral-100 rounded-lg transition-colors"
                   title="Copy space DID"
                 >
                   {copiedField === 'spaceDid' ? (
@@ -454,13 +454,13 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
           {!savedCredentials ? (
             <button
               onClick={handleSaveCredentials}
-              className="w-full bg-purple-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center justify-center gap-2"
+              className="btn-accent w-full py-3"
             >
               <Shield className="w-5 h-5" />
               Save Credentials
             </button>
           ) : (
-            <div className="p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+            <div className="p-3 bg-green-50 border border-green-200 rounded-xl flex items-center gap-2">
               <Check className="w-5 h-5 text-green-600" />
               <span className="text-sm font-medium text-green-900">Credentials Saved</span>
             </div>
