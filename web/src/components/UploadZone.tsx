@@ -1,7 +1,7 @@
 import { useCallback, useState, useEffect } from 'react';
-import { Upload, FileText, X, Shield, Copy, Check, AlertCircle, Lock } from 'lucide-react';
+import { Upload, FileText, X, Shield, Copy, Check, AlertCircle, Lock, Key } from 'lucide-react';
 import { UCANDelegationService } from '../lib/ucan-delegation';
-import { WebAuthnDIDProvider } from '../lib/webauthn-did';
+import { WebAuthnDIDProvider, loginWithPasskey, storeWebAuthnCredential } from '../lib/webauthn-did';
 
 interface UploadZoneProps {
   onFileSelect: (file: File) => void;
@@ -19,6 +19,7 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
   const [webauthnSupported, setWebauthnSupported] = useState(false);
   const [copiedDID, setCopiedDID] = useState(false);
   const [encryptionSupported] = useState(false); // Currently always false - encryption handled in worker
+  const [isLoggingInWithPasskey, setIsLoggingInWithPasskey] = useState(false);
 
   useEffect(() => {
     // Check WebAuthn support
@@ -28,6 +29,69 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
     const did = delegationService.getCurrentDID();
     setCurrentDID(did);
   }, [delegationService]);
+
+  const handlePasskeyLogin = async () => {
+    setIsLoggingInWithPasskey(true);
+    
+    try {
+      console.log('🔐 Starting passkey login...');
+      
+      // Check platform authenticator availability
+      if (window.PublicKeyCredential) {
+        const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+        console.log('Platform authenticator available:', available);
+      }
+      
+      const result = await loginWithPasskey({
+        displayName: 'UCAN Upload Wall User',
+        userId: 'ucan-upload-wall-user'
+      });
+      
+      console.log('Login result:', result);
+      
+      if (result.success && result.credentialInfo) {
+        console.log('✅ Passkey login successful');
+        
+        // Store the credential info
+        storeWebAuthnCredential(result.credentialInfo);
+        
+        // Initialize delegation service with the credential
+        await delegationService.initializeWebAuthnDID(false);
+        
+        // Initialize deterministic Ed25519 DID (worker generates deterministic keys)
+        try {
+          await delegationService.initializeEd25519DID(false);
+          console.log('✅ Deterministic Ed25519 DID initialized from worker');
+        } catch (ed25519Error) {
+          console.error('❌ Failed to initialize Ed25519 DID:', ed25519Error);
+          throw new Error(`Failed to initialize Ed25519 DID: ${ed25519Error}`);
+        }
+        
+        // Get the final DID (should be the deterministic Ed25519 DID from worker)
+        const finalDID = delegationService.getCurrentDID();
+        console.log('🔑 Primary DID (Deterministic Ed25519 from worker):', finalDID);
+        
+        setCurrentDID(finalDID);
+        
+        if (onDidCreated) {
+          onDidCreated();
+        }
+        
+        if (result.isNewCredential) {
+          alert('✅ New passkey created! Your deterministic Ed25519 DID has been generated.');
+        } else {
+          alert('✅ Signed in with existing passkey! Your deterministic Ed25519 DID has been restored.');
+        }
+      } else {
+        throw new Error(result.error || 'Passkey login failed');
+      }
+    } catch (error) {
+      console.error('Passkey login failed:', error);
+      alert(`Passkey login failed: ${error}`);
+    } finally {
+      setIsLoggingInWithPasskey(false);
+    }
+  };
 
   const handleCreateDID = async () => {
     setIsCreatingDID(true);
@@ -57,6 +121,7 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
       setIsCreatingDID(false);
     }
   };
+  
 
   const copyToClipboard = async (text: string) => {
     try {
@@ -156,26 +221,91 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
           <div className="flex items-center mb-4">
             <Shield className="h-6 w-6 text-blue-500 mr-3" />
             <h3 className="text-xl font-semibold text-gray-900">
-              Step 1: Create Ed25519 DID
+              Step 1: Login with Passkey or Create DID
             </h3>
           </div>
           
           <div className="space-y-4">
             <p className="text-gray-600">
               {encryptionSupported 
-                ? '🔐 Generate a hardware-protected Ed25519 DID with biometric authentication.'
-                : '⚠️ Generate an Ed25519 DID (hardware encryption not supported on this device).'}
+                ? '🔐 Use your biometric authentication to sign in with an existing passkey, or generate a new hardware-protected Ed25519 DID.'
+                : '🔐 Use your biometric authentication to sign in with an existing passkey, or generate a new Ed25519 DID.'}
             </p>
             
-            <button
-              onClick={handleCreateDID}
-              disabled={isCreatingDID}
-              className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-              data-testid="create-did-button"
-            >
-              {encryptionSupported ? <Lock className="h-4 w-4 mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
-              {isCreatingDID ? 'Generating...' : encryptionSupported ? '🔐 Create Secure DID' : 'Create DID'}
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={handlePasskeyLogin}
+                disabled={isLoggingInWithPasskey}
+                className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                data-testid="passkey-login-button"
+              >
+                <Key className="h-4 w-4 mr-2" />
+                {isLoggingInWithPasskey ? 'Signing in...' : '🔐 Login with Passkey'}
+              </button>
+              
+              <button
+                onClick={handleCreateDID}
+                disabled={isCreatingDID}
+                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                data-testid="create-did-button"
+              >
+                {encryptionSupported ? <Lock className="h-4 w-4 mr-2" /> : <Shield className="h-4 w-4 mr-2" />}
+                {isCreatingDID ? 'Generating...' : encryptionSupported ? '🔐 Create Secure DID' : 'Create DID'}
+              </button>
+            </div>
+            
+            {/* Debug info */}
+            <div className="mt-4 text-xs text-gray-500 bg-gray-50 p-3 rounded">
+              <div>WebAuthn supported: {webauthnSupported ? '✅' : '❌'}</div>
+              <div>Current domain: {window.location.hostname}</div>
+              <div>Protocol: {window.location.protocol}</div>
+              {currentDID && (
+                <div className="mt-2 pt-2 border-t border-gray-200">
+                  <div className="font-medium text-green-600">Primary DID (Deterministic Ed25519):</div>
+                  <div className="break-all font-mono text-xs text-green-600">{currentDID}</div>
+                  {(() => {
+                    // Show WebAuthn DID if available (for reference)
+                    const storedCredential = localStorage.getItem('webauthn_credential_info');
+                    if (storedCredential) {
+                      try {
+                        const credInfo = JSON.parse(storedCredential);
+                        if (credInfo.did && credInfo.did !== currentDID) {
+                          return (
+                            <div className="mt-1">
+                              <div className="font-medium text-blue-600">WebAuthn DID (P-256, for reference):</div>
+                              <div className="break-all font-mono text-xs text-blue-600">{credInfo.did}</div>
+                            </div>
+                          );
+                        }
+                      } catch (e) {
+                        // Ignore parsing errors
+                      }
+                    }
+                    return null;
+                  })()}
+                  {(() => {
+                    // Show worker Ed25519 DID if different (for debugging)
+                    const storedKeypair = localStorage.getItem('ed25519_keypair');
+                    if (storedKeypair) {
+                      try {
+                        const keypair = JSON.parse(storedKeypair);
+                        if (keypair.did && keypair.did !== currentDID) {
+                          return (
+                            <div className="mt-1">
+                              <div className="font-medium text-orange-600">Worker Ed25519 DID (different):</div>
+                              <div className="break-all font-mono text-xs text-orange-600">{keypair.did}</div>
+                            </div>
+                          );
+                        }
+                      } catch (e) {
+                        // Ignore parsing errors
+                      }
+                    }
+                    return null;
+                  })()}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       ) : (

@@ -194,8 +194,11 @@ export class UCANDelegationService {
   /**
    * Initialize or load existing Ed25519 DID
    * Always tries to load existing first unless force=true
+   * Worker now generates deterministic Ed25519 keys from WebAuthn PRF seed
    */
   async initializeEd25519DID(force = false): Promise<Ed25519KeyPair> {
+    console.log('🔑 Initializing Ed25519 DID (worker generates deterministic keys from WebAuthn PRF)');
+    
     // If we already have BOTH keypair AND archive (and not forcing), return it
     if (this.ed25519Keypair && this.ed25519Archive && !force) {
       console.log('Using cached Ed25519 keypair and archive');
@@ -224,12 +227,11 @@ export class UCANDelegationService {
             if (!(credentialInfo.rawCredentialId instanceof Uint8Array)) {
               credentialInfo.rawCredentialId = new Uint8Array(Object.values(credentialInfo.rawCredentialId));
             }
-            // Note: prfInput might exist, but prfSeed is never stored (security)
             if (credentialInfo.prfInput && !(credentialInfo.prfInput instanceof Uint8Array)) {
               credentialInfo.prfInput = new Uint8Array(Object.values(credentialInfo.prfInput));
             }
             
-            // SECURITY: extractPrfSeed will now require WebAuthn re-authentication
+            // Get PRF seed for worker initialization
             const prfSeed = await WebAuthnDIDProvider.extractPrfSeed(credentialInfo);
             await initEd25519KeystoreWithPrfSeed(prfSeed);
             
@@ -243,17 +245,15 @@ export class UCANDelegationService {
             );
             this.ed25519Archive = await decryptArchive(ciphertext, iv);
             console.log('✅ Successfully decrypted and restored Ed25519 archive');
+            
+            return keypair;
           } else {
             console.warn('WebAuthn credential missing, cannot decrypt archive');
             throw new Error('WebAuthn credential required to decrypt archive');
           }
         } else {
-          console.warn('Encrypted archive not found in localStorage');
-          throw new Error('Ed25519 archive missing');
+          console.warn('Encrypted archive not found, will regenerate');
         }
-        
-        console.log('✅ Successfully restored Ed25519 DID:', keypair.did);
-        return keypair;
       } catch (error) {
         console.warn('Failed to restore stored Ed25519 keypair, creating new one', error);
         localStorage.removeItem(STORAGE_KEYS.ED25519_KEYPAIR);
@@ -261,12 +261,11 @@ export class UCANDelegationService {
       }
     }
 
-    // Generate new Ed25519 keypair inside the web worker, seeded from WebAuthn
-    console.log('Generating new Ed25519 keypair via worker + WebAuthn PRF seed...');
+    // Generate new Ed25519 keypair in worker (now deterministic from PRF seed)
+    console.log('Generating new deterministic Ed25519 keypair in worker...');
 
-    // Ensure we have a WebAuthn credential (this may trigger a WebAuthn flow)
+    // Ensure we have a WebAuthn credential first
     await this.initializeWebAuthnDID(false);
-
     const storedCredential = localStorage.getItem(STORAGE_KEYS.WEBAUTHN_CREDENTIAL);
     if (!storedCredential) {
       throw new Error('WebAuthn credential is required to derive PRF seed for Ed25519 keystore');
@@ -280,15 +279,14 @@ export class UCANDelegationService {
       if (!(credentialInfo.rawCredentialId instanceof Uint8Array)) {
         credentialInfo.rawCredentialId = new Uint8Array(Object.values(credentialInfo.rawCredentialId));
       }
-      // Note: prfInput might exist, but prfSeed is never stored (security)
       if (credentialInfo.prfInput && !(credentialInfo.prfInput instanceof Uint8Array)) {
         credentialInfo.prfInput = new Uint8Array(Object.values(credentialInfo.prfInput));
       }
       
-      // SECURITY: extractPrfSeed will now require WebAuthn re-authentication
+      // Get PRF seed for deterministic key generation
       prfSeed = await WebAuthnDIDProvider.extractPrfSeed(credentialInfo);
       
-      console.log('Deriving worker keystore from WebAuthn PRF', {
+      console.log('Using PRF seed for deterministic Ed25519 key generation in worker', {
         prfSeedLength: prfSeed.length,
         prfSource: credentialInfo.prfSource || 'credentialId (legacy)'
       });
@@ -297,15 +295,16 @@ export class UCANDelegationService {
       throw new Error('Invalid stored WebAuthn credential; cannot derive PRF seed');
     }
 
+    // Initialize worker with PRF seed (worker will generate deterministic keys)
     await initEd25519KeystoreWithPrfSeed(prfSeed);
 
+    // Generate deterministic keypair in worker
     const { publicKey, did, archive } = await generateWorkerEd25519DID();
-    console.log('Generated worker-based Ed25519 DID from WebAuthn PRF-derived keystore:', did);
+    console.log('✅ Worker generated deterministic Ed25519 DID:', did);
 
     const keypair: Ed25519KeyPair = {
       publicKey: Array.from(publicKey).map(b => b.toString(16).padStart(2, '0')).join(''),
-      // Private key is encoded in the Ed25519 archive; we don't store it here.
-      privateKey: '',
+      privateKey: '', // Private key is in the worker archive
       did
     };
     
@@ -322,7 +321,7 @@ export class UCANDelegationService {
     
     this.ed25519Keypair = keypair;
     this.ed25519Archive = archive;
-    console.log('✅ Created and stored new Ed25519 DID with encrypted archive:', did);
+    console.log('✅ Created and stored deterministic Ed25519 DID:', did);
     
     return keypair;
   }
@@ -396,10 +395,10 @@ export class UCANDelegationService {
   }
 
   /**
-   * Get current DID (prioritizes Ed25519 > WebAuthn)
+   * Get current DID (prioritizes Ed25519 DID from worker)
    */
   getCurrentDID(): string | null {
-    // Lazily load from localStorage if not in memory
+    // Prioritize Ed25519 DID (now deterministic from worker)
     if (!this.ed25519Keypair) {
       const storedKeypair = localStorage.getItem(STORAGE_KEYS.ED25519_KEYPAIR);
       if (storedKeypair) {
@@ -410,7 +409,30 @@ export class UCANDelegationService {
         }
       }
     }
-    return this.ed25519Keypair?.did || this.webauthnProvider?.did || null;
+    
+    if (this.ed25519Keypair?.did) {
+      return this.ed25519Keypair.did;
+    }
+    
+    // Fallback to WebAuthn DID only if no Ed25519 DID available
+    if (this.webauthnProvider?.did) {
+      return this.webauthnProvider.did;
+    }
+    
+    // Try to load WebAuthn credential from localStorage as last resort
+    const storedCredential = localStorage.getItem(STORAGE_KEYS.WEBAUTHN_CREDENTIAL);
+    if (storedCredential) {
+      try {
+        const credentialInfo = JSON.parse(storedCredential);
+        if (credentialInfo.did) {
+          return credentialInfo.did;
+        }
+      } catch (e) {
+        console.error('Failed to parse stored WebAuthn credential:', e);
+      }
+    }
+    
+    return null;
   }
 
   /**

@@ -32,6 +32,390 @@ export interface WebAuthnCredentialInfo {
 const STORAGE_KEY = 'webauthn_credential_info';
 
 /**
+ * Find existing discoverable passkeys for this domain
+ * Uses conditional UI to discover available credentials
+ */
+export async function findExistingPasskeys(): Promise<{
+  found: boolean;
+  credentials: WebAuthnCredentialInfo[];
+  error?: string;
+}> {
+  if (!window.PublicKeyCredential) {
+    return {
+      found: false,
+      credentials: [],
+      error: 'WebAuthn not supported'
+    };
+  }
+
+  try {
+    console.log('🔍 Checking for existing passkeys...');
+    
+    // First check localStorage for stored credentials
+    const storedCredential = loadWebAuthnCredential();
+    if (storedCredential) {
+      console.log('✅ Found stored credential in localStorage');
+      return {
+        found: true,
+        credentials: [storedCredential]
+      };
+    }
+
+    // Check if conditional UI is supported (for discoverable credentials)
+    const conditionalUISupported = await PublicKeyCredential.isConditionalMediationAvailable?.();
+    console.log('Conditional UI supported:', conditionalUISupported);
+    
+    if (!conditionalUISupported) {
+      console.log('❌ Conditional UI not supported, no stored credentials found');
+      return {
+        found: false,
+        credentials: [],
+        error: 'No discoverable credentials and no stored credentials found'
+      };
+    }
+
+    // Don't use conditional mediation here - it's for autofill
+    // Just return that we might have discoverable credentials
+    console.log('ℹ️ Conditional UI supported - discoverable credentials may be available');
+    return {
+      found: false, // We don't know for sure without trying authentication
+      credentials: []
+    };
+
+  } catch (error) {
+    console.warn('Error checking for existing passkeys:', error);
+    
+    // Fallback: check localStorage
+    const storedCredential = loadWebAuthnCredential();
+    if (storedCredential) {
+      return {
+        found: true,
+        credentials: [storedCredential]
+      };
+    }
+    
+    return {
+      found: false,
+      credentials: [],
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+}
+
+/**
+ * Create a new discoverable passkey credential
+ * This creates a resident key that can be discovered later
+ */
+export async function createDiscoverablePasskey(options: {
+  userId?: string;
+  displayName?: string;
+  domain?: string;
+  requireResidentKey?: boolean;
+}): Promise<WebAuthnCredentialInfo> {
+  const {
+    userId = 'ucan-upload-wall-user',
+    displayName = 'UCAN Upload Wall User',
+    domain = window.location.hostname,
+    requireResidentKey = true
+  } = options;
+
+  if (!WebAuthnDIDProvider.isSupported()) {
+    throw new Error('WebAuthn is not supported in this browser');
+  }
+
+  console.log('🆕 Creating discoverable passkey credential...');
+
+  // Use a deterministic PRF input based on domain and user ID
+  // This ensures the same DID is generated for the same user on the same domain
+  const deterministicSeed = `${domain}:${userId}:ucan-upload-wall`;
+  const encoder = new TextEncoder();
+  const seedBytes = encoder.encode(deterministicSeed);
+  
+  // Create a 32-byte PRF input by hashing the deterministic seed
+  const prfInputHash = await crypto.subtle.digest('SHA-256', seedBytes);
+  const prfInput = new Uint8Array(prfInputHash);
+
+  console.log('🔑 Using deterministic PRF input for consistent DID generation');
+
+  try {
+    const credential = await navigator.credentials.create({
+      publicKey: {
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        rp: { name: 'UCAN Upload Wall', id: domain },
+        user: {
+          id: encoder.encode(userId),
+          name: userId,
+          displayName
+        },
+        pubKeyCredParams: [
+          { type: 'public-key', alg: -7 },   // ES256 (P-256)
+          { type: 'public-key', alg: -257 }  // RS256 fallback
+        ],
+        authenticatorSelection: {
+          authenticatorAttachment: 'platform',
+          userVerification: 'required',
+          residentKey: requireResidentKey ? 'required' : 'preferred',
+          requireResidentKey: requireResidentKey
+        },
+        timeout: 60000,
+        // Request PRF extension with our deterministic input
+        extensions: {
+          prf: {
+            eval: { first: prfInput }
+          }
+        }
+      }
+    }) as PublicKeyCredential;
+
+    if (!credential) {
+      throw new Error('Failed to create discoverable passkey credential');
+    }
+
+    console.log('✅ Discoverable passkey credential created successfully');
+
+    // Extract public key
+    const publicKey = await WebAuthnDIDProvider.extractPublicKey(credential);
+
+    // Get PRF seed (with fallback to rawCredentialId)
+    const { seed: prfSeed, source } = await WebAuthnDIDProvider.getPrfSeed(
+      credential,
+      new Uint8Array(credential.rawId)
+    );
+
+    const credentialInfo: WebAuthnCredentialInfo = {
+      credentialId: WebAuthnDIDProvider.arrayBufferToBase64url(credential.rawId),
+      rawCredentialId: new Uint8Array(credential.rawId),
+      publicKey,
+      userId,
+      displayName,
+      prfInput: prfInput, // Store the deterministic PRF input
+      prfSeed: prfSeed,
+      prfSource: source
+    };
+
+    // Generate DID
+    credentialInfo.did = await WebAuthnDIDProvider.createDID(credentialInfo);
+
+    console.log('🔑 Created DID:', credentialInfo.did);
+    console.log('🔐 PRF source:', source);
+    console.log('🏠 Resident key:', requireResidentKey ? 'required' : 'preferred');
+
+    return credentialInfo;
+  } catch (error) {
+    const err = error as Error;
+    console.error('Failed to create discoverable passkey credential:', err);
+    throw new Error(`Discoverable passkey creation failed: ${err.message}`);
+  }
+}
+
+/**
+ * Authenticate with discoverable credentials
+ * This will show available passkeys for the user to choose from
+ */
+export async function authenticateWithDiscoverableCredentials(options: {
+  domain?: string;
+  timeout?: number;
+  userId?: string;
+} = {}): Promise<WebAuthnCredentialInfo | null> {
+  const {
+    domain = window.location.hostname,
+    timeout = 60000,
+    userId = 'ucan-upload-wall-user'
+  } = options;
+
+  if (!WebAuthnDIDProvider.isSupported()) {
+    throw new Error('WebAuthn is not supported in this browser');
+  }
+
+  try {
+    console.log('🔐 Authenticating with discoverable credentials...');
+    console.log('Domain:', domain);
+
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    console.log('Challenge generated, length:', challenge.length);
+
+    // Use the same deterministic PRF input as creation
+    const deterministicSeed = `${domain}:${userId}:ucan-upload-wall`;
+    const encoder = new TextEncoder();
+    const seedBytes = encoder.encode(deterministicSeed);
+    const prfInputHash = await crypto.subtle.digest('SHA-256', seedBytes);
+    const prfInput = new Uint8Array(prfInputHash);
+
+    console.log('🔑 Using deterministic PRF input for consistent DID generation');
+
+    const assertion = await navigator.credentials.get({
+      publicKey: {
+        challenge,
+        timeout,
+        userVerification: 'required',
+        rpId: domain,
+        // Empty allowCredentials to discover all available credentials
+        allowCredentials: [],
+        // Request PRF extension with the same deterministic input
+        extensions: {
+          prf: {
+            eval: { first: prfInput }
+          }
+        }
+      }
+      // Don't use mediation: 'conditional' here - that's for autofill
+      // Regular get() will show the passkey selection UI
+    }) as PublicKeyCredential;
+
+    if (!assertion) {
+      console.log('❌ No assertion returned');
+      return null;
+    }
+
+    console.log('✅ Authentication successful with credential:', assertion.id);
+
+    // Try to get PRF extension result if available
+    let prfSeed: Uint8Array;
+    let prfSource: 'prf' | 'credentialId' = 'credentialId';
+
+    try {
+      const extensions = assertion.getClientExtensionResults();
+      console.log('Extensions:', extensions);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const prfResults = (extensions as any).prf;
+      if (prfResults?.results?.first) {
+        prfSeed = new Uint8Array(prfResults.results.first);
+        prfSource = 'prf';
+        console.log('✅ Using WebAuthn PRF extension for key derivation');
+      } else {
+        prfSeed = new Uint8Array(assertion.rawId);
+        console.log('ℹ️ PRF extension not available, using rawCredentialId for key derivation');
+      }
+    } catch (error) {
+      console.warn('⚠️ Error reading PRF extension results:', error);
+      prfSeed = new Uint8Array(assertion.rawId);
+    }
+
+    // Reconstruct credential info from assertion
+    const credentialInfo = await WebAuthnDIDProvider.reconstructCredentialFromAssertion(
+      assertion,
+      assertion.id
+    );
+
+    // Add PRF metadata with the deterministic input
+    credentialInfo.prfInput = prfInput; // Store the deterministic PRF input
+    credentialInfo.prfSeed = prfSeed;
+    credentialInfo.prfSource = prfSource;
+    credentialInfo.userId = userId; // Ensure userId is set
+
+    console.log('🔐 PRF source:', prfSource);
+
+    return credentialInfo;
+  } catch (error) {
+    console.error('Authentication with discoverable credentials failed:', error);
+    console.error('Error name:', error instanceof Error ? error.name : 'Unknown');
+    console.error('Error message:', error instanceof Error ? error.message : 'Unknown');
+    
+    if (error instanceof Error) {
+      if (error.name === 'NotAllowedError') {
+        throw new Error('Authentication was cancelled or failed');
+      } else if (error.name === 'InvalidStateError') {
+        throw new Error('No passkeys available for this site');
+      } else if (error.name === 'NotSupportedError') {
+        throw new Error('Passkeys not supported on this device');
+      }
+    }
+    
+    throw error;
+  }
+}
+
+/**
+ * Simple passkey login function
+ * Always tries authentication first (shows passkey popup), creates new if none exist
+ */
+export async function loginWithPasskey(options: {
+  userId?: string;
+  displayName?: string;
+  domain?: string;
+} = {}): Promise<{
+  success: boolean;
+  credentialInfo?: WebAuthnCredentialInfo;
+  isNewCredential?: boolean;
+  error?: string;
+}> {
+  const {
+    userId = 'ucan-upload-wall-user',
+    displayName = 'UCAN Upload Wall User',
+    domain = window.location.hostname
+  } = options;
+
+  try {
+    console.log('🔐 Starting passkey login process...');
+
+    // Check WebAuthn support first
+    const support = await checkWebAuthnSupport();
+    if (!support.supported) {
+      return {
+        success: false,
+        error: 'WebAuthn is not supported in this browser'
+      };
+    }
+
+    // Always try authentication first - this will show the passkey selection popup
+    console.log('� Attempting to authenticate with existing passkeys...');
+    
+    try {
+      const authenticatedCred = await authenticateWithDiscoverableCredentials({ 
+        domain, 
+        userId 
+      });
+      
+      if (authenticatedCred) {
+        console.log('✅ Successfully authenticated with existing passkey');
+        return {
+          success: true,
+          credentialInfo: authenticatedCred,
+          isNewCredential: false
+        };
+      }
+    } catch (authError) {
+      console.log('⚠️ Authentication failed or cancelled:', authError);
+      
+      // If authentication was cancelled, don't try to create new credential
+      if (authError instanceof Error && 
+          (authError.message.includes('cancelled') || authError.message.includes('NotAllowedError'))) {
+        return {
+          success: false,
+          error: 'Authentication was cancelled by user'
+        };
+      }
+      
+      // If no passkeys found, we'll create a new one below
+      console.log('ℹ️ No existing passkeys found, will create new one...');
+    }
+
+    // No existing credentials or authentication failed - create new one
+    console.log('🆕 Creating new discoverable passkey...');
+    const newCredential = await createDiscoverablePasskey({
+      userId,
+      displayName,
+      domain,
+      requireResidentKey: true
+    });
+
+    console.log('✅ Successfully created new passkey credential');
+    return {
+      success: true,
+      credentialInfo: newCredential,
+      isNewCredential: true
+    };
+
+  } catch (error) {
+    console.error('❌ Passkey login failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred'
+    };
+  }
+}
+
+/**
  * Check WebAuthn support
  */
 export async function checkWebAuthnSupport(): Promise<{
@@ -421,7 +805,7 @@ export class WebAuthnDIDProvider {
 
   /**
    * Try to authenticate with an existing credential first, create new if none exists
-   * Tries Ed25519 first, falls back to P-256 with PRF
+   * Now uses discoverable credentials for better UX
    */
   static async getOrCreateCredential(options: {
     userId?: string;
@@ -436,10 +820,33 @@ export class WebAuthnDIDProvider {
       existingCredentialId
     } = options;
 
-    // First try to use existing credential if we have one
+    // First, try to find existing discoverable credentials
+    console.log('🔍 Looking for existing passkeys...');
+    const existingPasskeys = await findExistingPasskeys();
+    
+    if (existingPasskeys.found && existingPasskeys.credentials.length > 0) {
+      console.log('✅ Found existing passkey, attempting authentication...');
+      
+      try {
+        // Try to authenticate with discoverable credentials
+        const authenticatedCred = await authenticateWithDiscoverableCredentials({ 
+          domain, 
+          userId 
+        });
+        
+        if (authenticatedCred) {
+          console.log('✅ Successfully authenticated with existing passkey');
+          return authenticatedCred;
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to authenticate with discoverable credentials:', error);
+      }
+    }
+
+    // Fallback: try specific credential ID if provided
     if (existingCredentialId) {
       try {
-        console.log('🔓 Attempting to authenticate with existing credential');
+        console.log('🔓 Attempting to authenticate with specific credential ID');
         
         // Try to load stored credential info to get prfInput
         const storedCred = loadWebAuthnCredential();
@@ -456,23 +863,12 @@ export class WebAuthnDIDProvider {
         }
       } catch (error) {
         console.warn('⚠️ Failed to authenticate with existing credential:', error);
-        console.log('Will create new credential...');
       }
     }
 
-    // Native Ed25519 is disabled by default because it cannot sign UCAN data
-    // Only P-256 keys can work with the worker-based Ed25519 signing approach
-    // 
-    // Uncomment below to try native Ed25519 (for experimental/viewing-only use):
-    // const ed25519Cred = await this.tryCreateNativeEd25519({ userId, displayName, domain });
-    // if (ed25519Cred) {
-    //   console.log('🎉 Using native hardware-backed Ed25519! (viewing only)');
-    //   return ed25519Cred;
-    // }
-
-    // Create P-256 credential with PRF
-    console.log('🆕 Creating new WebAuthn P-256 credential with PRF extension...');
-    return this.createCredentialWithPRF({ userId, displayName, domain });
+    // Create new discoverable credential
+    console.log('🆕 Creating new discoverable passkey...');
+    return createDiscoverablePasskey({ userId, displayName, domain });
   }
 
   /**
@@ -569,14 +965,22 @@ export class WebAuthnDIDProvider {
    * Helper to get PRF seed from credential info
    * This is used when we need to extract the PRF seed for key derivation
    * 
-   * SECURITY: This method now requires WebAuthn re-authentication to get fresh PRF output.
-   * The PRF seed is NOT stored in localStorage for security reasons - it must be derived
-   * from the user's biometric authentication each time.
+   * SECURITY: This method now tries to use stored PRF seed first, only re-authenticates if needed.
    */
   static async extractPrfSeed(credentialInfo: WebAuthnCredentialInfo): Promise<Uint8Array> {
-    console.log('🔐 Extracting PRF seed - WebAuthn authentication required');
+    console.log('🔐 Extracting PRF seed for key derivation');
     
-    // Re-authenticate with WebAuthn to get fresh PRF output
+    // First, try to use the stored PRF seed if available
+    if (credentialInfo.prfSeed && credentialInfo.prfSeed.length > 0) {
+      console.log('✅ Using stored PRF seed from credential info', {
+        source: credentialInfo.prfSource,
+        seedLength: credentialInfo.prfSeed.length
+      });
+      return credentialInfo.prfSeed;
+    }
+    
+    // If no stored PRF seed, try to re-authenticate to get fresh PRF output
+    console.log('⚠️ No stored PRF seed, attempting WebAuthn re-authentication...');
     try {
       const freshCredInfo = await this.authenticateWithExistingCredential(
         credentialInfo.credentialId,

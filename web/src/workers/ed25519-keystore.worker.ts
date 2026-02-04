@@ -74,8 +74,8 @@ export type KeystoreResponseMessage = KeystoreSuccessResponse | KeystoreErrorRes
 
 declare const self: DedicatedWorkerGlobalScope;
 
-let ed25519KeyPair: CryptoKeyPair | null = null;
 let aesKey: CryptoKey | null = null;
+let storedPrfSeed: ArrayBuffer | null = null;
 
 console.log('[ed25519-keystore.worker] 🧵 Worker started');
 
@@ -124,6 +124,7 @@ async function handleMessage(event: MessageEvent<KeystoreRequestMessage>): Promi
     switch (msg.type) {
       case 'init': {
         console.log('[ed25519-keystore.worker] ⚙️ init() called');
+        storedPrfSeed = msg.prfSeed; // Store PRF seed for deterministic key generation
         aesKey = await deriveAesKeyFromPrfSeed(msg.prfSeed);
         console.log('[ed25519-keystore.worker] ✅ init() complete');
         self.postMessage({ id, ok: true } as KeystoreSuccessResponse);
@@ -131,36 +132,70 @@ async function handleMessage(event: MessageEvent<KeystoreRequestMessage>): Promi
       }
 
       case 'generateKeypair': {
-        console.log('[ed25519-keystore.worker] 🔑 generateKeypair() called');
-         
-        ed25519KeyPair = await crypto.subtle.generateKey(
-          { name: 'Ed25519' } as Algorithm,
-          true,
-          ['sign', 'verify']
-        ) as CryptoKeyPair;
-
-        // Export public key (for DID) and private key bytes (for Ed25519Signer archive)
-        const publicKeySpki = await crypto.subtle.exportKey('spki', ed25519KeyPair.publicKey);
-        const publicKeyBytes = new Uint8Array(publicKeySpki).slice(-32);
-
-        const privateKeyPkcs8 = await crypto.subtle.exportKey('pkcs8', ed25519KeyPair.privateKey);
-        const secret = new Uint8Array(privateKeyPkcs8).slice(-32);
-
-        // Build a real Ed25519Signer and its archive, matching @ucanto/principal/ed25519
+        console.log('[ed25519-keystore.worker] 🔑 generateKeypair() called - generating deterministic keypair from PRF seed');
+        
+        if (!storedPrfSeed) {
+          throw new Error('Keystore not initialized: PRF seed required for deterministic key generation');
+        }
+        
+        // Generate deterministic Ed25519 private key from PRF seed using HKDF
+        const baseKey = await crypto.subtle.importKey(
+          'raw',
+          storedPrfSeed,
+          'HKDF',
+          false,
+          ['deriveKey', 'deriveBits']
+        );
+        
+        const privateKeyBytes = await crypto.subtle.deriveBits(
+          {
+            name: 'HKDF',
+            hash: 'SHA-256',
+            salt: new TextEncoder().encode('ucan-upload-wall-ed25519-private'),
+            info: new TextEncoder().encode('ed25519-deterministic-key')
+          },
+          baseKey,
+          256 // 32 bytes * 8 bits
+        );
+        
+        const secret = new Uint8Array(privateKeyBytes);
+        console.log('[ed25519-keystore.worker] 🔑 Generated deterministic Ed25519 private key from PRF seed');
+        
+        // Build a real Ed25519Signer from the deterministic secret
         const edSigner = await deriveEdSigner(secret);
-        const encoded = encodeEdSigner(edSigner); // contains private + public with multicodec tags
+        const encoded = encodeEdSigner(edSigner);
         const archive = edSigner.toArchive();
+        
+        // Extract public key from the signer's DID
+        const did = edSigner.did();
+        console.log('[ed25519-keystore.worker] 🔑 Generated deterministic DID:', did);
+        
+        // Extract public key bytes from the encoded signer
+        const publicKey = encoded.slice(-32); // Last 32 bytes should be the public key
+        
+        // Don't create Web Crypto keys - just use the ucanto signer for everything
+        // Store the signer for signing operations
+        const signerData = {
+          secret,
+          publicKey,
+          did,
+          signer: edSigner
+        };
+        
+        // Store signer data globally in worker for signing operations
+        (globalThis as any).ed25519Signer = signerData;
 
-        console.log('[ed25519-keystore.worker] ✅ Ed25519 keypair generated and archived');
+        console.log('[ed25519-keystore.worker] ✅ Deterministic Ed25519 keypair generated and archived');
+        
         self.postMessage({
           id,
           ok: true,
           result: {
-            publicKey: publicKeyBytes.buffer,
+            publicKey: publicKey.buffer,
             signerBytes: encoded.buffer,
             archive
           }
-        } as KeystoreSuccessResponse, [publicKeyBytes.buffer, encoded.buffer]);
+        } as KeystoreSuccessResponse, [publicKey.buffer, encoded.buffer]);
         break;
       }
 
@@ -215,41 +250,36 @@ async function handleMessage(event: MessageEvent<KeystoreRequestMessage>): Promi
       }
 
       case 'sign': {
-        if (!ed25519KeyPair) {
-          throw new Error('Ed25519 keypair not generated yet');
+        const signerData = (globalThis as any).ed25519Signer;
+        if (!signerData) {
+          throw new Error('Ed25519 signer not generated yet');
         }
-        console.log('[ed25519-keystore.worker] ✍️ sign() called');
+        console.log('[ed25519-keystore.worker] ✍️ sign() called - using ucanto Ed25519Signer');
 
-        const signature = await crypto.subtle.sign(
-          { name: 'Ed25519' } as Algorithm,
-          ed25519KeyPair.privateKey,
-          msg.data
-        );
+        // Use the ucanto signer for signing
+        const signature = await signerData.signer.sign(new Uint8Array(msg.data));
 
         console.log('[ed25519-keystore.worker] ✅ sign() complete');
         self.postMessage(
           {
             id,
             ok: true,
-            result: { signature }
+            result: { signature: signature.buffer }
           } as KeystoreSuccessResponse,
-          [signature]
+          [signature.buffer]
         );
         break;
       }
 
       case 'verify': {
-        if (!ed25519KeyPair) {
-          throw new Error('Ed25519 keypair not generated yet');
+        const signerData = (globalThis as any).ed25519Signer;
+        if (!signerData) {
+          throw new Error('Ed25519 signer not generated yet');
         }
-        console.log('[ed25519-keystore.worker] ✅ verify() called');
+        console.log('[ed25519-keystore.worker] ✅ verify() called - using ucanto Ed25519Signer');
 
-        const valid = await crypto.subtle.verify(
-          { name: 'Ed25519' } as Algorithm,
-          ed25519KeyPair.publicKey,
-          msg.signature,
-          msg.data
-        );
+        // Use the ucanto signer for verification
+        const valid = await signerData.signer.verify(new Uint8Array(msg.data), new Uint8Array(msg.signature));
 
         console.log('[ed25519-keystore.worker] ✅ verify() result:', valid);
         self.postMessage({
