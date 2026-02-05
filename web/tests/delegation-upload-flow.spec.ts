@@ -18,7 +18,7 @@ import { delegate } from '@ucanto/core';
 import * as ProviderCaps from '@storacha/capabilities/provider';
 import * as DidMailto from '@storacha/did-mailto';
 import { Absentee } from '@ucanto/principal';
-import * as varsigModule from '../src/lib/webauthn-varsig/index.js';
+import * as varsigModule from 'iso-webauthn-varsig';
 import {
   createCorsHttp,
   loadUploadApiTestContext,
@@ -929,11 +929,10 @@ for (const modeConfig of TEST_MODES) {
     const viewButton = filesSection.getByRole('button', { name: /View/i }).first();
     await expect(viewButton).toBeVisible({ timeout: 60000 });
 
-    const [viewPage] = await Promise.all([
-      page.waitForEvent('popup'),
-      viewButton.click(),
-    ]);
-    await viewPage.waitForLoadState('domcontentloaded');
+    await viewButton.click();
+
+    const viewerModal = page.getByTestId('file-viewer-modal');
+    await expect(viewerModal).toBeVisible({ timeout: 60000 });
 
     await page.waitForFunction(
       () => {
@@ -950,7 +949,8 @@ for (const modeConfig of TEST_MODES) {
       return win.__LAST_IPFS_BLOB_URL__;
     });
     expect(viewUrl).toMatch(/^blob:/);
-    await viewPage.close().catch(() => {});
+    const closeButton = viewerModal.getByRole('button', { name: /Close/i });
+    await closeButton.click();
     console.log('✅ View opened from Helia or gateway fallback');
 
     // ========================================
