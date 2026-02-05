@@ -37,10 +37,15 @@ vi.mock('./hardware-ucan-service', () => ({
       return hardwareAlgorithm;
     }
   },
+  getStoredHardwareSignerInfo: () => null,
 }));
 
 vi.mock('./webauthn-ed25519-signer', () => ({
   checkEd25519Support: vi.fn(async () => true),
+}));
+
+vi.mock('@ucanto/principal', () => ({
+  WebAuthnEd25519: class {},
 }));
 
 vi.mock('./secure-ed25519-did', () => ({
@@ -73,7 +78,11 @@ vi.mock('./webauthn-did', () => {
 
   return {
     WebAuthnDIDProvider: MockWebAuthnDIDProvider,
-    storeWebAuthnCredential: vi.fn(),
+    storeWebAuthnCredential: vi.fn((credential: unknown, key?: string) => {
+      if (key) {
+        localStorage.setItem(key, JSON.stringify(credential));
+      }
+    }),
   };
 });
 

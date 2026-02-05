@@ -14,7 +14,7 @@ import {
   VARSIG_PREFIX,
   VARSIG_VERSION,
   concat
-} from './webauthn-varsig/index.js';
+} from 'iso-webauthn-varsig';
 
 /**
  * Storage key for hardware-backed credential
@@ -136,7 +136,8 @@ export class HardwareUCANDelegationService {
     toDid: string,
     spaceDid: string,
     capabilities: string[],
-    expirationHours: number | null = 24
+    expirationHours: number | null = 24,
+    proofs: unknown[] = []
   ): Promise<string> {
     if (!this.hardwareSigner) {
       throw new Error('Hardware signer not initialized');
@@ -175,6 +176,7 @@ export class HardwareUCANDelegationService {
       audience: targetVerifier,
       capabilities: ucanCapabilities,
       expiration: expirationTimestamp,
+      proofs,
       facts: []
     });
     
