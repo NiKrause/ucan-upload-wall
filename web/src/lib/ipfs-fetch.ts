@@ -62,6 +62,8 @@ async function getHeliaClient(): Promise<{ helia: HeliaClient; fs: UnixFsLike }>
   if (!heliaPromise) {
     heliaPromise = (async () => {
       const { createHelia } = await import('helia');
+      const { bitswap } = await import('@helia/block-brokers');
+      const { libp2pRouting } = await import('@helia/routers');
       const { unixfs } = await import('@helia/unixfs');
       const { createLibp2p } = await import('libp2p');
       const { bootstrap } = await import('@libp2p/bootstrap');
@@ -86,7 +88,12 @@ async function getHeliaClient(): Promise<{ helia: HeliaClient; fs: UnixFsLike }>
           dht: kadDHT({ clientMode: true }),
         },
       });
-      const helia = await createHelia({ libp2p });
+      const helia = await createHelia({
+        libp2p,
+        // Prefer local bitswap only; avoid trustless gateway fallbacks.
+        blockBrokers: [bitswap()],
+        routers: [libp2pRouting(libp2p)],
+      });
       const fs = unixfs(helia);
       if (!heliaBootstrap?.peerId || heliaBootstrap.addrs.length === 0) {
         throw new Error('No Helia bootstrap address provided. Start the local server Helia.');
@@ -99,6 +106,14 @@ async function getHeliaClient(): Promise<{ helia: HeliaClient; fs: UnixFsLike }>
         await libp2p.peerStore.patch(peerId, { multiaddrs: addrs });
         await dialWithTimeout(libp2p, heliaBootstrap.peerId);
         logHeliaConnections(libp2p, 'dialed local peer');
+        if (libp2p.services?.ping) {
+          try {
+            const latency = await libp2p.services.ping.ping(peerId);
+            console.log(`🟣 Helia ping local peer: ${latency}ms`);
+          } catch (error) {
+            console.warn('🟣 Helia ping failed:', (error as Error).message);
+          }
+        }
       } catch (error) {
         throw new Error(
           `Helia local peer unavailable. Ensure the local server Helia is running. Details: ${
@@ -160,7 +175,6 @@ async function fetchFromHelia(cid: string): Promise<Uint8Array> {
   const { helia, fs } = await getHeliaClient();
   const { CID } = await import('multiformats/cid');
   console.log(`🟣 Helia fs.cat started for ${cid}`);
-  logHeliaConnections(helia.libp2p, `before fs.cat ${cid}`);
   const chunks: Uint8Array[] = [];
   try {
     for await (const chunk of fs.cat(CID.parse(cid))) {
@@ -168,7 +182,6 @@ async function fetchFromHelia(cid: string): Promise<Uint8Array> {
     }
     const bytes = concatBytes(chunks);
     console.log(`🟣 Helia fs.cat completed for ${cid} (${bytes.length} bytes)`);
-    logHeliaConnections(helia.libp2p, `after fs.cat ${cid}`);
     return bytes;
   } catch (error) {
     console.warn(`🟣 Helia fs.cat failed for ${cid}:`, error);

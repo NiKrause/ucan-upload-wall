@@ -158,12 +158,20 @@ export async function refreshExternalServiceProofs(context) {
 
   if (context?.indexingService) {
     const AssertCaps = await importFromWeb('@storacha/capabilities/assert');
-    await updateProof(context.indexingService, AssertCaps.assert.delegate, 'indexing service');
+    await updateProof(
+      context.indexingService,
+      (options) => AssertCaps.assert.delegate(options),
+      'indexing service'
+    );
   }
 
   if (context?.claimsService) {
     const { Assert } = await importFromWeb('@web3-storage/content-claims/capability');
-    await updateProof(context.claimsService, Assert.assert.delegate, 'claims service');
+    await updateProof(
+      context.claimsService,
+      (options) => Assert.assert.delegate(options),
+      'claims service'
+    );
   }
 }
 
@@ -236,15 +244,22 @@ export function createCorsHttp({ onPutBytes } = {}) {
 
 async function createVarsigPrincipal(varsigModule = null) {
   const { Verifier: BaseVerifier, WebAuthnEd25519 } = await importFromWeb('@ucanto/principal');
+  const { p256 } = await importFromWeb('@noble/curves/p256');
   let varsig = varsigModule;
   if (!varsig) {
     try {
-      varsig = await import(
-        new URL('../web/src/lib/webauthn-varsig/index.js', import.meta.url)
-      );
+      varsig = await import('iso-webauthn-varsig');
     } catch {
-      console.warn('⚠️ WebAuthn varsig module not found; falling back to base verifier');
-      return BaseVerifier;
+      try {
+        const localVarsigUrl = new URL(
+          '../iso-repo/packages/iso-webauthn-varsig/src/index.js',
+          import.meta.url
+        );
+        varsig = await import(localVarsigUrl.href);
+      } catch {
+        console.warn('⚠️ WebAuthn varsig module not found; falling back to base verifier');
+        return BaseVerifier;
+      }
     }
   }
   const {
@@ -263,8 +278,34 @@ async function createVarsigPrincipal(varsigModule = null) {
     const webauthnVerifier = WebAuthnEd25519?.Verifier?.create
       ? WebAuthnEd25519.Verifier.create(edVerifier.publicKey, did)
       : null;
-    const expectedOrigin = process.env.WEBAUTHN_ORIGIN ?? 'http://localhost:4173';
-    const expectedRpId = new URL(expectedOrigin).hostname;
+    const originRaw = process.env.WEBAUTHN_ORIGIN ?? 'http://localhost:4173';
+    const fallbackRaw = process.env.WEBAUTHN_ORIGIN_FALLBACKS ?? '';
+    const fallbackList = fallbackRaw
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    const expectedOrigins = [originRaw, ...fallbackList];
+    const normalizedOrigins = new Set(expectedOrigins);
+    const originHost = new URL(originRaw).hostname;
+    if (originHost === 'localhost') {
+      normalizedOrigins.add(originRaw.replace('localhost', '127.0.0.1'));
+    } else if (originHost === '127.0.0.1') {
+      normalizedOrigins.add(originRaw.replace('127.0.0.1', 'localhost'));
+    }
+    const originCandidates = Array.from(normalizedOrigins);
+    const toP256RawPublicKey = (publicKey) => {
+      if (!publicKey) {
+        return publicKey;
+      }
+      if (publicKey.byteLength === 33) {
+        try {
+          return p256.ProjectivePoint.fromHex(publicKey).toRawBytes(false);
+        } catch {
+          return publicKey;
+        }
+      }
+      return publicKey;
+    };
 
     return {
       code: edVerifier.code,
@@ -280,18 +321,28 @@ async function createVarsigPrincipal(varsigModule = null) {
             const domain = new TextEncoder().encode('ucan-webauthn-v1:');
             const challengeInput = concat([domain, payload]);
             const challengeHash = await crypto.subtle.digest('SHA-256', challengeInput);
-            const verification = await verifyWebAuthnAssertion(decoded, {
-              expectedOrigin,
-              expectedRpId,
-              expectedChallenge: new Uint8Array(challengeHash),
-              requireUserVerification: false,
-            });
-            if (!verification.valid) {
+            let verification = null;
+            for (const expectedOrigin of originCandidates) {
+              const expectedRpId = new URL(expectedOrigin).hostname;
+              // Try each origin to avoid localhost/127.0.0.1 mismatches in local dev.
+              // eslint-disable-next-line no-await-in-loop
+              verification = await verifyWebAuthnAssertion(decoded, {
+                expectedOrigin,
+                expectedRpId,
+                expectedChallenge: new Uint8Array(challengeHash),
+                requireUserVerification: false,
+              });
+              if (verification.valid) {
+                break;
+              }
+            }
+            if (!verification?.valid) {
               return false;
             }
             const signedData = await reconstructSignedData(decoded);
             if (decoded.algorithm === 'P-256') {
-              return verifyP256Signature(signedData, decoded.signature, edVerifier.publicKey);
+              const p256PublicKey = toP256RawPublicKey(edVerifier.publicKey);
+              return verifyP256Signature(signedData, decoded.signature, p256PublicKey);
             }
             return verifyEd25519Signature(signedData, decoded.signature, edVerifier.publicKey);
           } catch (error) {
@@ -335,6 +386,7 @@ async function createVarsigPrincipal(varsigModule = null) {
  * @param {boolean} [options.autoProvision]
  * @param {unknown} [options.varsigModule]
  * @param {(invocation: unknown) => Promise<void>} [options.onInvocation]
+ * @param {(payload: { can: string; results: unknown[] }) => Promise<void>} [options.onListResults]
  * @returns {Promise<{ server: import('http').Server, url: string }>}
  */
 export async function startUploadApiServer(context, options = {}) {
@@ -346,7 +398,7 @@ export async function startUploadApiServer(context, options = {}) {
   const { base58btc } = await importFromWeb('multiformats/bases/base58');
   const principal = await createVarsigPrincipal(options.varsigModule);
 
-  const { onInvocation, port, autoProvision } = options;
+  const { onInvocation, onListResults, port, autoProvision } = options;
   const agent = createServer({
     ...context,
     codec: CAR.inbound,
@@ -438,14 +490,33 @@ export async function startUploadApiServer(context, options = {}) {
     try {
       const message = await CARTransport.request.decode({ headers: req.headers, body });
       const blobAdds = [];
+      const formatProof = (proof) => {
+        const cid = proof?.cid?.toString?.() ?? null;
+        const signature = proof?.signature?.raw ?? proof?.signature;
+        const length = signature?.byteLength ?? signature?.length ?? null;
+        const prefix =
+          signature?.byteLength || signature?.length
+            ? Array.from(signature.slice(0, 2))
+            : null;
+        return {
+          cid,
+          signatureLength: length,
+          signaturePrefix: prefix,
+        };
+      };
+
       for (const invocation of message.invocations) {
         const proofLinks = (invocation.proofs ?? []).map((proof) =>
           proof?.cid?.toString?.() ?? String(proof)
         );
+        const proofDetails = (invocation.proofs ?? []).map(formatProof);
         console.log('🧪 Invocation received:', {
           can: invocation.capabilities?.map((cap) => cap.can).join(', '),
           proofs: proofLinks
         });
+        if (proofDetails.length > 0) {
+          console.log('🧾 Invocation proof details:', proofDetails);
+        }
         if (onInvocation) {
           await onInvocation(invocation);
         }
@@ -556,6 +627,15 @@ export async function startUploadApiServer(context, options = {}) {
                   root: root ?? undefined,
                 };
               });
+              if (onListResults) {
+                const listCap = capabilities.find((cap) =>
+                  cap?.can === 'upload/list' || cap?.can === 'space/blob/list'
+                );
+                await onListResults({
+                  can: listCap?.can ?? 'unknown',
+                  results: ok.results,
+                });
+              }
               console.log('📋 List response:', {
                 can: capabilities.map((cap) => cap.can).join(', '),
                 size: ok.size ?? ok.results.length,
@@ -573,6 +653,28 @@ export async function startUploadApiServer(context, options = {}) {
         }
       } catch (error) {
         console.warn('⚠️ Failed to decode list response:', error?.message ?? error);
+      }
+    }
+    if (response?.body) {
+      try {
+        const responseMessage = await CARTransport.response.decode({
+          headers: response.headers ?? {},
+          body: response.body,
+        });
+        for (const invocation of responseMessage.invocations) {
+          const capabilities = invocation.capabilities ?? [];
+          const hasIndexAdd = capabilities.some((cap) => cap?.can === 'space/index/add');
+          if (!hasIndexAdd) {
+            continue;
+          }
+          const receipt = responseMessage.get(invocation.link(), null);
+          const outcome = receipt?.out;
+          if (outcome?.error) {
+            console.warn('⚠️ space/index/add receipt error:', outcome.error);
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to decode receipt response:', error?.message ?? error);
       }
     }
     console.log(`✅ upload-api response ${response.status || 200} ${req.method} ${req.url}`);
