@@ -20,6 +20,7 @@ This document provides a detailed visual representation of the entire UCAN Uploa
   - [DID Generation Flow](#did-generation-flow)
   - [UCAN Delegation Creation Flow](#ucan-delegation-creation-flow)
   - [UCAN Delegation Import Flow](#ucan-delegation-import-flow)
+  - [Session Delegation Flow (Prompt Reduction)](#session-delegation-flow-prompt-reduction)
   - [File Upload Flow](#file-upload-flow)
   - [Revocation Flow](#revocation-flow)
   - [Complete End-to-End Flow](#complete-end-to-end-flow)
@@ -131,9 +132,9 @@ graph TB
     end
     
     subgraph "Varsig Layer"
-        VarsigEncoder[Varsig Encoder<br/>webauthn-varsig/encoder.ts]
-        VarsigDecoder[Varsig Decoder<br/>webauthn-varsig/decoder.ts]
-        VarsigVerifier[Varsig Verifier<br/>webauthn-varsig/verifier.ts]
+        VarsigEncoder[Varsig Encoder<br/>iso-webauthn-varsig]
+        VarsigDecoder[Varsig Decoder<br/>iso-webauthn-varsig]
+        VarsigVerifier[Varsig Verifier<br/>iso-webauthn-varsig]
     end
     
     subgraph "UCAN Layer"
@@ -682,6 +683,47 @@ sequenceDiagram
 
 ---
 
+## Session Delegation Flow (Prompt Reduction)
+
+This optional flow reduces WebAuthn prompts by delegating to a short-lived
+in-memory session signer. The user confirms **once** to mint a session
+delegation, then all upload invocations are signed by the session key and carry
+the session proof.
+
+Notes:
+- Enabled by `VITE_SESSION_DELEGATION=1` (TTL via `VITE_SESSION_DELEGATION_TTL_MIN`).
+- Only used when hardware mode is active and a usable authority exists
+  (currently direct Storacha credentials only).
+- The session delegation is **not persisted**, so it must be recreated on each
+  browser session or when TTL expires.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as DelegationManager / Upload UI
+    participant Service as UCANDelegationService
+    participant Hardware as WebAuthn Ed25519 Hardware
+    participant Session as Ephemeral Ed25519 Signer
+    participant Ucanto as @ucanto/core/delegation
+    participant Client as @storacha/client
+    participant API as Storacha API
+
+    Note over UI,Service: After credentials or delegation import
+    UI->>Service: ensureSessionDelegation()
+    Service->>Session: Generate ephemeral Ed25519 signer
+    Service->>Hardware: WebAuthn prompt (once)
+    Hardware-->>Service: Hardware signature
+    Service->>Ucanto: Create delegation (aud: session DID, short TTL)
+    Ucanto-->>Service: Session delegation proof
+
+    Note over Service,Client: Subsequent uploads in same session
+    Service->>Client: createClient(session signer)
+    Client->>API: Invoke upload/add<br/>proofs: [session delegation]
+    API->>API: Verify session delegation chain
+```
+
+---
+
 ## File Upload Flow
 
 ```mermaid
@@ -1189,7 +1231,7 @@ sequenceDiagram
 - **Playwright** - E2E testing framework
 
 ### New Modules (Hardware Mode)
-- **webauthn-varsig** - Varsig encoding/decoding library
+- **iso-webauthn-varsig** - Varsig encoding/decoding library
 - **webauthn-ed25519-signer** - Hardware-backed signer
 - **hardware-ucan-service** - Hardware signing integration
 
@@ -1211,7 +1253,7 @@ sequenceDiagram
 - [ucanto Library](https://github.com/web3-storage/ucanto)
 - [Security Analysis](../SECURITY.md)
 - [Keystore Architecture](./KEYSTORE_ARCHITECTURE.md)
-- [WebAuthn Varsig README](../web/src/lib/webauthn-varsig/README.md) ⭐ NEW
+- [iso-webauthn-varsig README](../iso-repo/packages/iso-webauthn-varsig/readme.md) ⭐ NEW
 - [Integration Guide](../INTEGRATION_GUIDE.md) ⭐ NEW
 - [Varsig Branch Notes](./varsig-branch-notes.md)
 

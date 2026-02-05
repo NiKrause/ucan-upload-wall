@@ -19,7 +19,7 @@ other signed payloads (e.g., OrbitDB oplog entries), while keeping all policy
 and encoding decisions locked.
 
 Package layout (initially local, can split later):
-- Core: `web/src/lib/webauthn-varsig` (encode/decode/verify helpers)
+- Core: `iso-webauthn-varsig` (encode/decode/verify helpers)
 - Browser adapter: WebAuthn credential create/get + signing helpers
 - Optional worker adapter: PRF + worker Ed25519 fallback
 
@@ -101,12 +101,7 @@ WebAuthn verification policy:
 ## Implementation Map
 
 Core varsig module:
-- `web/src/lib/webauthn-varsig/encoder.ts`
-- `web/src/lib/webauthn-varsig/decoder.ts`
-- `web/src/lib/webauthn-varsig/verifier.ts`
-- `web/src/lib/webauthn-varsig/multicodec.ts`
-- `web/src/lib/webauthn-varsig/types.ts`
-- `web/src/lib/webauthn-varsig/utils.ts`
+- `iso-webauthn-varsig` package sources
 
 WebAuthn signers:
 - `web/src/lib/webauthn-ed25519-signer.ts`
@@ -116,7 +111,7 @@ UCAN integration:
 - `web/src/lib/ucan-delegation.ts`
 
 Tests and notes:
-- `web/src/lib/webauthn-varsig/index.test.ts`
+- `web/src/lib/webauthn-varsig.test.ts`
 - `docs/varsig-branch-notes.md`
 
 ## Verification Flow (Summary)

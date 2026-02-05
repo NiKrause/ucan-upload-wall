@@ -193,6 +193,34 @@ npm install
 npm run dev
 ```
 
+### Local In-Memory Storacha (3 terminals)
+Use this when you want the local upload service + Helia preview flow. The
+`storacha:memory` output includes a Helia multiaddr you should pass to the app.
+
+**Terminal 1: local upload API + Helia**
+```bash
+npm run storacha:memory
+```
+
+**Terminal 2: web app pointed at local API**
+```bash
+VITE_UPLOAD_SERVICE_URL=http://127.0.0.1:8787 \
+VITE_UPLOAD_SERVICE_DID=did:web:test.up.storacha.network \
+VITE_REVOCATION_URL=http://127.0.0.1:8787 \
+VITE_HELIA_ADDRS=/ip4/127.0.0.1/tcp/PORT/ws/p2p/PEER_ID \
+npm run dev:local
+```
+
+**Terminal 3: create a delegation (CLI or helper script)**
+```bash
+cd web
+node scripts/test-local-delegation.js
+```
+
+Then paste the delegation proof into the app.
+For more detail, see `docs/local-dev.md` (setup) and `docs/LOCAL_STORACHA_STATUS.md`
+(status, Helia notes, troubleshooting).
+
 ### First-Time Setup
 
 **Option 1: Using Storacha CLI (Recommended for first browser)**

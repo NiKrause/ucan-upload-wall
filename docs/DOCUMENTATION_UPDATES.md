@@ -59,7 +59,7 @@ This document tracks the updates made to the architecture documentation to inclu
 ## New Documentation Created
 
 ### Implementation Documentation ✅
-1. **web/src/lib/webauthn-varsig/README.md**
+1. **iso-webauthn-varsig README**
    - API documentation and usage examples
    - Browser support notes
    - Security considerations
