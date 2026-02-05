@@ -13,7 +13,7 @@ import {
   verifyP256Signature,
   concat,
   type WebAuthnAssertion
-} from './webauthn-varsig/index.js';
+} from 'iso-webauthn-varsig';
 import * as DagUcanSignature from '@ipld/dag-ucan/signature';
 
 const wrapQueuedSign = <T extends { sign: (data: Uint8Array) => Promise<Uint8Array> }>(

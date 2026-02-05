@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "dev:local": "VITE_UPLOAD_SERVICE_URL=http://127.0.0.1:8787 VITE_UPLOAD_SERVICE_DID=did:web:test.up.storacha.network VITE_REVOCATION_URL=http://127.0.0.1:8787 VITE_HELIA_PEER_ID=12D3KooWG7eC38Tfd1qC14vM6AEPHvpBiWaceHUcDqxmmh13aasY VITE_HELIA_ADDRS=/ip4/127.0.0.1/tcp/55965/ws/p2p/12D3KooWCzrhrc7Enr2c33bnziWE3o52JpSqFsFPDd2EhHPGuYqV vite",
+    "dev:local": "VITE_UPLOAD_SERVICE_URL=http://127.0.0.1:8787 VITE_UPLOAD_SERVICE_DID=did:web:test.up.storacha.network VITE_REVOCATION_URL=http://127.0.0.1:8787 VITE_HELIA_PEER_ID=12D3KooWGp58k8Sr2s9XLGnHyGsgGvTDS4qy44BZUKWKCQm3Nco3 VITE_HELIA_ADDRS=/ip4/127.0.0.1/tcp/58211/ws/p2p/12D3KooWGp58k8Sr2s9XLGnHyGsgGvTDS4qy44BZUKWKCQm3Nco3 VITE_SESSION_DELEGATION=1 vite",
     "build": "vite build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -26,16 +26,18 @@
     "@chainsafe/libp2p-noise": "^16.1.5",
     "@chainsafe/libp2p-yamux": "^7.0.4",
     "@helia/unixfs": "^4.0.0",
-    "@le-space/ucanto-principal": "file:/tmp/le-space-ucanto-principal-9.1.1.tgz",
+    "@le-space/ucanto-principal": "^9.1.2",
     "@libp2p/bootstrap": "^11.0.47",
     "@libp2p/identify": "^3.0.39",
     "@libp2p/kad-dht": "^15.1.11",
     "@libp2p/ping": "^2.0.37",
     "@libp2p/websockets": "^9.2.19",
     "@storacha/client": "^1.8.21",
-    "@ucanto/transport": "file:/tmp/le-space-ucanto-transport-9.3.1.tgz",
+    "@ucanto/transport": "npm:@le-space/ucanto-transport@^9.3.1",
     "cbor-web": "^9.0.1",
     "helia": "^5.0.0",
+    "iso-base": "npm:@le-space/iso-base@^4.3.0",
+    "iso-webauthn-varsig": "npm:@le-space/iso-webauthn-varsig@^0.1.0",
     "libp2p": "^2.10.0",
     "lucide-react": "^0.344.0",
     "multiformats": "^13.0.0",
@@ -50,7 +52,7 @@
     "@storacha/upload-api": "^2.8.4",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
-    "@ucanto/server": "file:/tmp/le-space-ucanto-server-11.1.1.tgz",
+    "@le-space/ucanto-server": "^11.1.1",
     "@vitejs/plugin-react": "^4.3.1",
     "@vitest/ui": "^4.0.16",
     "@web3-storage/sigv4": "^1.0.2",
@@ -71,10 +73,10 @@
     "vitest": "^4.0.16"
   },
   "overrides": {
-    "@ucanto/interface": "file:/tmp/le-space-ucanto-interface-11.1.1.tgz",
-    "@ucanto/core": "file:/tmp/le-space-ucanto-core-10.5.1.tgz",
-    "@ucanto/principal": "file:/tmp/le-space-ucanto-principal-9.1.1.tgz",
-    "@ucanto/client": "file:/tmp/le-space-ucanto-client-9.1.1.tgz",
-    "@ucanto/validator": "file:/tmp/le-space-ucanto-validator-10.1.1.tgz"
+    "@ucanto/interface": "npm:@le-space/ucanto-interface@^11.1.1",
+    "@ucanto/core": "npm:@le-space/ucanto-core@^10.5.1",
+    "@ucanto/principal": "npm:@le-space/ucanto-principal@^9.1.2",
+    "@ucanto/client": "npm:@le-space/ucanto-client@^9.1.1",
+    "@ucanto/validator": "npm:@le-space/ucanto-validator@^10.1.1"
   }
 }
