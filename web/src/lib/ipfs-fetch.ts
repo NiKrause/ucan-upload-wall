@@ -224,6 +224,26 @@ export async function loadIpfsBlobUrl(
   return { url, source: 'gateway', gateway };
 }
 
+export async function loadIpfsBlob(
+  cid: string,
+): Promise<{ data: Uint8Array; source: 'helia' | 'gateway'; gateway?: string }> {
+  try {
+    console.log(`🟣 Loading IPFS blob from Helia for ${cid}`);
+    const bytes = await fetchFromHelia(cid);
+    console.log(`🟣 Helia blob data retrieved for ${cid}`);
+    return { data: bytes, source: 'helia' };
+  } catch (error) {
+    const message = (error as Error).message ?? String(error);
+    if (message.includes('Helia local peer unavailable') || message.includes('No Helia bootstrap')) {
+      throw error;
+    }
+    console.warn('Helia fetch failed, falling back to gateways:', error);
+  }
+
+  const { bytes, gateway } = await fetchFromGateways(cid);
+  return { data: bytes, source: 'gateway', gateway };
+}
+
 export function getGatewayUrl(cid: string): string {
   return `${IPFS_GATEWAYS[0]}${cid}`;
 }

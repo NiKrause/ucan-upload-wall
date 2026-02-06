@@ -1601,12 +1601,51 @@ export class UCANDelegationService {
    * @param delegationProof The delegation proof string (multibase encoded)
    * @param name Optional user-friendly name for this delegation
    */
+  /**
+   * Detect if a string is a CID (Content Identifier)
+   * CIDs typically start with 'baf' (base32) or 'Qm' (base58) and have specific length ranges
+   */
+  private isCID(input: string): boolean {
+    const cleaned = input.trim();
+    // Base32 CIDs (v1): start with 'baf' and are typically 46-59 characters
+    // Base58 CIDs (v0): start with 'Qm' and are typically 46 characters
+    const isCIDv1 = cleaned.startsWith('baf') && cleaned.length >= 46 && cleaned.length <= 62;
+    const isCIDv0 = cleaned.startsWith('Qm') && cleaned.length >= 44 && cleaned.length <= 48;
+    return isCIDv1 || isCIDv0;
+  }
+
+  /**
+   * Fetch delegation from IPFS using CID via IPFS gateways
+   */
+  private async fetchDelegationByCID(cid: string): Promise<string> {
+    console.log('📥 Fetching delegation from CID:', cid);
+    
+    try {
+      // Fetch CAR file from IPFS gateways
+      const { loadIpfsBlob } = await import('./ipfs-fetch');
+      const result = await loadIpfsBlob(cid);
+      
+      console.log(`✅ Fetched CAR file bytes, size: ${result.data.length} bytes`);
+      
+      // Parse CAR file to extract the delegation token
+      const { carBytesToToken } = await import('./car-utils');
+      const token = await carBytesToToken(result.data);
+      
+      console.log('✅ Extracted delegation token from CAR file, length:', token.length);
+      
+      return token;
+    } catch (error) {
+      console.error('❌ Failed to fetch delegation from CID:', error);
+      throw new Error(`Failed to fetch delegation from CID: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   async importDelegation(delegationProof: string, name?: string): Promise<void> {
     try {
       // Check if this is a hardware-varsig delegation
       const cleanedProof = delegationProof.trim().replace(/\s+/g, '').replace(/[\r\n]/g, '');
-      const normalizedProof = this.normalizeDelegationProof(cleanedProof);
-      
+      let normalizedProof = this.normalizeDelegationProof(cleanedProof);
+     
       // Try hardware verification first if we have hardware mode
       if (this.hardwareService) {
         try {
@@ -1665,6 +1704,9 @@ export class UCANDelegationService {
           console.log('ℹ️ Not a hardware delegation, trying worker mode:', hardwareError);
           // Fall through to worker mode
         }
+      }
+      if (this.isCID(normalizedProof)) {
+        normalizedProof = await this.fetchDelegationByCID(normalizedProof);
       }
       
       // WORKER MODE: Use existing verification logic
@@ -2635,7 +2677,7 @@ export class UCANDelegationService {
   }
 
   private normalizeDelegationProof(proof: string): string {
-    if (proof.startsWith('m') || proof.startsWith('u')) {
+    if (proof.startsWith('m') || proof.startsWith('u') || this.isCID(proof)) {
       return proof;
     }
 
