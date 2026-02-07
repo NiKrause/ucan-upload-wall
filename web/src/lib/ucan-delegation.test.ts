@@ -89,6 +89,8 @@ vi.mock('./webauthn-did', () => {
 describe('UCANDelegationService hardware fallback behavior', () => {
   beforeEach(() => {
     localStorage.clear();
+    (globalThis as { __UPLOAD_SERVICE_URL__?: string }).__UPLOAD_SERVICE_URL__ =
+      'http://localhost:8787';
     hardwareInitResult = true;
     hardwareDid = 'did:key:z6MkHardwareEd';
     hardwareAlgorithm = 'Ed25519';

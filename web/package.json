@@ -6,7 +6,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "vite",
-    "dev:local": "VITE_UPLOAD_SERVICE_URL=http://127.0.0.1:8787 VITE_UPLOAD_SERVICE_DID=did:web:test.up.storacha.network VITE_REVOCATION_URL=http://127.0.0.1:8787 VITE_HELIA_PEER_ID=12D3KooWGp58k8Sr2s9XLGnHyGsgGvTDS4qy44BZUKWKCQm3Nco3 VITE_HELIA_ADDRS=/ip4/127.0.0.1/tcp/58211/ws/p2p/12D3KooWGp58k8Sr2s9XLGnHyGsgGvTDS4qy44BZUKWKCQm3Nco3 VITE_SESSION_DELEGATION=1 vite",
+    "dev:local": "VITE_UPLOAD_SERVICE_URL=http://127.0.0.1:8787 VITE_UPLOAD_SERVICE_DID=did:web:test.up.storacha.network VITE_REVOCATION_URL=http://127.0.0.1:8787 VITE_HELIA_PEER_ID=12D3KooWJ5HoeSNDNgnCeoHeGLWCn9B5GXTHZsndruHedupG6U4X VITE_HELIA_ADDRS=/ip4/127.0.0.1/tcp/51712/ws/p2p/12D3KooWJ5HoeSNDNgnCeoHeGLWCn9B5GXTHZsndruHedupG6U4X VITE_SESSION_DELEGATION=1 vite",
+
     "build": "vite build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
