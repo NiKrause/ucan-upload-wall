@@ -1,3 +1,96 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Epilogue:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-neutral-50 text-dark;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Epilogue', system-ui, sans-serif;
+  }
+
+  code, pre, .font-mono {
+    font-family: 'DM Mono', ui-monospace, monospace;
+  }
+}
+
+@layer components {
+  /* Storacha Primary Button */
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-4 py-2
+           bg-storacha-red text-white font-medium rounded-lg
+           hover:bg-storacha-red-dark active:bg-primary-700
+           transition-colors duration-200
+           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Storacha Secondary Button */
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-4 py-2
+           bg-white text-dark font-medium rounded-lg
+           border border-neutral-300
+           hover:bg-neutral-50 hover:border-neutral-400 active:bg-neutral-100
+           transition-colors duration-200
+           focus:outline-none focus:ring-2 focus:ring-neutral-400 focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Storacha Accent Button */
+  .btn-accent {
+    @apply inline-flex items-center justify-center px-4 py-2
+           bg-accent-blue text-white font-medium rounded-lg
+           hover:bg-accent-blue-dark active:bg-accent-blue-dark
+           transition-colors duration-200
+           focus:outline-none focus:ring-2 focus:ring-accent-blue focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Card Component */
+  .card {
+    @apply bg-white rounded-xl border border-neutral-200 shadow-card
+           transition-shadow duration-200
+           hover:shadow-card-hover;
+  }
+
+  /* Input Field */
+  .input-field {
+    @apply w-full px-3 py-2
+           bg-white border border-neutral-300 rounded-lg
+           text-dark placeholder-neutral-400
+           focus:outline-none focus:ring-2 focus:ring-accent-blue focus:border-transparent
+           transition-colors duration-200;
+  }
+
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5
+           rounded-full text-xs font-medium;
+  }
+
+  .badge-primary {
+    @apply badge bg-primary-100 text-primary-700;
+  }
+
+  .badge-accent {
+    @apply badge bg-accent-purple text-accent-blue-dark;
+  }
+
+  .badge-success {
+    @apply badge bg-green-100 text-green-700;
+  }
+
+  .badge-warning {
+    @apply badge bg-amber-100 text-amber-700;
+  }
+}
