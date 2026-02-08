@@ -99,36 +99,38 @@ async function getHeliaClient(): Promise<{ helia: HeliaClient; fs: UnixFsLike }>
       });
       const fs = unixfs(helia);
       if (!heliaBootstrap?.peerId || heliaBootstrap.addrs.length === 0) {
-        throw new Error('No Helia bootstrap address provided. Start the local server Helia.');
-      }
-      try {
-        const { multiaddr } = await import('@multiformats/multiaddr');
-        const { peerIdFromString } = await import('@libp2p/peer-id');
-        const peerId = peerIdFromString(heliaBootstrap.peerId);
-        const addrs = heliaBootstrap.addrs.map((addr) => multiaddr(addr));
-        await libp2p.peerStore.patch(peerId, { multiaddrs: addrs });
-        await dialWithTimeout(libp2p, heliaBootstrap.peerId);
-        (globalThis as GlobalHeliaOverrides).__HELIA_READY__ = true;
-        (globalThis as GlobalHeliaOverrides).__HELIA_READY_PEER__ = heliaBootstrap.peerId;
-        (globalThis as GlobalHeliaOverrides).__HELIA_READY_ERROR__ = undefined;
-        logHeliaConnections(libp2p, 'dialed local peer');
-        if (libp2p.services?.ping) {
-          try {
-            const latency = await libp2p.services.ping.ping(peerId);
-            console.log(`🟣 Helia ping local peer: ${latency}ms`);
-          } catch (error) {
-            console.warn('🟣 Helia ping failed:', (error as Error).message);
-          }
-        }
-      } catch (error) {
-        const message = `Helia local peer unavailable. Ensure the local server Helia is running. Details: ${
-          (error as Error).message
-        }`;
+        console.log('🟣 Helia starting without local bootstrap (public DHT only)');
         (globalThis as GlobalHeliaOverrides).__HELIA_READY__ = false;
-        (globalThis as GlobalHeliaOverrides).__HELIA_READY_ERROR__ = message;
-        throw new Error(message);
+        (globalThis as GlobalHeliaOverrides).__HELIA_READY_PEER__ = undefined;
+        (globalThis as GlobalHeliaOverrides).__HELIA_READY_ERROR__ = undefined;
+      } else {
+        try {
+          const { multiaddr } = await import('@multiformats/multiaddr');
+          const { peerIdFromString } = await import('@libp2p/peer-id');
+          const peerId = peerIdFromString(heliaBootstrap.peerId);
+          const addrs = heliaBootstrap.addrs.map((addr) => multiaddr(addr));
+          await libp2p.peerStore.patch(peerId, { multiaddrs: addrs });
+          await dialWithTimeout(libp2p, heliaBootstrap.peerId);
+          (globalThis as GlobalHeliaOverrides).__HELIA_READY__ = true;
+          (globalThis as GlobalHeliaOverrides).__HELIA_READY_PEER__ = heliaBootstrap.peerId;
+          (globalThis as GlobalHeliaOverrides).__HELIA_READY_ERROR__ = undefined;
+          logHeliaConnections(libp2p, 'dialed local peer');
+          if (libp2p.services?.ping) {
+            try {
+              const latency = await libp2p.services.ping.ping(peerId);
+              console.log(`🟣 Helia ping local peer: ${latency}ms`);
+            } catch (error) {
+              console.warn('🟣 Helia ping failed:', (error as Error).message);
+            }
+          }
+          console.log(`🟣 Helia node started in browser (dialed ${heliaBootstrap.peerId})`);
+        } catch (error) {
+          const message = `Helia local peer unavailable. Details: ${(error as Error).message}`;
+          (globalThis as GlobalHeliaOverrides).__HELIA_READY__ = false;
+          (globalThis as GlobalHeliaOverrides).__HELIA_READY_ERROR__ = message;
+          console.warn('🟣 Helia local peer unavailable:', message);
+        }
       }
-      console.log(`🟣 Helia node started in browser (dialed ${heliaBootstrap.peerId})`);
       return { helia, fs };
     })();
   }
@@ -137,10 +139,6 @@ async function getHeliaClient(): Promise<{ helia: HeliaClient; fs: UnixFsLike }>
 
 export function warmupHeliaClient(): void {
   if (heliaPromise) {
-    return;
-  }
-  const heliaBootstrap = (globalThis as GlobalHeliaOverrides).__HELIA_BOOTSTRAP__;
-  if (!heliaBootstrap?.peerId) {
     return;
   }
   console.log('🟣 Helia warmup starting...');
@@ -259,10 +257,6 @@ export async function loadIpfsBlobUrl(
     console.log(`🟣 Helia blob URL created for ${cid}`);
     return { url, source: 'helia' };
   } catch (error) {
-    const message = (error as Error).message ?? String(error);
-    if (message.includes('Helia local peer unavailable') || message.includes('No Helia bootstrap')) {
-      throw error;
-    }
     console.warn('Helia fetch failed, falling back to gateways:', error);
   }
 
@@ -282,10 +276,6 @@ export async function loadIpfsBlob(
     console.log(`🟣 Helia blob data retrieved for ${cid}`);
     return { data: bytes, source: 'helia' };
   } catch (error) {
-    const message = (error as Error).message ?? String(error);
-    if (message.includes('Helia local peer unavailable') || message.includes('No Helia bootstrap')) {
-      throw error;
-    }
     console.warn('Helia fetch failed, falling back to gateways:', error);
   }
 
