@@ -314,6 +314,13 @@ function App() {
       message: '✅ Delegation imported! You can now upload files.',
     });
   }, [delegationService]);
+
+  const handleDelegationUploaded = useCallback((cid: string) => {
+    setAlert({
+      type: 'success',
+      message: `✅ Delegation uploaded to Storacha. CID: ${cid}`,
+    });
+  }, []);
   
   const handleReloadFiles = useCallback(async () => {
     setIsLoadingFiles(true);
@@ -382,6 +389,7 @@ function App() {
             delegationService={delegationService}
             onDidCreated={handleDidCreated}
             onDelegationImported={handleDelegationImported}
+            onDelegationUploaded={handleDelegationUploaded}
           />
         );
       

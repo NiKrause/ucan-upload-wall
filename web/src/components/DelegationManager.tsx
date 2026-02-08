@@ -8,9 +8,10 @@ interface DelegationManagerProps {
   delegationService: UCANDelegationService;
   onDidCreated?: () => void;
   onDelegationImported?: () => void;
+  onDelegationUploaded?: (cid: string) => void;
 }
 
-export function DelegationManager({ delegationService, onDidCreated, onDelegationImported }: DelegationManagerProps) {
+export function DelegationManager({ delegationService, onDidCreated, onDelegationImported, onDelegationUploaded }: DelegationManagerProps) {
   const [currentDID, setCurrentDID] = useState<string | null>(null);
   const [isNativeEd25519, setIsNativeEd25519] = useState(false);
   const [createdDelegations, setCreatedDelegations] = useState<DelegationInfo[]>([]);
@@ -185,6 +186,9 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       const uploadResult = await delegationService.uploadFile(carFile);
       const cid = uploadResult.cid;
       console.log('✅ Delegation file uploaded, CID:', cid);
+      if (onDelegationUploaded) {
+        onDelegationUploaded(cid);
+      }
       
       loadData();
       setShowCreateForm(false);
