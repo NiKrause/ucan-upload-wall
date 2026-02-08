@@ -17,7 +17,7 @@ import { test, expect, BrowserContext, Page } from '@playwright/test';
 import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpers/webauthn';
 import * as ed25519 from '@ucanto/principal/ed25519';
 import { delegate } from '@ucanto/core';
-import { loadUploadApiTestContext } from '../../local-storacha-api/upload-service.mjs';
+import { loadUploadApiTestContext, startUploadApiServer } from '../../local-storacha-api/upload-service.mjs';
 
 // Import test context from upload-api
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -40,6 +40,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
   let cdpSession: { client: unknown; authenticatorId: string };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let uploadServiceContext: any;
+  let uploadApiServer: { server: import('http').Server; url: string } | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let spaceAgent: any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -59,6 +60,11 @@ test.describe('UCAN Revocation Flow - E2E', () => {
       requirePaymentPlan: false
     });
     console.log('✅ Upload service created:', uploadServiceContext.id.did());
+
+    uploadApiServer = await startUploadApiServer(uploadServiceContext, {
+      port: 0,
+      autoProvision: true,
+    });
 
     // 2. Create space and agent
     console.log('🔑 Creating space agent...');
@@ -93,6 +99,21 @@ test.describe('UCAN Revocation Flow - E2E', () => {
 
     cdpSession = await enableVirtualAuthenticator(context);
 
+    await context.addInitScript(
+      ({ revocationUrl, revocationDid, uploadServiceUrl, uploadServiceDid }) => {
+        window.__REVOCATION_URL__ = revocationUrl;
+        window.__REVOCATION_DID__ = revocationDid;
+        window.__UPLOAD_SERVICE_URL__ = uploadServiceUrl;
+        window.__UPLOAD_SERVICE_DID__ = uploadServiceDid;
+      },
+      {
+        revocationUrl: uploadApiServer.url,
+        revocationDid: uploadServiceContext.id.did(),
+        uploadServiceUrl: uploadApiServer.url,
+        uploadServiceDid: uploadServiceContext.id.did(),
+      }
+    );
+
     await page.goto('/');
 
     // Clear storage for fresh start
@@ -116,6 +137,11 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     if (uploadServiceContext) {
       await cleanupContext(uploadServiceContext);
       console.log('✅ Upload service cleaned up');
+    }
+
+    if (uploadApiServer?.server) {
+      await new Promise((resolve) => uploadApiServer?.server.close(() => resolve(null)));
+      uploadApiServer = null;
     }
 
     await context?.close().catch(() => {});
@@ -283,6 +309,49 @@ test.describe('UCAN Revocation Flow - E2E', () => {
 
     await page.waitForTimeout(3000);
     console.log('✅ Delegation imported');
+  }
+
+  async function revokeDelegationViaService(delegationBase64: string): Promise<void> {
+    const { extract } = await import('@ucanto/core/delegation');
+    const { invoke } = await import('@ucanto/core');
+    const UcantoClient = await import('@ucanto/client');
+    const { CAR, HTTP } = await import('@ucanto/transport');
+
+    const tokenBytes = Buffer.from(delegationBase64.slice(1), 'base64');
+    const extractResult = await extract(tokenBytes);
+    const delegation = extractResult?.ok ?? extractResult;
+
+    const revocationInvocation = await invoke({
+      issuer: spaceAgent,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      audience: uploadServiceContext.id as any,
+      capability: {
+        can: 'ucan/revoke',
+        with: spaceAgent.did(),
+        nb: {
+          ucan: delegation.cid
+        }
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      proofs: [delegation] as any
+    });
+
+    const connection = UcantoClient.connect({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      id: uploadServiceContext.id as any,
+      codec: CAR.outbound,
+      channel: HTTP.open({
+        url: new URL(uploadApiServer!.url),
+        method: 'POST',
+      }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    }) as any;
+
+    const results = await connection.execute(revocationInvocation);
+    const result = results?.[0];
+    if (result?.out?.error) {
+      throw new Error(result.out.error.message || 'Revocation failed');
+    }
   }
 
   test('should show Active status badge for valid delegation', async () => {
@@ -987,44 +1056,22 @@ test.describe('UCAN Revocation Flow - E2E', () => {
       }
     }
 
-    // Step 4: Mock the revocation API to simulate successful revocation
-    await page.route('**/up.storacha.network/**', async (route) => {
-      const url = route.request().url();
+    // Step 4: Revoke the created delegation via UI
+    const revokeButton = page.locator('button', { hasText: 'Revoke' }).first();
+    const hasRevokeButton = await revokeButton.isVisible().catch(() => false);
 
-      if (url.includes('/revocations/')) {
-        // Simulate revocation check - return revoked status
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ revoked: true, status: 'revoked' })
-        });
-      } else if (route.request().method() === 'POST') {
-        // Simulate successful revocation request
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ ok: {} })
-        });
-      } else {
-        await route.continue();
+    if (hasRevokeButton) {
+      await revokeButton.click();
+      const confirmButton = page.locator('button', { hasText: /Confirm|Revoke/i }).last();
+      if (await confirmButton.isVisible().catch(() => false)) {
+        await confirmButton.click();
       }
-    });
+      await page.waitForTimeout(2000);
+    } else {
+      console.log('ℹ️ Revoke button not visible in current view');
+    }
 
-    // Step 5: Manually set a delegation as revoked in localStorage to test UI
-    await page.evaluate(() => {
-      const createdDelegations = localStorage.getItem('created_delegations');
-      if (createdDelegations) {
-        const delegations = JSON.parse(createdDelegations);
-        if (delegations.length > 0) {
-          delegations[0].revoked = true;
-          delegations[0].revokedAt = new Date().toISOString();
-          delegations[0].revokedBy = 'did:key:test';
-          localStorage.setItem('created_delegations', JSON.stringify(delegations));
-        }
-      }
-    });
-
-    // Step 6: Reload and check for Revoked badge
+    // Step 5: Reload and check for Revoked badge
     await page.reload();
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2000);
@@ -1046,7 +1093,6 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     if (hasRevokedBadge) {
       console.log('✅ Revoked badge is visible after revocation');
     } else {
-      // Verify revocation info in localStorage
       const storedData = await page.evaluate(() => {
         return {
           created: localStorage.getItem('created_delegations'),
@@ -1054,7 +1100,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
         };
       });
       console.log('📦 Storage state:', storedData);
-      console.log('✅ Revocation state verified in localStorage');
+      console.log('⚠️ Revoked badge not visible; check logs and cache');
     }
 
     console.log('\n✅ TEST PASSED: Complete Revocation Flow\n');
@@ -1359,75 +1405,59 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     const delegationBase64 = await createDelegation(browserDID);
     await importDelegationViaUI(delegationBase64, 'Revoked Test Delegation');
 
-    // Step 3: Verify delegation was stored
-    const storedBefore = await page.evaluate(() => {
-      return localStorage.getItem('received_delegations');
-    });
+    // Step 3: Upload once (should succeed)
+    await page.getByRole('button', { name: /Upload Files/i }).first().click();
+    await page.waitForTimeout(2000);
+    await page.waitForLoadState('networkidle');
 
-    if (!storedBefore) {
-      console.log('ℹ️ No delegation found - testing with mock data');
-      // Create mock delegation data for testing revocation logic
-      await page.evaluate((did) => {
-        const mockDelegation = {
-          id: 'bafyreig5e3pnzivhqk2iykhxp5qbvmmfgfey27fbbb3dqfhxs6aqjfqwqd',
-          name: 'Mock Revoked Delegation',
-          fromIssuer: 'did:key:z6MkhaXgBZDvotDkL5257faiztiGiC2QtKLGpbnnEGta2doK',
-          toAudience: did,
-          proof: 'mtest-proof',
-          capabilities: ['store/add', 'upload/add'],
-          createdAt: new Date().toISOString(),
-          revoked: true,
-          revokedAt: new Date().toISOString()
-        };
-        localStorage.setItem('received_delegations', JSON.stringify([mockDelegation]));
+    const fileInput = page.locator('input[type="file"]');
+    const uploadButton = page.getByRole('button', { name: /Upload to Storacha/i });
+    await expect(fileInput).toBeVisible({ timeout: 10000 });
+    await expect(uploadButton).toBeVisible({ timeout: 10000 });
 
-        const cache: Record<string, { revoked: boolean; checkedAt: number }> = {};
-        cache[mockDelegation.id] = { revoked: true, checkedAt: Date.now() };
-        localStorage.setItem('revocation_cache', JSON.stringify(cache));
-      }, browserDID);
-    } else {
-      // Mark the existing delegation as revoked
-      await page.evaluate(() => {
-        const stored = localStorage.getItem('received_delegations');
-        if (stored) {
-          const delegations = JSON.parse(stored);
-          if (delegations.length > 0) {
-            delegations[0].revoked = true;
-            delegations[0].revokedAt = new Date().toISOString();
-            localStorage.setItem('received_delegations', JSON.stringify(delegations));
+    const firstContent = `revocation-test-before-${Date.now()}`;
+    const firstTransfer = await page.evaluateHandle((content) => {
+      const dt = new DataTransfer();
+      const file = new File([content], 'revocation-before.txt', { type: 'text/plain' });
+      dt.items.add(file);
+      return dt;
+    }, firstContent);
 
-            const cache: Record<string, { revoked: boolean; checkedAt: number }> = {};
-            cache[delegations[0].id] = { revoked: true, checkedAt: Date.now() };
-            localStorage.setItem('revocation_cache', JSON.stringify(cache));
-          }
-        }
-      });
-    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await fileInput.evaluateHandle((input: any, dt: any) => {
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, firstTransfer);
 
-    console.log('📦 Marked delegation as revoked');
+    await uploadButton.click();
+    const firstSuccess = page.getByText(/Successfully uploaded revocation-before\.txt/i);
+    await expect(firstSuccess).toBeVisible({ timeout: 60000 });
+    console.log('✅ Upload succeeded before revocation');
 
-    // Step 4: Verify revoked state in localStorage
-    const storedState = await page.evaluate(() => {
-      return {
-        delegations: localStorage.getItem('received_delegations'),
-        cache: localStorage.getItem('revocation_cache')
-      };
-    });
+    // Step 4: Revoke the delegation via local revocation service
+    await revokeDelegationViaService(delegationBase64);
+    await page.waitForTimeout(1500);
+    console.log('✅ Delegation revoked via service');
 
-    expect(storedState.delegations).toBeTruthy();
-    const delegations = JSON.parse(storedState.delegations!);
-    const isRevoked = delegations.some((d: { revoked?: boolean }) => d.revoked === true);
-    expect(isRevoked).toBe(true);
-    console.log('✅ Delegation is marked as revoked in storage');
+    // Step 5: Attempt upload again (should be blocked)
+    const secondContent = `revocation-test-after-${Date.now()}`;
+    const secondTransfer = await page.evaluateHandle((content) => {
+      const dt = new DataTransfer();
+      const file = new File([content], 'revocation-after.txt', { type: 'text/plain' });
+      dt.items.add(file);
+      return dt;
+    }, secondContent);
 
-    // Step 5: Verify revocation cache contains the revoked status
-    expect(storedState.cache).toBeTruthy();
-    const cache = JSON.parse(storedState.cache!);
-    const hasRevokedEntry = Object.values(cache).some(
-      (entry: unknown) => (entry as { revoked: boolean }).revoked === true
-    );
-    expect(hasRevokedEntry).toBe(true);
-    console.log('✅ Revocation cache confirms revoked status');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await fileInput.evaluateHandle((input: any, dt: any) => {
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, secondTransfer);
+
+    await uploadButton.click();
+    const blockedAlert = page.getByText(/No valid upload delegation found|revoked/i);
+    await expect(blockedAlert).toBeVisible({ timeout: 60000 });
+    console.log('✅ Upload blocked after revocation');
 
     console.log('\n✅ TEST PASSED: Block Operations for Revoked Delegations\n');
   });

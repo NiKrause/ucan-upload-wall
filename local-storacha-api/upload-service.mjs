@@ -395,12 +395,13 @@ export async function startUploadApiServer(context, options = {}) {
   const { createServer, handle } = await importFromWeb('@storacha/upload-api');
   const { CAR } = await importFromWeb('@ucanto/transport');
   const CARTransport = await importFromWeb('@ucanto/transport/car');
-  const { Message } = await importFromWeb('@ucanto/core');
+  const { Message, Receipt } = await importFromWeb('@ucanto/core');
   const Digest = await importFromWeb('multiformats/hashes/digest');
   const { base58btc } = await importFromWeb('multiformats/bases/base58');
   const principal = await createVarsigPrincipal(options.varsigModule);
 
   const { onInvocation, onListResults, port, autoProvision, onCarBytes } = options;
+  const revocations = new Map();
   const agent = createServer({
     ...context,
     codec: CAR.inbound,
@@ -455,6 +456,39 @@ export async function startUploadApiServer(context, options = {}) {
       return;
     }
 
+    if (req.method === 'GET' && req.url?.startsWith('/revocations/')) {
+      const delegationCid = req.url.slice('/revocations/'.length);
+      if (!delegationCid) {
+        res.writeHead(204, { 'Access-Control-Allow-Origin': '*' });
+        res.end();
+        return;
+      }
+
+      const record = revocations.get(delegationCid);
+      if (!record) {
+        res.writeHead(404, {
+          'Access-Control-Allow-Origin': '*',
+          'Content-Type': 'application/json',
+        });
+        res.end(JSON.stringify({ revoked: false, status: 'not_found' }));
+        return;
+      }
+
+      res.writeHead(200, {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json',
+      });
+      res.end(
+        JSON.stringify({
+          revoked: true,
+          status: 'revoked',
+          revokedAt: record.revokedAt,
+          revokedBy: record.revokedBy,
+        })
+      );
+      return;
+    }
+
     if (req.method === 'GET' && req.url?.startsWith('/.well-known/did.json')) {
       const serviceDid = context.id.did();
       const didKey = context.id.toDIDKey();
@@ -504,6 +538,7 @@ export async function startUploadApiServer(context, options = {}) {
     }
 
     const listInvocations = [];
+    const revokeInvocations = [];
     try {
       const message = await CARTransport.request.decode({ headers: req.headers, body });
       const blobAdds = [];
@@ -538,6 +573,9 @@ export async function startUploadApiServer(context, options = {}) {
           await onInvocation(invocation);
         }
         for (const capability of invocation.capabilities ?? []) {
+          if (capability?.can === 'ucan/revoke') {
+            revokeInvocations.push({ invocation, capability });
+          }
           if (capability?.can === 'upload/list' || capability?.can === 'space/blob/list') {
             listInvocations.push(capability.can);
           }
@@ -608,6 +646,36 @@ export async function startUploadApiServer(context, options = {}) {
         } catch (error) {
           console.warn('⚠️ Failed to verify blob add:', error?.message ?? error);
         }
+      }
+
+      if (revokeInvocations.length > 0 && revokeInvocations.length === message.invocations.length) {
+        const receipts = [];
+        for (const { invocation, capability } of revokeInvocations) {
+          const revokeCid = capability?.nb?.ucan?.toString?.() ?? null;
+          if (revokeCid) {
+            revocations.set(revokeCid, {
+              revokedAt: new Date().toISOString(),
+              revokedBy: invocation.issuer?.did?.() ?? null,
+            });
+          }
+          const receipt = await Receipt.issue({
+            issuer: context.id,
+            ran: invocation,
+            result: { ok: {} },
+          });
+          receipts.push(receipt);
+        }
+
+        const responseMessage = await Message.build({ receipts });
+        const responseBody = CARTransport.response.encode(responseMessage).body;
+        res.writeHead(200, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Content-Type': 'application/car',
+        });
+        res.end(responseBody);
+        return;
       }
 
     } catch (error) {
