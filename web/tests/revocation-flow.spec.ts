@@ -165,9 +165,18 @@ test.describe('UCAN Revocation Flow - E2E', () => {
    */
   async function createDelegation(
     audienceDID: string,
-    options: { expiresInSeconds?: number } = {}
+    options: {
+      expiresInSeconds?: number;
+      spaceOverride?: typeof space;
+      spaceAgentOverride?: typeof spaceAgent;
+      spaceProofOverride?: typeof spaceProof;
+    } = {}
   ): Promise<string> {
     console.log('🔐 Creating delegation from space to browser DID...');
+
+    const delegationSpace = options.spaceOverride ?? space;
+    const delegationSpaceAgent = options.spaceAgentOverride ?? spaceAgent;
+    const delegationSpaceProof = options.spaceProofOverride ?? spaceProof;
 
     const browserPrincipal = {
       did: () => audienceDID as `did:key:${string}`,
@@ -180,14 +189,14 @@ test.describe('UCAN Revocation Flow - E2E', () => {
         : undefined;
 
     const delegation = await delegate({
-      issuer: spaceAgent,
+      issuer: delegationSpaceAgent,
       audience: browserPrincipal,
       capabilities: [
-        { with: space.did(), can: 'store/add' },
-        { with: space.did(), can: 'upload/add' },
-        { with: space.did(), can: 'upload/list' }
+        { with: delegationSpace.did(), can: 'store/add' },
+        { with: delegationSpace.did(), can: 'upload/add' },
+        { with: delegationSpace.did(), can: 'upload/list' }
       ],
-      proofs: [spaceProof],
+      proofs: [delegationSpaceProof],
       expiration,
     });
 
@@ -201,6 +210,40 @@ test.describe('UCAN Revocation Flow - E2E', () => {
 
     console.log('✅ Delegation created');
     return delegationBase64;
+  }
+
+  /**
+   * Helper function to create a new space + agent + proof and provision it.
+   */
+  async function createSpaceContext(): Promise<{
+    space: typeof space;
+    spaceAgent: typeof spaceAgent;
+    spaceProof: typeof spaceProof;
+    spaceDid: string;
+  }> {
+    const newSpaceAgent = await ed25519.generate();
+    const newSpace = await ed25519.generate();
+    const newSpaceDid = newSpace.did();
+
+    const newSpaceProof = await delegate({
+      issuer: newSpace,
+      audience: newSpaceAgent,
+      capabilities: [{ can: '*', with: newSpace.did() }],
+    });
+
+    await uploadServiceContext.provisionsStorage.put({
+      cause: newSpaceProof.cid,
+      consumer: newSpaceDid,
+      customer: uploadServiceContext.id.did(),
+      provider: uploadServiceContext.id.did(),
+    });
+
+    return {
+      space: newSpace,
+      spaceAgent: newSpaceAgent,
+      spaceProof: newSpaceProof,
+      spaceDid: newSpaceDid,
+    };
   }
 
   /**
@@ -704,7 +747,13 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     console.log('✅ First delegation imported');
 
     // Step 4: Import second delegation
-    const validDelegation2 = await createDelegation(browserDID, { expiresInSeconds: 7200 });
+    const secondSpace = await createSpaceContext();
+    const validDelegation2 = await createDelegation(browserDID, {
+      expiresInSeconds: 7200,
+      spaceOverride: secondSpace.space,
+      spaceAgentOverride: secondSpace.spaceAgent,
+      spaceProofOverride: secondSpace.spaceProof,
+    });
     await importDelegationViaUI(validDelegation2, 'Valid Delegation 2');
 
     // Step 5: Verify count increased
