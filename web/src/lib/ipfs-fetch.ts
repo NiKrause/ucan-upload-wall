@@ -18,6 +18,9 @@ type HeliaBootstrap = { peerId: string; addrs: string[] };
 type GlobalHeliaOverrides = typeof globalThis & {
   __HELIA_BOOTSTRAP__?: HeliaBootstrap;
   __LAST_IPFS_BLOB_URL__?: string;
+  __HELIA_READY__?: boolean;
+  __HELIA_READY_PEER__?: string;
+  __HELIA_READY_ERROR__?: string;
 };
 
 type Libp2pConnectionLike = {
@@ -105,6 +108,9 @@ async function getHeliaClient(): Promise<{ helia: HeliaClient; fs: UnixFsLike }>
         const addrs = heliaBootstrap.addrs.map((addr) => multiaddr(addr));
         await libp2p.peerStore.patch(peerId, { multiaddrs: addrs });
         await dialWithTimeout(libp2p, heliaBootstrap.peerId);
+        (globalThis as GlobalHeliaOverrides).__HELIA_READY__ = true;
+        (globalThis as GlobalHeliaOverrides).__HELIA_READY_PEER__ = heliaBootstrap.peerId;
+        (globalThis as GlobalHeliaOverrides).__HELIA_READY_ERROR__ = undefined;
         logHeliaConnections(libp2p, 'dialed local peer');
         if (libp2p.services?.ping) {
           try {
@@ -115,17 +121,46 @@ async function getHeliaClient(): Promise<{ helia: HeliaClient; fs: UnixFsLike }>
           }
         }
       } catch (error) {
-        throw new Error(
-          `Helia local peer unavailable. Ensure the local server Helia is running. Details: ${
-            (error as Error).message
-          }`
-        );
+        const message = `Helia local peer unavailable. Ensure the local server Helia is running. Details: ${
+          (error as Error).message
+        }`;
+        (globalThis as GlobalHeliaOverrides).__HELIA_READY__ = false;
+        (globalThis as GlobalHeliaOverrides).__HELIA_READY_ERROR__ = message;
+        throw new Error(message);
       }
       console.log(`🟣 Helia node started in browser (dialed ${heliaBootstrap.peerId})`);
       return { helia, fs };
     })();
   }
   return heliaPromise!;
+}
+
+export function warmupHeliaClient(): void {
+  if (heliaPromise) {
+    return;
+  }
+  const heliaBootstrap = (globalThis as GlobalHeliaOverrides).__HELIA_BOOTSTRAP__;
+  if (!heliaBootstrap?.peerId) {
+    return;
+  }
+  console.log('🟣 Helia warmup starting...');
+  getHeliaClient().catch((error) => {
+    console.warn('🟣 Helia warmup failed:', error);
+  });
+}
+
+export async function pingHeliaLocalPeer(): Promise<void> {
+  const heliaBootstrap = (globalThis as GlobalHeliaOverrides).__HELIA_BOOTSTRAP__;
+  if (!heliaBootstrap?.peerId) {
+    return;
+  }
+  const { helia } = await getHeliaClient();
+  const { peerIdFromString } = await import('@libp2p/peer-id');
+  const peerId = peerIdFromString(heliaBootstrap.peerId);
+  if (helia.libp2p.services?.ping) {
+    const latency = await helia.libp2p.services.ping.ping(peerId);
+    console.log(`🟣 Helia ping local peer (pre-view): ${latency}ms`);
+  }
 }
 
 function concatBytes(chunks: Uint8Array[]): Uint8Array {
@@ -234,6 +269,7 @@ export async function loadIpfsBlobUrl(
   const { bytes, contentType, gateway } = await fetchFromGateways(cid);
   const type = expectImage ? detectImageMime(bytes) ?? contentType : contentType;
   const url = URL.createObjectURL(new Blob([Uint8Array.from(bytes)], { type }));
+  (globalThis as GlobalHeliaOverrides).__LAST_IPFS_BLOB_URL__ = url;
   return { url, source: 'gateway', gateway };
 }
 

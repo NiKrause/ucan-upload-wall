@@ -7,7 +7,12 @@ import { DelegationManager } from './components/DelegationManager';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useFileUpload } from './hooks/useFileUpload';
 import { UploadedFile } from './types/upload';
-import { loadIpfsBlobUrl, getGatewayUrl } from './lib/ipfs-fetch';
+import {
+  loadIpfsBlobUrl,
+  getGatewayUrl,
+  warmupHeliaClient,
+  pingHeliaLocalPeer,
+} from './lib/ipfs-fetch';
 
 type AppView = 'upload' | 'delegations';
 
@@ -44,6 +49,9 @@ function App() {
   } | null>(null);
   
   useEffect(() => {
+    // Warm up Helia early so view/preview doesn't race the initial dial.
+    warmupHeliaClient();
+
     // Check if DID is available
     const hasDID = !!delegationService.getCurrentDID();
     setDidCreated(hasDID);
@@ -208,6 +216,7 @@ function App() {
   const handleViewFile = useCallback(async (rootCid: string) => {
     setViewerState({ cid: rootCid, loading: true });
     try {
+      await pingHeliaLocalPeer();
       const { url, source, gateway } = await loadIpfsBlobUrl(rootCid, { expectImage: true });
       setViewerState({ cid: rootCid, url, source, gateway, loading: false });
     } catch (error) {

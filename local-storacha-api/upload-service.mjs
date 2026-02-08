@@ -197,9 +197,10 @@ export function consumeBlobAddSpace(multihash) {
  *
  * @param {object} [options]
  * @param {(info: { bytes: Uint8Array, url: string, headers: import('http').IncomingHttpHeaders }) => void | Promise<void>} [options.onPutBytes]
+ * @param {(info: { bytes: Uint8Array, url: string, headers: import('http').IncomingHttpHeaders }) => void | Promise<void>} [options.onCarBytes]
  * @returns {import('http')}
  */
-export function createCorsHttp({ onPutBytes } = {}) {
+export function createCorsHttp({ onPutBytes, onCarBytes } = {}) {
   return {
     ...http,
     createServer: (handler) =>
@@ -387,6 +388,7 @@ async function createVarsigPrincipal(varsigModule = null) {
  * @param {unknown} [options.varsigModule]
  * @param {(invocation: unknown) => Promise<void>} [options.onInvocation]
  * @param {(payload: { can: string; results: unknown[] }) => Promise<void>} [options.onListResults]
+ * @param {(info: { bytes: Uint8Array, url: string, headers: import('http').IncomingHttpHeaders }) => void | Promise<void>} [options.onCarBytes]
  * @returns {Promise<{ server: import('http').Server, url: string }>}
  */
 export async function startUploadApiServer(context, options = {}) {
@@ -398,7 +400,7 @@ export async function startUploadApiServer(context, options = {}) {
   const { base58btc } = await importFromWeb('multiformats/bases/base58');
   const principal = await createVarsigPrincipal(options.varsigModule);
 
-  const { onInvocation, onListResults, port, autoProvision } = options;
+  const { onInvocation, onListResults, port, autoProvision, onCarBytes } = options;
   const agent = createServer({
     ...context,
     codec: CAR.inbound,
@@ -485,6 +487,21 @@ export async function startUploadApiServer(context, options = {}) {
       chunks.push(chunk);
     }
     const body = Buffer.concat(chunks);
+    const contentType = req.headers?.['content-type'] ?? '';
+    const isCarRequest =
+      typeof contentType === 'string' &&
+      (contentType.includes('application/car') || contentType.includes('application/vnd.ipld.car'));
+    if (onCarBytes && isCarRequest) {
+      Promise.resolve(
+        onCarBytes({
+          bytes: new Uint8Array(body),
+          url: req.url ?? '',
+          headers: req.headers ?? {},
+        })
+      ).catch((error) => {
+        console.warn('⚠️ onCarBytes handler failed:', error?.message ?? error);
+      });
+    }
 
     const listInvocations = [];
     try {

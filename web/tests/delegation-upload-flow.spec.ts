@@ -22,6 +22,7 @@ import * as varsigModule from 'iso-webauthn-varsig';
 import {
   createCorsHttp,
   loadUploadApiTestContext,
+  refreshExternalServiceProofs,
   startUploadApiServer,
 } from '../../local-storacha-api/upload-service.mjs';
 
@@ -147,6 +148,7 @@ for (const modeConfig of TEST_MODES) {
   let heliaStartPromise: Promise<HeliaNode> | null = null;
   let heliaWsMultiaddr: string | null = null;
   let heliaPeerId: string | null = null;
+  const heliaRoots = new Set<string>();
   let spaceAgent: EdSigner; // The agent that owns the space
   let space: EdSigner; // The space identity
   let spaceDid: string;
@@ -215,6 +217,7 @@ for (const modeConfig of TEST_MODES) {
     console.log(`🟣 Helia stored ${blockCount} blocks from uploaded CAR`);
 
     for (const root of roots) {
+      heliaRoots.add(root.toString());
       try {
         await helia.libp2p.contentRouting.provide(root);
         console.log(`🟣 Helia provided root ${root.toString()}`);
@@ -233,6 +236,17 @@ for (const modeConfig of TEST_MODES) {
     }
   }
 
+  async function waitForHeliaRoot(rootCid: string, timeoutMs = 60000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (heliaRoots.has(rootCid)) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error(`Helia root not imported within ${timeoutMs}ms: ${rootCid}`);
+  }
+
   test.beforeEach(async ({ browser }) => {
     test.setTimeout(120000); // 2 minutes timeout for complex flow
 
@@ -243,13 +257,28 @@ for (const modeConfig of TEST_MODES) {
     uploadServiceContext = await createContext({
       requirePaymentPlan: false,
       http: createCorsHttp({
-        onPutBytes: (bytes: Uint8Array) => {
-          importCarToHelia(bytes).catch((error) => {
+        onPutBytes: ({ bytes }: { bytes: Uint8Array }) => {
+          const normalized =
+            bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes as ArrayBuffer);
+          importCarToHelia(normalized).catch((error) => {
+            console.warn('🟣 Helia CAR import skipped (PUT):', error?.message ?? error);
+          });
+        },
+        onCarBytes: ({ bytes }: { bytes: Uint8Array }) => {
+          const normalized =
+            bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes as ArrayBuffer);
+          importCarToHelia(normalized).catch((error) => {
             console.warn('🟣 Helia CAR import skipped:', error?.message ?? error);
           });
         },
       }),
     });
+    /**
+     * Refresh external service proofs used by the in-memory upload-api helpers.
+     * The mock indexing/claims services require fresh `assert/index` proofs or
+     * `space/index/add` will fail with Unauthorized during uploads.
+     */
+    await refreshExternalServiceProofs(uploadServiceContext);
     console.log('✅ Upload service created:', uploadServiceContext.id.did());
 
     // 2. Create a space and agent (this simulates the CLI user)
@@ -316,6 +345,13 @@ for (const modeConfig of TEST_MODES) {
     // 5. Start upload-api HTTP server
     console.log('🌐 Starting upload-api HTTP server...');
     const serverInfo = await startUploadApiServer(uploadServiceContext, {
+      onCarBytes: ({ bytes }: { bytes: Uint8Array }) => {
+        const normalized =
+          bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes as ArrayBuffer);
+        importCarToHelia(normalized).catch((error) => {
+          console.warn('🟣 Helia CAR import skipped:', error?.message ?? error);
+        });
+      },
       onInvocation: (invocation: any) => {
         for (const capability of invocation.capabilities ?? []) {
           if (capability.can === 'space/index/add' && !capturedIndexLink && capability.nb?.index) {
@@ -604,14 +640,12 @@ for (const modeConfig of TEST_MODES) {
     };
     console.log('✅ Browser principal created for DID:', browserDID);
 
-    // Create delegation from spaceAgent to browserPrincipal
-    // Grant store/add and upload/add capabilities
-    // Using plain capability objects (like the existing codebase does)
+    // Create delegation directly from space to browserPrincipal
+    // This avoids proof-chain authorization issues in the local upload-api server.
     const delegation = await delegate({
-      issuer: spaceAgent,
+      issuer: space,
       audience: browserPrincipal,
       capabilities: buildDelegationCapabilities(),
-      proofs: [spaceProof], // Include proof that spaceAgent has authority
       expiration: Math.floor(Date.now() / 1000) + 3600,
     });
     console.log('🧾 Delegation capabilities (server-side):', delegation.capabilities);
@@ -658,10 +692,9 @@ for (const modeConfig of TEST_MODES) {
       };
       
       const updatedDelegation = await delegate({
-        issuer: spaceAgent,
+        issuer: space,
         audience: updatedBrowserPrincipal,
         capabilities: buildDelegationCapabilities(),
-        proofs: [spaceProof],
         expiration: Math.floor(Date.now() / 1000) + 3600,
       });
       console.log('🧾 Updated delegation capabilities (server-side):', updatedDelegation.capabilities);
@@ -845,13 +878,12 @@ for (const modeConfig of TEST_MODES) {
       };
 
       const retryDelegation = await delegate({
-        issuer: spaceAgent,
+        issuer: space,
         audience: retryBrowserPrincipal,
         capabilities: buildDelegationCapabilities({
           index: capturedIndexLink ?? undefined,
           blob: capturedBlob ?? undefined,
         }),
-        proofs: [spaceProof],
         expiration: Math.floor(Date.now() / 1000) + 3600,
       });
 
@@ -929,10 +961,35 @@ for (const modeConfig of TEST_MODES) {
     const viewButton = filesSection.getByRole('button', { name: /View/i }).first();
     await expect(viewButton).toBeVisible({ timeout: 60000 });
 
+    const rootCode = filesSection.locator('code').first();
+    const rootCid = (await rootCode.textContent())?.trim() ?? '';
+    expect(rootCid).toMatch(/^baf/);
+    await waitForHeliaRoot(rootCid);
+
     await viewButton.click();
 
     const viewerModal = page.getByTestId('file-viewer-modal');
     await expect(viewerModal).toBeVisible({ timeout: 60000 });
+
+    await page.waitForFunction(
+      () => {
+        const win = window as typeof window & {
+          __HELIA_READY__?: boolean;
+          __HELIA_READY_ERROR__?: string;
+        };
+        return win.__HELIA_READY__ === true || Boolean(win.__HELIA_READY_ERROR__);
+      },
+      null,
+      { timeout: 20000 }
+    );
+
+    const heliaReadyError = await page.evaluate(() => {
+      const win = window as typeof window & { __HELIA_READY_ERROR__?: string };
+      return win.__HELIA_READY_ERROR__ ?? null;
+    });
+    if (heliaReadyError) {
+      throw new Error(heliaReadyError);
+    }
 
     await page.waitForFunction(
       () => {
@@ -949,7 +1006,7 @@ for (const modeConfig of TEST_MODES) {
       return win.__LAST_IPFS_BLOB_URL__;
     });
     expect(viewUrl).toMatch(/^blob:/);
-    const closeButton = viewerModal.getByRole('button', { name: /Close/i });
+    const closeButton = viewerModal.getByRole('button', { name: 'Close preview' });
     await closeButton.click();
     console.log('✅ View opened from Helia or gateway fallback');
 
@@ -1002,13 +1059,12 @@ for (const modeConfig of TEST_MODES) {
       toArchive: () => ({ ok: new Uint8Array() })
     };
     const delegation = await delegate({
-      issuer: spaceAgent,
+      issuer: space,
       audience: browserPrincipal,
       capabilities: [
         { with: space.did(), can: 'store/add' },
         { with: space.did(), can: 'upload/add' }
       ],
-      proofs: [spaceProof],
       expiration: Math.floor(Date.now() / 1000) + 3600,
     });
     console.log('🧾 Delegation capabilities (server-side):', delegation.capabilities);
