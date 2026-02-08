@@ -259,7 +259,8 @@ test('create hardware delegation', async ({ page }) => {
 
 ## Files
 
-- `web/src/lib/webauthn-varsig/` - Core varsig implementation
+- `iso-webauthn-varsig` - Core varsig implementation (local packed dependency)
+- Local pack install: `file:/tmp/iso-webauthn-varsig-0.1.0.tgz` (requires `iso-base` from `file:/tmp/iso-base-4.3.0.tgz`)
 - `web/src/lib/webauthn-ed25519-signer.ts` - Hardware signer
 - `web/src/lib/hardware-ucan-service.ts` - Integration service
 - `web/src/lib/ucan-delegation.ts` - Existing service (unchanged)
@@ -267,6 +268,6 @@ test('create hardware delegation', async ({ page }) => {
 ## Questions?
 
 See:
-- `web/src/lib/webauthn-varsig/README.md` - Varsig documentation
+- `iso-webauthn-varsig` README - Varsig documentation
 - `SECURITY.md` - Security analysis
 - `docs/varsig-branch-notes.md` - Branch-specific varsig status

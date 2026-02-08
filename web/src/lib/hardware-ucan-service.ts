@@ -14,7 +14,7 @@ import {
   VARSIG_PREFIX,
   VARSIG_VERSION,
   concat
-} from './webauthn-varsig/index.js';
+} from 'iso-webauthn-varsig';
 
 /**
  * Storage key for hardware-backed credential
@@ -136,7 +136,8 @@ export class HardwareUCANDelegationService {
     toDid: string,
     spaceDid: string,
     capabilities: string[],
-    expirationHours: number | null = 24
+    expirationHours: number | null = 24,
+    proofs: unknown[] = []
   ): Promise<string> {
     if (!this.hardwareSigner) {
       throw new Error('Hardware signer not initialized');
@@ -175,6 +176,7 @@ export class HardwareUCANDelegationService {
       audience: targetVerifier,
       capabilities: ucanCapabilities,
       expiration: expirationTimestamp,
+      proofs,
       facts: []
     });
     
@@ -283,10 +285,17 @@ export class HardwareUCANDelegationService {
         
         // Verify cryptographic signature
         const signedData = await reconstructSignedData(decoded);
-        const publicKey = await this.extractPublicKeyFromDid(delegation.issuer.did());
-        
+        const { publicKey, keyType } = await this.parseDidKey(delegation.issuer.did());
+
         // Determine algorithm from multicodec in varsig
         const algorithm = decoded.algorithm; // 'Ed25519' or 'P-256'
+
+        if (keyType !== algorithm) {
+          return {
+            valid: false,
+            error: `DID key type ${keyType} does not match varsig algorithm ${algorithm}`
+          };
+        }
         
         let signatureValid: boolean;
         if (algorithm === 'Ed25519') {
@@ -418,9 +427,17 @@ export class HardwareUCANDelegationService {
   }
   
   /**
-   * Extract public key from did:key (supports Ed25519 and P-256)
+   * Parse a `did:key` and return its raw public key bytes plus inferred key type.
+   *
+   * Notes:
+   * - Supports Ed25519 (`0xED 0x01`) and P-256 (`0x80 0x24`) multicodec prefixes.
+   * - Returns the raw key material as stored in the DID (Ed25519 32 bytes,
+   *   P-256 typically 33 bytes compressed). Callers should normalize if needed.
+   * - Throws if the DID is not `did:key` or uses an unsupported multicodec.
    */
-  private async extractPublicKeyFromDid(did: string): Promise<Uint8Array> {
+  private async parseDidKey(
+    did: string
+  ): Promise<{ publicKey: Uint8Array; keyType: 'Ed25519' | 'P-256' }> {
     if (!did.startsWith('did:key:z')) {
       throw new Error('Invalid DID format');
     }
@@ -440,10 +457,10 @@ export class HardwareUCANDelegationService {
     
     if (multikey[0] === 0xed && multikey[1] === 0x01) {
       // Ed25519: skip 2-byte prefix
-      return multikey.slice(2);
+      return { publicKey: multikey.slice(2), keyType: 'Ed25519' };
     } else if (multikey[0] === 0x80 && multikey[1] === 0x24) {
       // P-256: skip 2-byte prefix
-      return multikey.slice(2);
+      return { publicKey: multikey.slice(2), keyType: 'P-256' };
     } else {
       throw new Error(`Unsupported DID key type: ${multikey[0]}, ${multikey[1]}`);
     }

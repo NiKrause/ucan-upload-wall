@@ -37,10 +37,15 @@ vi.mock('./hardware-ucan-service', () => ({
       return hardwareAlgorithm;
     }
   },
+  getStoredHardwareSignerInfo: () => null,
 }));
 
 vi.mock('./webauthn-ed25519-signer', () => ({
   checkEd25519Support: vi.fn(async () => true),
+}));
+
+vi.mock('@ucanto/principal', () => ({
+  WebAuthnEd25519: class {},
 }));
 
 vi.mock('./secure-ed25519-did', () => ({
@@ -73,13 +78,19 @@ vi.mock('./webauthn-did', () => {
 
   return {
     WebAuthnDIDProvider: MockWebAuthnDIDProvider,
-    storeWebAuthnCredential: vi.fn(),
+    storeWebAuthnCredential: vi.fn((credential: unknown, key?: string) => {
+      if (key) {
+        localStorage.setItem(key, JSON.stringify(credential));
+      }
+    }),
   };
 });
 
 describe('UCANDelegationService hardware fallback behavior', () => {
   beforeEach(() => {
     localStorage.clear();
+    (globalThis as { __UPLOAD_SERVICE_URL__?: string }).__UPLOAD_SERVICE_URL__ =
+      'http://localhost:8787';
     hardwareInitResult = true;
     hardwareDid = 'did:key:z6MkHardwareEd';
     hardwareAlgorithm = 'Ed25519';

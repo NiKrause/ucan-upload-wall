@@ -12,6 +12,21 @@ export function Header({ delegationService }: HeaderProps) {
   const uploadUrl = serviceConfig.uploadServiceUrl ?? '';
   const isLocalService =
     uploadUrl.startsWith('http://127.0.0.1') || uploadUrl.startsWith('http://localhost');
+  const sessionStatus = delegationService?.getSessionDelegationStatus();
+  const sessionDid = delegationService?.getSessionDelegationDid();
+
+  const sessionLabel = (() => {
+    if (!sessionStatus?.enabled) {
+      return { text: 'Session Delegation: Off', className: 'bg-gray-100 text-gray-700' };
+    }
+    if (sessionStatus.active) {
+      const expiresAt = sessionStatus.expiresAt
+        ? new Date(sessionStatus.expiresAt).toLocaleTimeString()
+        : 'unknown';
+      return { text: `Session Delegation: Active (until ${expiresAt})`, className: 'bg-green-100 text-green-800' };
+    }
+    return { text: 'Session Delegation: Pending', className: 'bg-amber-100 text-amber-800' };
+  })();
   
   return (
     <header className="w-full bg-white border-b border-gray-200">
@@ -55,6 +70,20 @@ export function Header({ delegationService }: HeaderProps) {
                 <Shield className="h-4 w-4 text-blue-600" />
                 <span className="text-sm font-medium text-blue-700">Ed25519 DID Active</span>
               </div>
+              {sessionStatus && (
+                <div
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 text-xs font-semibold ${sessionLabel.className}`}
+                  title={
+                    sessionStatus.active
+                      ? `Session delegation is active (reduced passkey prompts). Session DID: ${sessionDid ?? 'unknown'}`
+                      : sessionStatus.enabled
+                        ? 'Session delegation will activate after credentials or a delegation are available.'
+                        : 'Session delegation disabled. Set VITE_SESSION_DELEGATION=1 to enable.'
+                  }
+                >
+                  {sessionLabel.text}
+                </div>
+              )}
             </div>
           )}
         </div>

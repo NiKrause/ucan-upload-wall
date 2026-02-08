@@ -121,11 +121,18 @@ if (!process.env.WEBAUTHN_ORIGIN) {
   process.env.WEBAUTHN_ORIGIN = 'http://localhost:5173';
 }
 try {
-  varsigModule = await import(
-    new URL('../web/src/lib/webauthn-varsig/index.ts', import.meta.url)
-  );
+  varsigModule = await import('iso-webauthn-varsig');
 } catch (error) {
-  console.warn('⚠️ WebAuthn varsig module not loaded:', error?.message ?? error);
+  try {
+    const localVarsigUrl = new URL(
+      '../iso-repo/packages/iso-webauthn-varsig/src/index.js',
+      import.meta.url
+    );
+    varsigModule = await import(localVarsigUrl.href);
+  } catch (localError) {
+    console.warn('⚠️ WebAuthn varsig module not loaded:', error?.message ?? error);
+    console.warn('⚠️ Local WebAuthn varsig fallback failed:', localError?.message ?? localError);
+  }
 }
 
 const { createContext, cleanupContext } = await loadUploadApiTestContext();
@@ -144,7 +151,7 @@ const uploadServiceContext = await createContext({
         const { base58btc } = await importFromWeb('multiformats/bases/base58');
         const Digest = await importFromWeb('multiformats/hashes/digest');
         const { CID } = await importFromWeb('multiformats/cid');
-        const { CAR } = await importFromWeb('@ucanto/transport');
+        const { CarBufferReader } = await importFromWeb('@ipld/car/buffer-reader');
         const multihash = filename.replace(/\.blob$/, '');
         const spaceDid = consumeBlobAddSpace(multihash);
         if (!spaceDid) {
@@ -152,9 +159,14 @@ const uploadServiceContext = await createContext({
           return;
         }
         const digest = Digest.decode(base58btc.decode(multihash));
-        const cid = CID.createV1(CAR.codec.code, digest);
-        await heliaInfo.helia.blockstore.put(cid, bytes);
-        console.log(`🟣 Helia stored block ${cid.toString()}`);
+        const reader = await CarBufferReader.fromBytes(bytes);
+        const roots = reader.getRoots().map((root) => root.toString());
+        let blockCount = 0;
+        for await (const block of reader.blocks()) {
+          await heliaInfo.helia.blockstore.put(block.cid, block.bytes);
+          blockCount += 1;
+        }
+        console.log(`🟣 Helia imported CAR blocks (${blockCount}) roots=${roots.join(', ')}`);
         const registryRes = await uploadServiceContext.registry?.find?.(spaceDid, digest);
         const hasBlob = uploadServiceContext.blobsStorage?.has
           ? await uploadServiceContext.blobsStorage.has(digest)
@@ -180,6 +192,39 @@ const serverInfo = await startUploadApiServer(uploadServiceContext, {
   varsigModule,
   port,
   autoProvision: true,
+  onListResults: async ({ can, results }) => {
+    if (can !== 'upload/list') {
+      return;
+    }
+    try {
+      const { CID } = await importFromWeb('multiformats/cid');
+      const entries = Array.isArray(results) ? results.slice(0, 5) : [];
+      for (const entry of entries) {
+        const root = entry?.root?.toString?.() ?? entry?.root ?? null;
+        if (!root || typeof root !== 'string') {
+          continue;
+        }
+        const rootCid = CID.parse(root);
+        const hasRoot = await heliaInfo.helia.blockstore.has(rootCid);
+        const shards = Array.isArray(entry?.shards) ? entry.shards : [];
+        let shardHits = 0;
+        for (const shard of shards) {
+          const shardCid = shard?.toString?.() ?? shard;
+          if (typeof shardCid !== 'string') {
+            continue;
+          }
+          if (await heliaInfo.helia.blockstore.has(CID.parse(shardCid))) {
+            shardHits += 1;
+          }
+        }
+        console.log(
+          `🟣 Helia check for upload root ${root}: stored=${hasRoot} shards=${shardHits}/${shards.length}`
+        );
+      }
+    } catch (error) {
+      console.warn('⚠️ Helia list check failed:', error?.message ?? error);
+    }
+  },
 });
 console.log('✅ upload-api server ready:', serverInfo.url);
 console.log('🔖 Service DID:', uploadServiceContext.id.did());

@@ -7,7 +7,12 @@ import { DelegationManager } from './components/DelegationManager';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useFileUpload } from './hooks/useFileUpload';
 import { UploadedFile } from './types/upload';
-import { loadIpfsBlobUrl, getGatewayUrl } from './lib/ipfs-fetch';
+import {
+  loadIpfsBlobUrl,
+  getGatewayUrl,
+  warmupHeliaClient,
+  pingHeliaLocalPeer,
+} from './lib/ipfs-fetch';
 
 type AppView = 'upload' | 'delegations';
 
@@ -20,6 +25,14 @@ function App() {
   const [currentView, setCurrentView] = useState<AppView>('upload');
   const [didCreated, setDidCreated] = useState(false);
   const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
+  const [viewerState, setViewerState] = useState<{
+    cid: string;
+    url?: string;
+    source?: 'helia' | 'gateway';
+    gateway?: string;
+    loading: boolean;
+    error?: string;
+  } | null>(null);
   const { uploadFile, isUploading, error, delegationService } = useFileUpload();
   const [hasDeleteCapability, setHasDeleteCapability] = useState(false);
   const [securityNoticeDismissed, setSecurityNoticeDismissed] = useState(() => {
@@ -36,6 +49,9 @@ function App() {
   } | null>(null);
   
   useEffect(() => {
+    // Warm up Helia early so view/preview doesn't race the initial dial.
+    warmupHeliaClient();
+
     // Check if DID is available
     const hasDID = !!delegationService.getCurrentDID();
     setDidCreated(hasDID);
@@ -198,23 +214,41 @@ function App() {
   }, []);
 
   const handleViewFile = useCallback(async (rootCid: string) => {
-    const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
+    setViewerState({ cid: rootCid, loading: true });
     try {
-      const { url } = await loadIpfsBlobUrl(rootCid);
-      if (popup) {
-        popup.location.href = url;
-        return;
-      }
-      window.open(url, '_blank', 'noopener,noreferrer');
+      await pingHeliaLocalPeer();
+      const { url, source, gateway } = await loadIpfsBlobUrl(rootCid, { expectImage: true });
+      setViewerState({ cid: rootCid, url, source, gateway, loading: false });
     } catch (error) {
       console.warn('Failed to open via Helia and gateways:', error);
       const fallbackUrl = getGatewayUrl(rootCid);
-      if (popup) {
-        popup.location.href = fallbackUrl;
-        return;
-      }
-      window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
+      setViewerState({
+        cid: rootCid,
+        url: fallbackUrl,
+        source: 'gateway',
+        gateway: fallbackUrl,
+        loading: false,
+        error: (error as Error)?.message ?? 'Failed to load preview',
+      });
     }
+  }, []);
+
+  const handleCloseViewer = useCallback(() => {
+    if (viewerState?.url?.startsWith('blob:')) {
+      URL.revokeObjectURL(viewerState.url);
+    }
+    setViewerState(null);
+  }, [viewerState]);
+
+  const handleViewerImageError = useCallback(() => {
+    setViewerState((prev) =>
+      prev
+        ? {
+            ...prev,
+            error: prev.error ?? 'Preview failed to load in modal.',
+          }
+        : prev
+    );
   }, []);
   
   const handleDeleteFile = useCallback(async (rootCid: string) => {
@@ -308,27 +342,27 @@ function App() {
   
   const renderNavigation = () => {
     return (
-      <nav className="bg-white border-b border-gray-200 mb-6">
+      <nav className="bg-white border-b border-neutral-200 mb-6">
         <div className="max-w-7xl mx-auto px-6">
           <div className="flex justify-center space-x-8">
             <button
               onClick={() => setCurrentView('upload')}
-              className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
+              className={`py-4 px-3 border-b-2 font-medium text-sm transition-colors ${
                 currentView === 'upload'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-storacha-red text-storacha-red'
+                  : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
               }`}
             >
               <Upload className="h-4 w-4 inline mr-2" />
               Upload Files
             </button>
-            
+
             <button
               onClick={() => setCurrentView('delegations')}
-              className={`py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
+              className={`py-4 px-3 border-b-2 font-medium text-sm transition-colors ${
                 currentView === 'delegations'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-storacha-red text-storacha-red'
+                  : 'border-transparent text-neutral-500 hover:text-neutral-700 hover:border-neutral-300'
               }`}
             >
               <Share className="h-4 w-4 inline mr-2" />
@@ -619,12 +653,81 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="min-h-screen bg-neutral-50">
         <Header delegationService={delegationService} />
         {renderNavigation()}
         <main>
           {renderContent()}
         </main>
+
+        {viewerState && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+            data-testid="file-viewer-modal"
+          >
+            <div className="w-full max-w-3xl rounded-lg bg-white shadow-xl">
+              <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">File Preview</h3>
+                  <p className="text-xs text-gray-500 break-all">{viewerState.cid}</p>
+                </div>
+                <button
+                  onClick={handleCloseViewer}
+                  className="text-gray-500 hover:text-gray-700"
+                  aria-label="Close preview"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="px-5 py-4">
+                {viewerState.loading && (
+                  <div className="py-12 text-center text-sm text-gray-500">
+                    Loading preview...
+                  </div>
+                )}
+                {!viewerState.loading && viewerState.url && (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>
+                        Source: {viewerState.source ?? 'unknown'}
+                        {viewerState.gateway ? ` (${viewerState.gateway})` : ''}
+                      </span>
+                      <a
+                        href={viewerState.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-600 hover:text-blue-800"
+                      >
+                        Open in new tab
+                      </a>
+                    </div>
+                    <div className="max-h-[70vh] overflow-auto rounded-md border border-gray-200 bg-gray-50 p-3">
+                      <img
+                        src={viewerState.url}
+                        alt="Uploaded file preview"
+                        className="mx-auto max-h-[60vh] max-w-full rounded"
+                        onError={handleViewerImageError}
+                      />
+                    </div>
+                  </div>
+                )}
+                {!viewerState.loading && viewerState.error && (
+                  <div className="mt-3 text-sm text-red-600">{viewerState.error}</div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end border-t border-gray-200 px-5 py-3">
+                <button
+                  onClick={handleCloseViewer}
+                  className="rounded-md bg-gray-900 px-4 py-2 text-sm text-white hover:bg-gray-800"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {alert && (
           <Alert

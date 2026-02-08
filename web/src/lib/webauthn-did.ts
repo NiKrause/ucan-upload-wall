@@ -198,6 +198,11 @@ export class WebAuthnDIDProvider {
         offset += 7; // Skip "authData" string
         const authDataLength = dataView.getUint8(offset);
         offset++;
+        const authDataEnd = offset + authDataLength;
+        if (authDataLength < 37 || authDataEnd > dataView.byteLength) {
+          // Invalid authData length, fall back to credential-id derived key.
+          break;
+        }
         const authDataBytes = new Uint8Array(attestationObject, offset, authDataLength);
         
         // Extract public key from authData
@@ -207,10 +212,16 @@ export class WebAuthnDIDProvider {
         if (authDataBytes.length > attestedCredDataOffset) {
           // Skip AAGUID (16 bytes) and credential ID length (2 bytes)
           const credIdLengthOffset = attestedCredDataOffset + 16;
+          if (credIdLengthOffset + 1 >= authDataBytes.length) {
+            break;
+          }
           const credIdLength = (authDataBytes[credIdLengthOffset] << 8) | authDataBytes[credIdLengthOffset + 1];
           
           // Public key starts after credential ID
           const pubKeyOffset = credIdLengthOffset + 2 + credIdLength;
+          if (pubKeyOffset >= authDataBytes.length) {
+            break;
+          }
           
           // For ES256 (P-256), extract x and y coordinates from COSE key
           // This is a simplified extraction - proper CBOR parsing would be better

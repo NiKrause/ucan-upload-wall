@@ -158,12 +158,20 @@ export async function refreshExternalServiceProofs(context) {
 
   if (context?.indexingService) {
     const AssertCaps = await importFromWeb('@storacha/capabilities/assert');
-    await updateProof(context.indexingService, AssertCaps.assert.delegate, 'indexing service');
+    await updateProof(
+      context.indexingService,
+      (options) => AssertCaps.assert.delegate(options),
+      'indexing service'
+    );
   }
 
   if (context?.claimsService) {
     const { Assert } = await importFromWeb('@web3-storage/content-claims/capability');
-    await updateProof(context.claimsService, Assert.assert.delegate, 'claims service');
+    await updateProof(
+      context.claimsService,
+      (options) => Assert.assert.delegate(options),
+      'claims service'
+    );
   }
 }
 
@@ -189,9 +197,10 @@ export function consumeBlobAddSpace(multihash) {
  *
  * @param {object} [options]
  * @param {(info: { bytes: Uint8Array, url: string, headers: import('http').IncomingHttpHeaders }) => void | Promise<void>} [options.onPutBytes]
+ * @param {(info: { bytes: Uint8Array, url: string, headers: import('http').IncomingHttpHeaders }) => void | Promise<void>} [options.onCarBytes]
  * @returns {import('http')}
  */
-export function createCorsHttp({ onPutBytes } = {}) {
+export function createCorsHttp({ onPutBytes, onCarBytes } = {}) {
   return {
     ...http,
     createServer: (handler) =>
@@ -236,15 +245,22 @@ export function createCorsHttp({ onPutBytes } = {}) {
 
 async function createVarsigPrincipal(varsigModule = null) {
   const { Verifier: BaseVerifier, WebAuthnEd25519 } = await importFromWeb('@ucanto/principal');
+  const { p256 } = await importFromWeb('@noble/curves/p256');
   let varsig = varsigModule;
   if (!varsig) {
     try {
-      varsig = await import(
-        new URL('../web/src/lib/webauthn-varsig/index.js', import.meta.url)
-      );
+      varsig = await import('iso-webauthn-varsig');
     } catch {
-      console.warn('⚠️ WebAuthn varsig module not found; falling back to base verifier');
-      return BaseVerifier;
+      try {
+        const localVarsigUrl = new URL(
+          '../iso-repo/packages/iso-webauthn-varsig/src/index.js',
+          import.meta.url
+        );
+        varsig = await import(localVarsigUrl.href);
+      } catch {
+        console.warn('⚠️ WebAuthn varsig module not found; falling back to base verifier');
+        return BaseVerifier;
+      }
     }
   }
   const {
@@ -263,8 +279,34 @@ async function createVarsigPrincipal(varsigModule = null) {
     const webauthnVerifier = WebAuthnEd25519?.Verifier?.create
       ? WebAuthnEd25519.Verifier.create(edVerifier.publicKey, did)
       : null;
-    const expectedOrigin = process.env.WEBAUTHN_ORIGIN ?? 'http://localhost:4173';
-    const expectedRpId = new URL(expectedOrigin).hostname;
+    const originRaw = process.env.WEBAUTHN_ORIGIN ?? 'http://localhost:4173';
+    const fallbackRaw = process.env.WEBAUTHN_ORIGIN_FALLBACKS ?? '';
+    const fallbackList = fallbackRaw
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    const expectedOrigins = [originRaw, ...fallbackList];
+    const normalizedOrigins = new Set(expectedOrigins);
+    const originHost = new URL(originRaw).hostname;
+    if (originHost === 'localhost') {
+      normalizedOrigins.add(originRaw.replace('localhost', '127.0.0.1'));
+    } else if (originHost === '127.0.0.1') {
+      normalizedOrigins.add(originRaw.replace('127.0.0.1', 'localhost'));
+    }
+    const originCandidates = Array.from(normalizedOrigins);
+    const toP256RawPublicKey = (publicKey) => {
+      if (!publicKey) {
+        return publicKey;
+      }
+      if (publicKey.byteLength === 33) {
+        try {
+          return p256.ProjectivePoint.fromHex(publicKey).toRawBytes(false);
+        } catch {
+          return publicKey;
+        }
+      }
+      return publicKey;
+    };
 
     return {
       code: edVerifier.code,
@@ -280,18 +322,28 @@ async function createVarsigPrincipal(varsigModule = null) {
             const domain = new TextEncoder().encode('ucan-webauthn-v1:');
             const challengeInput = concat([domain, payload]);
             const challengeHash = await crypto.subtle.digest('SHA-256', challengeInput);
-            const verification = await verifyWebAuthnAssertion(decoded, {
-              expectedOrigin,
-              expectedRpId,
-              expectedChallenge: new Uint8Array(challengeHash),
-              requireUserVerification: false,
-            });
-            if (!verification.valid) {
+            let verification = null;
+            for (const expectedOrigin of originCandidates) {
+              const expectedRpId = new URL(expectedOrigin).hostname;
+              // Try each origin to avoid localhost/127.0.0.1 mismatches in local dev.
+              // eslint-disable-next-line no-await-in-loop
+              verification = await verifyWebAuthnAssertion(decoded, {
+                expectedOrigin,
+                expectedRpId,
+                expectedChallenge: new Uint8Array(challengeHash),
+                requireUserVerification: false,
+              });
+              if (verification.valid) {
+                break;
+              }
+            }
+            if (!verification?.valid) {
               return false;
             }
             const signedData = await reconstructSignedData(decoded);
             if (decoded.algorithm === 'P-256') {
-              return verifyP256Signature(signedData, decoded.signature, edVerifier.publicKey);
+              const p256PublicKey = toP256RawPublicKey(edVerifier.publicKey);
+              return verifyP256Signature(signedData, decoded.signature, p256PublicKey);
             }
             return verifyEd25519Signature(signedData, decoded.signature, edVerifier.publicKey);
           } catch (error) {
@@ -335,18 +387,21 @@ async function createVarsigPrincipal(varsigModule = null) {
  * @param {boolean} [options.autoProvision]
  * @param {unknown} [options.varsigModule]
  * @param {(invocation: unknown) => Promise<void>} [options.onInvocation]
+ * @param {(payload: { can: string; results: unknown[] }) => Promise<void>} [options.onListResults]
+ * @param {(info: { bytes: Uint8Array, url: string, headers: import('http').IncomingHttpHeaders }) => void | Promise<void>} [options.onCarBytes]
  * @returns {Promise<{ server: import('http').Server, url: string }>}
  */
 export async function startUploadApiServer(context, options = {}) {
   const { createServer, handle } = await importFromWeb('@storacha/upload-api');
   const { CAR } = await importFromWeb('@ucanto/transport');
   const CARTransport = await importFromWeb('@ucanto/transport/car');
-  const { Message } = await importFromWeb('@ucanto/core');
+  const { Message, Receipt } = await importFromWeb('@ucanto/core');
   const Digest = await importFromWeb('multiformats/hashes/digest');
   const { base58btc } = await importFromWeb('multiformats/bases/base58');
   const principal = await createVarsigPrincipal(options.varsigModule);
 
-  const { onInvocation, port, autoProvision } = options;
+  const { onInvocation, onListResults, port, autoProvision, onCarBytes } = options;
+  const revocations = new Map();
   const agent = createServer({
     ...context,
     codec: CAR.inbound,
@@ -401,6 +456,39 @@ export async function startUploadApiServer(context, options = {}) {
       return;
     }
 
+    if (req.method === 'GET' && req.url?.startsWith('/revocations/')) {
+      const delegationCid = req.url.slice('/revocations/'.length);
+      if (!delegationCid) {
+        res.writeHead(204, { 'Access-Control-Allow-Origin': '*' });
+        res.end();
+        return;
+      }
+
+      const record = revocations.get(delegationCid);
+      if (!record) {
+        res.writeHead(404, {
+          'Access-Control-Allow-Origin': '*',
+          'Content-Type': 'application/json',
+        });
+        res.end(JSON.stringify({ revoked: false, status: 'not_found' }));
+        return;
+      }
+
+      res.writeHead(200, {
+        'Access-Control-Allow-Origin': '*',
+        'Content-Type': 'application/json',
+      });
+      res.end(
+        JSON.stringify({
+          revoked: true,
+          status: 'revoked',
+          revokedAt: record.revokedAt,
+          revokedBy: record.revokedBy,
+        })
+      );
+      return;
+    }
+
     if (req.method === 'GET' && req.url?.startsWith('/.well-known/did.json')) {
       const serviceDid = context.id.did();
       const didKey = context.id.toDIDKey();
@@ -433,23 +521,61 @@ export async function startUploadApiServer(context, options = {}) {
       chunks.push(chunk);
     }
     const body = Buffer.concat(chunks);
+    const contentType = req.headers?.['content-type'] ?? '';
+    const isCarRequest =
+      typeof contentType === 'string' &&
+      (contentType.includes('application/car') || contentType.includes('application/vnd.ipld.car'));
+    if (onCarBytes && isCarRequest) {
+      Promise.resolve(
+        onCarBytes({
+          bytes: new Uint8Array(body),
+          url: req.url ?? '',
+          headers: req.headers ?? {},
+        })
+      ).catch((error) => {
+        console.warn('⚠️ onCarBytes handler failed:', error?.message ?? error);
+      });
+    }
 
     const listInvocations = [];
+    const revokeInvocations = [];
     try {
       const message = await CARTransport.request.decode({ headers: req.headers, body });
       const blobAdds = [];
+      const formatProof = (proof) => {
+        const cid = proof?.cid?.toString?.() ?? null;
+        const signature = proof?.signature?.raw ?? proof?.signature;
+        const length = signature?.byteLength ?? signature?.length ?? null;
+        const prefix =
+          signature?.byteLength || signature?.length
+            ? Array.from(signature.slice(0, 2))
+            : null;
+        return {
+          cid,
+          signatureLength: length,
+          signaturePrefix: prefix,
+        };
+      };
+
       for (const invocation of message.invocations) {
         const proofLinks = (invocation.proofs ?? []).map((proof) =>
           proof?.cid?.toString?.() ?? String(proof)
         );
+        const proofDetails = (invocation.proofs ?? []).map(formatProof);
         console.log('🧪 Invocation received:', {
           can: invocation.capabilities?.map((cap) => cap.can).join(', '),
           proofs: proofLinks
         });
+        if (proofDetails.length > 0) {
+          console.log('🧾 Invocation proof details:', proofDetails);
+        }
         if (onInvocation) {
           await onInvocation(invocation);
         }
         for (const capability of invocation.capabilities ?? []) {
+          if (capability?.can === 'ucan/revoke') {
+            revokeInvocations.push({ invocation, capability });
+          }
           if (capability?.can === 'upload/list' || capability?.can === 'space/blob/list') {
             listInvocations.push(capability.can);
           }
@@ -522,6 +648,36 @@ export async function startUploadApiServer(context, options = {}) {
         }
       }
 
+      if (revokeInvocations.length > 0 && revokeInvocations.length === message.invocations.length) {
+        const receipts = [];
+        for (const { invocation, capability } of revokeInvocations) {
+          const revokeCid = capability?.nb?.ucan?.toString?.() ?? null;
+          if (revokeCid) {
+            revocations.set(revokeCid, {
+              revokedAt: new Date().toISOString(),
+              revokedBy: invocation.issuer?.did?.() ?? null,
+            });
+          }
+          const receipt = await Receipt.issue({
+            issuer: context.id,
+            ran: invocation,
+            result: { ok: {} },
+          });
+          receipts.push(receipt);
+        }
+
+        const responseMessage = await Message.build({ receipts });
+        const responseBody = CARTransport.response.encode(responseMessage).body;
+        res.writeHead(200, {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+          'Content-Type': 'application/car',
+        });
+        res.end(responseBody);
+        return;
+      }
+
     } catch (error) {
       console.warn('🧪 Failed to decode UCAN request for capture:', error?.message ?? error);
     }
@@ -556,6 +712,15 @@ export async function startUploadApiServer(context, options = {}) {
                   root: root ?? undefined,
                 };
               });
+              if (onListResults) {
+                const listCap = capabilities.find((cap) =>
+                  cap?.can === 'upload/list' || cap?.can === 'space/blob/list'
+                );
+                await onListResults({
+                  can: listCap?.can ?? 'unknown',
+                  results: ok.results,
+                });
+              }
               console.log('📋 List response:', {
                 can: capabilities.map((cap) => cap.can).join(', '),
                 size: ok.size ?? ok.results.length,
@@ -573,6 +738,28 @@ export async function startUploadApiServer(context, options = {}) {
         }
       } catch (error) {
         console.warn('⚠️ Failed to decode list response:', error?.message ?? error);
+      }
+    }
+    if (response?.body) {
+      try {
+        const responseMessage = await CARTransport.response.decode({
+          headers: response.headers ?? {},
+          body: response.body,
+        });
+        for (const invocation of responseMessage.invocations) {
+          const capabilities = invocation.capabilities ?? [];
+          const hasIndexAdd = capabilities.some((cap) => cap?.can === 'space/index/add');
+          if (!hasIndexAdd) {
+            continue;
+          }
+          const receipt = responseMessage.get(invocation.link(), null);
+          const outcome = receipt?.out;
+          if (outcome?.error) {
+            console.warn('⚠️ space/index/add receipt error:', outcome.error);
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to decode receipt response:', error?.message ?? error);
       }
     }
     console.log(`✅ upload-api response ${response.status || 200} ${req.method} ${req.url}`);

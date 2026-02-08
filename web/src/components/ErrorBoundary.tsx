@@ -38,24 +38,24 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-          <div className="max-w-md w-full bg-white rounded-xl border border-red-200 p-6 text-center">
+        <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-4">
+          <div className="card max-w-md w-full border-primary-200 text-center">
             <div className="flex justify-center mb-4">
-              <AlertTriangle className="w-12 h-12 text-red-500" />
+              <AlertTriangle className="w-12 h-12 text-storacha-red" />
             </div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            <h2 className="text-xl font-semibold font-heading text-dark mb-2">
               Something went wrong
             </h2>
-            <p className="text-gray-600 mb-4">
+            <p className="text-neutral-600 mb-4">
               An unexpected error occurred. You can try refreshing the page or contact support if the problem persists.
             </p>
-            
+
             {process.env.NODE_ENV === 'development' && this.state.error && (
               <details className="mb-4 text-left">
-                <summary className="cursor-pointer text-sm text-gray-500 hover:text-gray-700">
+                <summary className="cursor-pointer text-sm text-neutral-500 hover:text-neutral-700 transition-colors">
                   Error Details (Development)
                 </summary>
-                <div className="mt-2 p-3 bg-gray-100 rounded text-xs font-mono text-red-600 overflow-auto max-h-32">
+                <div className="mt-2 p-3 bg-neutral-100 rounded-lg text-xs font-mono text-storacha-red overflow-auto max-h-32">
                   <div className="mb-2">
                     <strong>Error:</strong> {this.state.error.message}
                   </div>
@@ -68,18 +68,18 @@ export class ErrorBoundary extends Component<Props, State> {
                 </div>
               </details>
             )}
-            
+
             <div className="flex gap-3 justify-center">
               <button
                 onClick={this.handleReset}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                className="btn-primary"
               >
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw className="w-4 h-4 mr-2" />
                 Try Again
               </button>
               <button
                 onClick={() => window.location.reload()}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-600 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                className="btn-secondary"
               >
                 Refresh Page
               </button>

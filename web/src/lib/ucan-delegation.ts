@@ -73,6 +73,13 @@ export interface DelegationInfo {
   revokedBy?: string;     // DID of who revoked it
 }
 
+interface SessionDelegation {
+  signer: UcanSigner<UcanDID<'key'>>;
+  proof: string; // multibase UCAN delegation
+  proofObj: unknown;
+  expiresAt: number;
+}
+
 export class UCANDelegationService {
   private webauthnProvider: WebAuthnDIDProvider | null = null;
   private ed25519Keypair: Ed25519KeyPair | null = null;
@@ -83,6 +90,7 @@ export class UCANDelegationService {
   private hardwareService: HardwareUCANDelegationService | null = null;
   private useHardwareMode = false;
   private hardwareModeChecked = false;
+  private sessionDelegation: SessionDelegation | null = null;
 
   private getSpaceDidFromCapabilities(capabilities: Array<{ with?: string }>): string | undefined {
     for (const cap of capabilities) {
@@ -188,10 +196,58 @@ export class UCANDelegationService {
     };
   }
 
-  private async createClient(principal: UcanSigner<UcanDID<'key'>>) {
+  private async createClient(
+    principal: UcanSigner<UcanDID<'key'>>,
+    sessionProofOverride?: unknown
+  ) {
     const store = new StoreMemory();
     const serviceConfig = getServiceConfig();
     const connection = await this.createServiceConnection();
+
+    const session = await this.ensureSessionDelegation();
+    const sessionProofs = sessionProofOverride
+      ? [sessionProofOverride]
+      : session?.proofObj
+        ? [session.proofObj]
+        : [];
+    if (session) {
+      console.log('🧾 Session delegation in client', {
+        sessionDid: session.signer.did(),
+        proofs: sessionProofs.length,
+      });
+    }
+
+    const applyInvocationConfigPatch = (target: unknown, label: string) => {
+      const unsafeClient = target as {
+        _invocationConfig?: (abilities: Array<string | undefined>) => Promise<unknown>;
+        __ucanUploadPatchApplied?: boolean;
+      };
+      if (!unsafeClient._invocationConfig) {
+        console.warn('⚠️ Invocation target missing _invocationConfig; proofs may not be attached', label);
+        return;
+      }
+      if (unsafeClient.__ucanUploadPatchApplied) {
+        return;
+      }
+      const original = unsafeClient._invocationConfig.bind(target);
+      unsafeClient._invocationConfig = async (abilities: Array<string | undefined>) => {
+        const filtered = abilities.filter((ability) => typeof ability === 'string' && ability.length > 0);
+        if (filtered.length !== abilities.length) {
+          console.warn('⚠️ Upload invocation abilities contained undefined values:', abilities);
+        }
+        const config = await original(filtered);
+        if (sessionProofs.length > 0) {
+          const existing = (config as { proofs?: Array<unknown> }).proofs ?? [];
+          console.log('🧾 Invocation config proofs', {
+            sessionProofs: sessionProofs.map((proof) => this.getProofLogInfo(proof)),
+            existing: existing.length,
+          });
+          return { ...config, proofs: [...sessionProofs, ...existing] };
+        }
+        return config;
+      };
+      unsafeClient.__ucanUploadPatchApplied = true;
+    };
 
     if (connection && serviceConfig.uploadServiceUrl) {
       const receiptsUrl =
@@ -203,15 +259,29 @@ export class UCANDelegationService {
         filecoin: connection,
         gateway: connection,
       } as unknown as ClientServiceConf;
-      return Client.create({
+      const client = await Client.create({
         principal,
         store,
         serviceConf,
         receiptsEndpoint: new URL(receiptsUrl),
       });
+      applyInvocationConfigPatch(client, 'client');
+      applyInvocationConfigPatch(client.capability?.upload, 'capability.upload');
+      applyInvocationConfigPatch(client.capability?.blob, 'capability.blob');
+      applyInvocationConfigPatch(client.capability?.index, 'capability.index');
+      applyInvocationConfigPatch(client.capability?.filecoin, 'capability.filecoin');
+      applyInvocationConfigPatch(client.capability?.space, 'capability.space');
+      return client;
     }
 
-    return Client.create({ principal, store });
+    const client = await Client.create({ principal, store });
+    applyInvocationConfigPatch(client, 'client');
+    applyInvocationConfigPatch(client.capability?.upload, 'capability.upload');
+    applyInvocationConfigPatch(client.capability?.blob, 'capability.blob');
+    applyInvocationConfigPatch(client.capability?.index, 'capability.index');
+    applyInvocationConfigPatch(client.capability?.filecoin, 'capability.filecoin');
+    applyInvocationConfigPatch(client.capability?.space, 'capability.space');
+    return client;
   }
 
   /**
@@ -233,6 +303,17 @@ export class UCANDelegationService {
     if (overrides.__FORCE_WORKER_MODE__) {
       this.hardwareModeChecked = true;
       this.useHardwareMode = false;
+      return false;
+    }
+
+    const serviceUrl = getServiceConfig().uploadServiceUrl;
+    if (!this.shouldAttemptHardwareMode(serviceUrl)) {
+      this.hardwareModeChecked = true;
+      this.useHardwareMode = false;
+      console.log(
+        'ℹ️ Hardware varsig disabled; using worker mode',
+        JSON.stringify({ serviceUrl: serviceUrl ?? 'unknown', reason: 'non-local service' })
+      );
       return false;
     }
     
@@ -327,6 +408,39 @@ export class UCANDelegationService {
       did: null,
       secure: false
     };
+  }
+
+  getSessionDelegationStatus(): {
+    enabled: boolean;
+    active: boolean;
+    expiresAt?: string;
+    reason?: 'disabled' | 'hardware-not-checked' | 'hardware-unavailable' | 'no-authority' | 'not-initialized';
+  } {
+    const enabled = this.isSessionDelegationEnabled();
+    if (!enabled) {
+      return { enabled: false, active: false, reason: 'disabled' };
+    }
+    if (this.sessionDelegation && this.sessionDelegation.expiresAt > Date.now()) {
+      return {
+        enabled: true,
+        active: true,
+        expiresAt: new Date(this.sessionDelegation.expiresAt).toISOString(),
+      };
+    }
+    if (!this.hardwareModeChecked) {
+      return { enabled: true, active: false, reason: 'hardware-not-checked' };
+    }
+    if (!this.useHardwareMode) {
+      return { enabled: true, active: false, reason: 'hardware-unavailable' };
+    }
+    if (!this.hasDelegationAuthority()) {
+      return { enabled: true, active: false, reason: 'no-authority' };
+    }
+    return { enabled: true, active: false, reason: 'not-initialized' };
+  }
+
+  getSessionDelegationDid(): string | null {
+    return this.sessionDelegation?.signer?.did?.() ?? null;
   }
   
   /**
@@ -662,10 +776,80 @@ export class UCANDelegationService {
     return false;
   }
 
-  /**
-   * Get appropriate principal based on current mode (hardware or worker)
-   */
-  private async getPrincipal(): Promise<UcanSigner<UcanDID<'key'>>> {
+  private isSessionDelegationEnabled(): boolean {
+    const enabled = import.meta.env.VITE_SESSION_DELEGATION;
+    return enabled === '1' || enabled === 'true';
+  }
+
+  private getSessionDelegationCapabilities(): string[] {
+    return [
+      'space/blob/add',
+      'space/blob/list',
+      'space/index/add',
+      'space/index/list',
+      'filecoin/offer',
+      'upload/add',
+      'upload/list',
+    ];
+  }
+
+  private delegationSupportsCapabilities(delegation: DelegationInfo, required: string[]): boolean {
+    const caps = delegation.capabilities ?? [];
+    return required.every((requiredCap) =>
+      caps.some(
+        (cap) =>
+          cap === requiredCap ||
+          cap === `${requiredCap.split('/')[0]}/*` ||
+          cap === '*'
+      )
+    );
+  }
+
+  private getDelegationCapsForLog(delegation: unknown): string[] {
+    const caps = (delegation as { capabilities?: Array<{ can?: string } | string> })?.capabilities ?? [];
+    return caps
+      .map((cap) => (typeof cap === 'string' ? cap : cap?.can))
+      .filter((cap): cap is string => typeof cap === 'string');
+  }
+
+  private getProofLogInfo(proof: unknown): { cid?: string; signatureLength?: number; signaturePrefix?: number[] } {
+    const proofObj = proof as { cid?: { toString?: () => string }; signature?: { raw?: Uint8Array } | Uint8Array };
+    const cid = proofObj?.cid?.toString?.();
+    const signature = (proofObj?.signature as { raw?: Uint8Array })?.raw ?? proofObj?.signature;
+    const signatureLength = signature?.byteLength ?? signature?.length;
+    const signaturePrefix =
+      signature?.byteLength || signature?.length
+        ? Array.from(signature.slice(0, 2))
+        : undefined;
+    return { cid, signatureLength, signaturePrefix };
+  }
+
+  private getSessionDelegationTtlMs(): number {
+    const minutesRaw = import.meta.env.VITE_SESSION_DELEGATION_TTL_MIN;
+    const minutes = minutesRaw ? Number(minutesRaw) : 15;
+    if (!Number.isFinite(minutes) || minutes <= 0) {
+      return 15 * 60 * 1000;
+    }
+    return minutes * 60 * 1000;
+  }
+
+  private hasDelegationAuthority(): boolean {
+    return Boolean(this.getStorachaCredentials()) || this.getReceivedDelegations().length > 0;
+  }
+
+  private shouldAttemptHardwareMode(serviceUrl?: string): boolean {
+    const forceHardware = import.meta.env.VITE_FORCE_HARDWARE_MODE;
+    if (forceHardware === '1' || forceHardware === 'true') {
+      return true;
+    }
+    if (!serviceUrl) {
+      return false;
+    }
+    return serviceUrl.startsWith('http://127.0.0.1') || serviceUrl.startsWith('http://localhost');
+  }
+
+
+  private async getBasePrincipal(): Promise<UcanSigner<UcanDID<'key'>>> {
     if (!this.hardwareModeChecked) {
       await this.checkAndInitializeHardwareMode();
     }
@@ -678,9 +862,157 @@ export class UCANDelegationService {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return hardwareSigner.toUcantoSigner() as any;
     }
-    
     // Worker mode: use worker-based Ed25519
     return this.getWorkerPrincipal();
+  }
+
+  private async ensureSessionDelegation(force = false): Promise<SessionDelegation | null> {
+    if (this.sessionDelegation && this.sessionDelegation.expiresAt > Date.now()) {
+      return this.sessionDelegation;
+    }
+
+    if (!this.isSessionDelegationEnabled() && !force) {
+      console.log('ℹ️ Session delegation disabled and not forced');
+      return null;
+    }
+
+    if (!this.hardwareModeChecked) {
+      await this.checkAndInitializeHardwareMode();
+    }
+
+    if (!this.useHardwareMode) {
+      if (!this.hasDelegationAuthority()) {
+        console.log('ℹ️ Session delegation unavailable (no authority, worker mode)');
+        return null;
+      }
+      const ttlMs = this.getSessionDelegationTtlMs();
+      const signer = await this.getWorkerPrincipal();
+      this.sessionDelegation = {
+        signer,
+        proof: '',
+        proofObj: null,
+        expiresAt: Date.now() + ttlMs,
+      };
+      return this.sessionDelegation;
+    }
+
+    if (!this.hasDelegationAuthority()) {
+      console.log('ℹ️ Session delegation unavailable (no authority, hardware mode)');
+      return null;
+    }
+
+    try {
+      const requiredCaps = this.getSessionDelegationCapabilities();
+      const credentials = this.getStorachaCredentials();
+      const receivedDelegations = this.getReceivedDelegations();
+
+      const { Signer } = await import('@ucanto/principal/ed25519');
+      const sessionSigner = await Signer.generate();
+      const ttlMs = this.getSessionDelegationTtlMs();
+      const ttlSeconds = Math.floor(ttlMs / 1000);
+      const expiration = Math.floor(Date.now() / 1000) + ttlSeconds;
+
+      if (credentials) {
+        const ttlHours = ttlMs / (60 * 60 * 1000);
+        const proof = await this.createDelegation(
+          sessionSigner.did(),
+          requiredCaps,
+          ttlHours,
+          false
+        );
+        const proofObj = await this.parseDelegationProof(proof);
+        this.sessionDelegation = {
+          signer: sessionSigner,
+          proof,
+          proofObj,
+          expiresAt: Date.now() + ttlMs,
+        };
+        console.log('✅ Session delegation created', {
+          audience: sessionSigner.did(),
+          capabilities: this.getDelegationCapsForLog(proofObj),
+          proof: this.getProofLogInfo(proofObj),
+        });
+        return this.sessionDelegation;
+      }
+
+      const candidate = receivedDelegations.find((delegation) =>
+        this.delegationSupportsCapabilities(delegation, requiredCaps)
+      );
+      if (!candidate) {
+        console.log('ℹ️ Session delegation unavailable (no suitable delegation to chain)');
+        return null;
+      }
+
+      const validation = await this.validateDelegation(candidate);
+      if (!validation.valid) {
+        console.log('ℹ️ Session delegation unavailable (delegation invalid):', validation.reason ?? 'unknown');
+        return null;
+      }
+
+      const proofDelegation = await this.parseDelegationProof(candidate.proof);
+      const spaceDid =
+        candidate.spaceDid ?? this.getSpaceDidFromDelegation(proofDelegation) ?? null;
+      if (!spaceDid) {
+        console.log('ℹ️ Session delegation unavailable (no space DID found)');
+        return null;
+      }
+
+      const issuer = await this.getBasePrincipal();
+      if (issuer.did() !== candidate.toAudience) {
+        console.warn('⚠️ Session delegation DID mismatch:', {
+          expected: candidate.toAudience,
+          actual: issuer.did(),
+        });
+        return null;
+      }
+
+      const { delegate } = await import('@ucanto/core/delegation');
+      const { Verifier } = await import('@ucanto/principal');
+
+      const delegation = await delegate({
+        issuer,
+        audience: Verifier.parse(sessionSigner.did() as UcanDID),
+        capabilities: requiredCaps.map((capability) => ({ with: spaceDid, can: capability })),
+        expiration,
+        proofs: [proofDelegation],
+        facts: [],
+      });
+
+      const archiveResult = await delegation.archive();
+      const carBytes =
+        typeof archiveResult === 'object' && archiveResult && 'ok' in archiveResult
+          ? archiveResult.ok
+          : archiveResult;
+      const proof = 'm' + this.arrayBufferToBase64(new Uint8Array(carBytes).buffer);
+      const proofObj = await this.parseDelegationProof(proof);
+
+      this.sessionDelegation = {
+        signer: sessionSigner,
+        proof,
+        proofObj,
+        expiresAt: Date.now() + ttlMs,
+      };
+      console.log('✅ Session delegation created (chained)', {
+        audience: sessionSigner.did(),
+        capabilities: this.getDelegationCapsForLog(proofObj),
+        proof: this.getProofLogInfo(proofObj),
+      });
+      return this.sessionDelegation;
+    } catch (error) {
+      console.warn('⚠️ Failed to create session delegation:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get appropriate principal based on current mode (hardware or worker)
+   */
+  private async getPrincipal(): Promise<UcanSigner<UcanDID<'key'>>> {
+    const session = await this.ensureSessionDelegation();
+    if (session) {
+      return session.signer;
+    }
+    return this.getBasePrincipal();
   }
 
   private async getWorkerPrincipal(): Promise<UcanSigner<UcanDID<'key'>>> {
@@ -764,6 +1096,7 @@ export class UCANDelegationService {
     localStorage.setItem(STORAGE_KEYS.STORACHA_PROOF, credentials.proof);
     localStorage.setItem(STORAGE_KEYS.SPACE_DID, credentials.spaceDid);
     console.log('✅ Stored Storacha credentials');
+    void this.ensureSessionDelegation();
   }
 
   /**
@@ -883,10 +1216,16 @@ export class UCANDelegationService {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const delegation = await this.parseDelegationProof(delegationInfo.proof) as any;
       
-      // Use appropriate principal (hardware or worker mode)
-      const principal = await this.getPrincipal();
+      // Use base principal for delegation DID checks (not session signer).
+      const principal = await this.getBasePrincipal();
+      const session = await this.ensureSessionDelegation(true);
+      const sessionPrincipal = session?.signer ?? (await this.getBasePrincipal());
+      const sessionCaps = this.getDelegationCapsForLog(session?.proofObj);
 
       console.log('📋 Principal DID:', principal.did());
+      console.log('📋 Session DID:', sessionPrincipal.did());
+      console.log('📋 Session delegation caps:', sessionCaps.length ? sessionCaps : 'none');
+      console.log('📋 Session delegation present:', Boolean(session?.proofObj));
       console.log('📋 Delegation audience (should match):', delegationInfo.toAudience);
       
       // CRITICAL: Verify the delegation is for this principal
@@ -898,7 +1237,9 @@ export class UCANDelegationService {
       
       console.log('✅ DID matches - delegation is for this principal');
 
-      const client = await this.createClient(principal);
+      const proofForInvocation = session?.proofObj ?? delegation;
+      console.log('📋 Invocation proof used (list):', this.getProofLogInfo(proofForInvocation));
+      const client = await this.createClient(sessionPrincipal, proofForInvocation);
       
       const spaceDid = this.getSpaceDidFromDelegation(delegation);
       if (spaceDid) {
@@ -1133,10 +1474,14 @@ export class UCANDelegationService {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const delegation = await this.parseDelegationProof(delegationInfo.proof) as any;
 
-      // Use appropriate principal (hardware or worker mode)
-      const principal = await this.getPrincipal();
+      // Use base principal for delegation DID checks (not session signer).
+      const principal = await this.getBasePrincipal();
+      const session = await this.ensureSessionDelegation(true);
+      const sessionPrincipal = session?.signer ?? (await this.getBasePrincipal());
+      const sessionCaps = this.getDelegationCapsForLog(session?.proofObj);
 
       console.log('📋 Principal DID:', principal.did());
+      console.log('📋 Session DID:', sessionPrincipal.did());
       console.log('📋 Delegation audience (should match):', delegationInfo.toAudience);
       
       // CRITICAL: Verify the delegation is for this principal
@@ -1148,7 +1493,9 @@ export class UCANDelegationService {
       
       console.log('✅ DID matches - delegation is for this principal');
 
-      const client = await this.createClient(principal);
+      const proofForInvocation = session?.proofObj ?? delegation;
+      console.log('📋 Invocation proof used (upload):', this.getProofLogInfo(proofForInvocation));
+      const client = await this.createClient(sessionPrincipal, proofForInvocation);
       
       // Get space DID from delegation and set as current
       const listSpaceDid = this.getSpaceDidFromDelegation(delegation);
@@ -1187,7 +1534,6 @@ export class UCANDelegationService {
         }
       } catch (listError) {
         console.error('Failed to list uploads:', listError);
-        
         // Extract detailed error information
         const error = listError as any;
         if (error) {
@@ -1240,7 +1586,15 @@ export class UCANDelegationService {
       // Validate delegation before use
       const validation = await this.validateDelegation(delegationInfo);
       if (!validation.valid) {
-        throw new Error(`Cannot upload: ${validation.reason}`);
+        console.warn('⚠️ Upload delegation invalid:', {
+          id: delegationInfo.id,
+          name: delegationInfo.name ?? '',
+          expiresAt: delegationInfo.expiresAt ?? 'none',
+          reason: validation.reason ?? 'unknown',
+        });
+        throw new Error(
+          `Cannot upload: ${validation.reason} (delegation ${delegationInfo.id}${delegationInfo.expiresAt ? `, expires ${delegationInfo.expiresAt}` : ''})`
+        );
       }
       
       // Parse the delegation using the helper method (tries ucanto first, then Storacha)
@@ -1251,10 +1605,16 @@ export class UCANDelegationService {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       console.log('Delegation capabilities:', delegation.capabilities.map((c: any) => c.can).join(', '));
       
-      // Use appropriate principal (hardware or worker mode)
-      const principal = await this.getPrincipal();
+      // Use base principal for delegation DID checks (not session signer).
+      const principal = await this.getBasePrincipal();
+      const session = await this.ensureSessionDelegation(true);
+      const sessionPrincipal = session?.signer ?? (await this.getBasePrincipal());
+      const sessionCaps = this.getDelegationCapsForLog(session?.proofObj);
 
       console.log('Using principal DID:', principal.did());
+      console.log('Using session DID:', sessionPrincipal.did());
+      console.log('Using session delegation caps:', sessionCaps.length ? sessionCaps : 'none');
+      console.log('Using session delegation present:', Boolean(session?.proofObj));
       console.log('Delegation audience (should match):', delegationInfo.toAudience);
       
       // Verify the delegation is for this principal
@@ -1274,7 +1634,9 @@ export class UCANDelegationService {
         );
       }
       
-      const client = await this.createClient(principal);
+      const proofForInvocation = session?.proofObj ?? delegation;
+      console.log('📋 Invocation proof used (delete):', this.getProofLogInfo(proofForInvocation));
+      const client = await this.createClient(sessionPrincipal, proofForInvocation);
 
       console.log('✅ Created Storacha client with delegation');
 
@@ -1354,14 +1716,39 @@ export class UCANDelegationService {
    * @param capabilities Array of capability strings to delegate
    * @param expirationHours Number of hours until delegation expires (default: 24, null = no expiration)
    */
-  async createDelegation(toDid: string, capabilities: string[] = ['space/blob/add', 'space/blob/list', 'space/blob/remove', 'store/add', 'store/list', 'store/remove', 'upload/add', 'upload/list', 'upload/remove'], expirationHours: number | null = 24): Promise<string> {
+  async createDelegation(
+    toDid: string,
+    capabilities: string[] = ['space/blob/add', 'space/blob/list', 'space/blob/remove', 'store/add', 'store/list', 'store/remove', 'upload/add', 'upload/list', 'upload/remove'],
+    expirationHours: number | null = 24,
+    store = true
+  ): Promise<string> {
     // HARDWARE MODE: Route through hardware service
     if (this.useHardwareMode && this.hardwareService) {
       console.log('🔐 Creating delegation with HARDWARE-BACKED signing...');
       
       // Check if we have Storacha credentials or use hardware DID as space
       const credentials = this.getStorachaCredentials();
-      const spaceDid = credentials?.spaceDid || this.hardwareService.getHardwareDID();
+      const receivedDelegations = this.getReceivedDelegations();
+      let proofDelegation: unknown = null;
+      let spaceDid = credentials?.spaceDid || this.hardwareService.getHardwareDID();
+      if (!credentials && receivedDelegations.length > 0) {
+        const suitableDelegation = receivedDelegations.find(d =>
+          d.capabilities.some(cap =>
+            capabilities.some(reqCap =>
+              cap === reqCap || cap === `${reqCap.split('/')[0]}/*` || cap === '*'
+            )
+          )
+        );
+        if (!suitableDelegation) {
+          throw new Error('No suitable received delegation found with required capabilities.');
+        }
+        proofDelegation = await this.parseDelegationProof(suitableDelegation.proof);
+        const chainedSpaceDid = this.getSpaceDidFromDelegation(proofDelegation);
+        if (chainedSpaceDid) {
+          spaceDid = chainedSpaceDid;
+          console.log('Extracted space DID from received delegation:', spaceDid);
+        }
+      }
       
       if (!spaceDid) {
         throw new Error('No space DID available. Hardware signer not initialized.');
@@ -1378,26 +1765,29 @@ export class UCANDelegationService {
           toDid,
           spaceDid,  // Use either Storacha spaceDid or hardware DID for chaining
           capabilities,
-          expirationHours
+          expirationHours,
+          proofDelegation ? [proofDelegation] : []
         );
         
-        // Store in created delegations
-        const delegationInfo: DelegationInfo = {
-          id: `hw-${Date.now()}`, // Hardware mode delegation
-          fromIssuer: this.hardwareService.getHardwareDID()!,
-          toAudience: toDid,
-          proof,
-          capabilities,
-          createdAt: new Date().toISOString(),
-          expiresAt: expirationHours !== null
-            ? new Date(Date.now() + expirationHours * 60 * 60 * 1000).toISOString()
-            : undefined,
-          format: 'hardware-varsig'
-        };
-        
-        const createdDelegations = this.getCreatedDelegations();
-        createdDelegations.unshift(delegationInfo);
-        localStorage.setItem(STORAGE_KEYS.CREATED_DELEGATIONS, JSON.stringify(createdDelegations));
+        if (store) {
+          // Store in created delegations
+          const delegationInfo: DelegationInfo = {
+            id: `hw-${Date.now()}`, // Hardware mode delegation
+            fromIssuer: this.hardwareService.getHardwareDID()!,
+            toAudience: toDid,
+            proof,
+            capabilities,
+            createdAt: new Date().toISOString(),
+            expiresAt: expirationHours !== null
+              ? new Date(Date.now() + expirationHours * 60 * 60 * 1000).toISOString()
+              : undefined,
+            format: 'hardware-varsig'
+          };
+          
+          const createdDelegations = this.getCreatedDelegations();
+          createdDelegations.unshift(delegationInfo);
+          localStorage.setItem(STORAGE_KEYS.CREATED_DELEGATIONS, JSON.stringify(createdDelegations));
+        }
         
         console.log('✅ Hardware delegation created successfully!');
         console.log('   Mode: Hardware-backed Ed25519');
@@ -1561,7 +1951,9 @@ export class UCANDelegationService {
         expiresAt: expirationTimestamp ? new Date(expirationTimestamp * 1000).toISOString() : undefined
       };
       
-      this.storeDelegation(delegationInfo);
+      if (store) {
+        this.storeDelegation(delegationInfo);
+      }
       
       console.log('✅ Delegation created and stored successfully');
       return carBase64;
@@ -2148,6 +2540,7 @@ export class UCANDelegationService {
       localStorage.setItem(STORAGE_KEYS.RECEIVED_DELEGATIONS, JSON.stringify(delegations));
       
       console.log('✅ Successfully imported delegation');
+      await this.ensureSessionDelegation();
     } catch (error) {
       console.error('Failed to import delegation:', error);
       throw new Error(`Failed to import delegation: ${error}`);
