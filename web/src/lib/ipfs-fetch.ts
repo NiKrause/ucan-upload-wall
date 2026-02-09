@@ -267,9 +267,17 @@ export async function loadIpfsBlobUrl(
   return { url, source: 'gateway', gateway };
 }
 
+// loadIpfsBlob will try to fetch from gateways first, 
+// if that fails, it will fall back to Helia.
 export async function loadIpfsBlob(
   cid: string,
 ): Promise<{ data: Uint8Array; source: 'helia' | 'gateway'; gateway?: string }> {
+  try {
+    const { bytes, gateway } = await fetchFromGateways(cid);
+    return { data: bytes, source: 'gateway', gateway };
+  } catch (error) {
+    console.warn('Gateway fetch failed, falling back to Helia:', error);
+  }
   try {
     console.log(`🟣 Loading IPFS blob from Helia for ${cid}`);
     const bytes = await fetchFromHelia(cid);
@@ -277,10 +285,8 @@ export async function loadIpfsBlob(
     return { data: bytes, source: 'helia' };
   } catch (error) {
     console.warn('Helia fetch failed, falling back to gateways:', error);
+    throw error;
   }
-
-  const { bytes, gateway } = await fetchFromGateways(cid);
-  return { data: bytes, source: 'gateway', gateway };
 }
 
 export function getGatewayUrl(cid: string): string {
