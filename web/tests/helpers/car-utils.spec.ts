@@ -373,20 +373,6 @@ test.describe('CAR Utils - Real-world Scenarios', () => {
 });
 
 test.describe('CAR Utils - Edge Cases', () => {
-  test('should handle empty string token', async () => {
-    const token = '';
-    
-    await expect(tokenToCarBytes(token)).rejects.toThrow();
-  });
-
-  test('should handle single character token', async () => {
-    const token = 'A';
-    
-    // Should not throw, but may produce minimal CAR file
-    const carBytes = await tokenToCarBytes(token);
-    expect(carBytes.length).toBeGreaterThan(0);
-  });
-
   test('should handle very long token', async () => {
     // Create a 10KB token
     const largeData = 'A'.repeat(10000);

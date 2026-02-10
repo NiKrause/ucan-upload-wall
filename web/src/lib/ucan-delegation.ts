@@ -2007,14 +2007,17 @@ export class UCANDelegationService {
   }
 
   /**
-   * Fetch delegation from IPFS using CID via IPFS gateways
+   * Fetch delegation from IPFS using CID
    */
   private async fetchDelegationByCID(cid: string): Promise<string> {
     console.log('📥 Fetching delegation from CID:', cid);
     
     try {
-      // Fetch CAR file from IPFS gateways
-      const { loadIpfsBlob } = await import('./ipfs-fetch');
+      // Warmup Helia client to ensure it's ready for potential fallback
+      const { warmupHeliaClient, loadIpfsBlob } = await import('./ipfs-fetch');
+      warmupHeliaClient();
+      
+      // Fetch CAR file
       const result = await loadIpfsBlob(cid);
       
       console.log(`✅ Fetched CAR file bytes, size: ${result.data.length} bytes`);

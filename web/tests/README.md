@@ -139,15 +139,19 @@ This allows WebAuthn to work in headless/automated mode without real biometric h
 
 ```
 tests/
-├── basic-ui.spec.ts        # ✅ Active: Core UI tests
+├── basic-ui.spec.ts                    # ✅ Active: Core UI tests
+├── delegation-upload-flow.spec.ts      # ✅ Active: Full upload workflow
+├── ipfs-network-verification.spec.ts   # ✅ Active: IPFS network test
 ├── helpers/
-│   └── webauthn.ts         # WebAuthn test helpers
-├── archive/                # ⚠️ Archived: Old/incomplete tests
+│   ├── webauthn.ts                     # WebAuthn test helpers
+│   ├── car-utils.spec.ts               # CAR file utilities tests
+│   └── car-examples.spec.ts            # CAR examples tests
+├── archive/                            # ⚠️ Archived: Old/incomplete tests
 │   ├── encrypted-keystore.spec.ts
 │   ├── alice-bob-delegation.spec.ts
 │   ├── alice-bob-workflow.spec.ts
-│   └── README.md           # Archive documentation
-└── README.md               # This file
+│   └── README.md                       # Archive documentation
+└── README.md                           # This file
 ```
 
 ## Adding New Tests

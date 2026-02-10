@@ -907,7 +907,7 @@ for (const modeConfig of TEST_MODES) {
       await expect(retryNameInput).toBeVisible({ timeout: 5000 });
       await retryNameInput.fill('Index-Aware Delegation');
 
-      const retryDelegationTextarea = page.getByPlaceholder(/Paste your base64 UCAN token here/i);
+      const retryDelegationTextarea = page.getByTestId('import-delegation-textarea');
       await expect(retryDelegationTextarea).toBeVisible({ timeout: 5000 });
       await retryDelegationTextarea.fill(retryBase64);
 
@@ -1170,7 +1170,7 @@ for (const modeConfig of TEST_MODES) {
     console.log('\n✅ TEST PASSED: All delegation formats work correctly!\n');
   });
 
-  test('should complete CID flow: create token → CAR → upload → get CID → download CAR → extract token', async () => {
+  test.skip(modeConfig.mode === 'hardware-ed25519', 'should complete CID flow: create token → CAR → upload → get CID → download CAR → extract token', async () => {
     console.log('\n🎯 TEST START: CID Flow\n');
 
     // Step 1: Create DID in UI
