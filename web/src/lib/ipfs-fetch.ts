@@ -267,24 +267,43 @@ export async function loadIpfsBlobUrl(
   return { url, source: 'gateway', gateway };
 }
 
-// loadIpfsBlob will try to fetch from gateways first, 
-// if that fails, it will fall back to Helia.
+/**
+ * Load IPFS blob from gateway only
+ */
+export async function loadIpfsBlobFromGateway(
+  cid: string,
+): Promise<{ data: Uint8Array; source: 'gateway'; gateway: string }> {
+  const { bytes, gateway } = await fetchFromGateways(cid);
+  return { data: bytes, source: 'gateway', gateway };
+}
+
+/**
+ * Load IPFS blob from Helia only
+ */
+export async function loadIpfsBlobFromHelia(
+  cid: string,
+): Promise<{ data: Uint8Array; source: 'helia' }> {
+  console.log(`🟣 Loading IPFS blob from Helia for ${cid}`);
+  const bytes = await fetchFromHelia(cid);
+  console.log(`🟣 Helia blob data retrieved for ${cid}`);
+  return { data: bytes, source: 'helia' };
+}
+
+/**
+ * Load IPFS blob - tries gateways first, falls back to Helia
+ */
 export async function loadIpfsBlob(
   cid: string,
 ): Promise<{ data: Uint8Array; source: 'helia' | 'gateway'; gateway?: string }> {
   try {
-    const { bytes, gateway } = await fetchFromGateways(cid);
-    return { data: bytes, source: 'gateway', gateway };
+    return await loadIpfsBlobFromGateway(cid);
   } catch (error) {
     console.warn('Gateway fetch failed, falling back to Helia:', error);
   }
   try {
-    console.log(`🟣 Loading IPFS blob from Helia for ${cid}`);
-    const bytes = await fetchFromHelia(cid);
-    console.log(`🟣 Helia blob data retrieved for ${cid}`);
-    return { data: bytes, source: 'helia' };
+    return await loadIpfsBlobFromHelia(cid);
   } catch (error) {
-    console.warn('Helia fetch failed, falling back to gateways:', error);
+    console.warn('Helia fetch failed:', error);
     throw error;
   }
 }

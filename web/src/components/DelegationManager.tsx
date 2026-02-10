@@ -24,6 +24,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
   const [delegationName, setDelegationName] = useState('');
   const [detectedInputType, setDetectedInputType] = useState<'token' | 'cid' | 'unknown'>('unknown');
   const [isCreating, setIsCreating] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [showDelegationProof, setShowDelegationProof] = useState(false);
   const [createdDelegationProof, setCreatedDelegationProof] = useState('');
@@ -241,6 +242,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       return;
     }
 
+    setIsImporting(true);
     try {
       await delegationService.importDelegation(importProof, delegationName || undefined);
       loadData();
@@ -258,6 +260,8 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       }
     } catch (error) {
       alert(`Failed to import delegation: ${error}`);
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -857,10 +861,11 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
             <div className="flex gap-3">
               <button
                 onClick={handleImportDelegation}
-                className="btn-primary"
+                disabled={isImporting}
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Download className="h-5 w-5 mr-2" />
-                Import UCAN Delegation
+                {isImporting ? 'Importing...' : 'Import UCAN Delegation'}
               </button>
 
               <button

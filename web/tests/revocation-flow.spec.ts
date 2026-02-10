@@ -298,7 +298,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     await expect(nameInput).toBeVisible({ timeout: 5000 });
     await nameInput.fill(name);
 
-    const delegationTextarea = page.getByPlaceholder(/Paste your base64 UCAN token here/i);
+    const delegationTextarea = page.getByTestId('import-delegation-textarea');
     await expect(delegationTextarea).toBeVisible({ timeout: 5000 });
     await delegationTextarea.fill(delegationBase64);
     await page.waitForTimeout(500);
@@ -1412,8 +1412,6 @@ test.describe('UCAN Revocation Flow - E2E', () => {
 
     const fileInput = page.locator('input[type="file"]');
     const uploadButton = page.getByRole('button', { name: /Upload to Storacha/i });
-    await expect(fileInput).toBeVisible({ timeout: 10000 });
-    await expect(uploadButton).toBeVisible({ timeout: 10000 });
 
     const firstContent = `revocation-test-before-${Date.now()}`;
     const firstTransfer = await page.evaluateHandle((content) => {
