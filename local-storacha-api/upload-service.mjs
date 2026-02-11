@@ -274,6 +274,61 @@ async function createVarsigPrincipal(varsigModule = null) {
     concat,
   } = varsig;
 
+  /**
+   * Convert ASN.1 DER ECDSA signature to raw r|s for P-256 verification.
+   * WebAuthn often returns DER, while WebCrypto verify expects fixed 64-byte raw.
+   *
+   * @param {Uint8Array} signature
+   * @returns {Uint8Array}
+   */
+  const normalizeP256Signature = (signature) => {
+    if (!(signature instanceof Uint8Array)) {
+      return signature;
+    }
+    // Already raw P-256 signature (r|s)
+    if (signature.length === 64) {
+      return signature;
+    }
+    // Quick DER shape check: SEQUENCE (0x30)
+    if (signature.length < 8 || signature[0] !== 0x30) {
+      return signature;
+    }
+
+    let offset = 1;
+    let seqLen = signature[offset++];
+    if (seqLen & 0x80) {
+      const lenBytes = seqLen & 0x7f;
+      if (lenBytes < 1 || lenBytes > 2 || offset + lenBytes > signature.length) {
+        return signature;
+      }
+      seqLen = 0;
+      for (let i = 0; i < lenBytes; i += 1) {
+        seqLen = (seqLen << 8) | signature[offset++];
+      }
+    }
+
+    if (signature[offset++] !== 0x02) return signature;
+    const rLen = signature[offset++];
+    if (offset + rLen > signature.length) return signature;
+    let r = signature.slice(offset, offset + rLen);
+    offset += rLen;
+
+    if (signature[offset++] !== 0x02) return signature;
+    const sLen = signature[offset++];
+    if (offset + sLen > signature.length) return signature;
+    let s = signature.slice(offset, offset + sLen);
+
+    // Remove ASN.1 positive-sign leading zeros
+    while (r.length > 32 && r[0] === 0x00) r = r.slice(1);
+    while (s.length > 32 && s[0] === 0x00) s = s.slice(1);
+    if (r.length > 32 || s.length > 32) return signature;
+
+    const raw = new Uint8Array(64);
+    raw.set(r, 32 - r.length);
+    raw.set(s, 64 - s.length);
+    return raw;
+  };
+
   const wrapVerifier = (did) => {
     const edVerifier = BaseVerifier.parse(did);
     const webauthnVerifier = WebAuthnEd25519?.Verifier?.create
@@ -343,7 +398,8 @@ async function createVarsigPrincipal(varsigModule = null) {
             const signedData = await reconstructSignedData(decoded);
             if (decoded.algorithm === 'P-256') {
               const p256PublicKey = toP256RawPublicKey(edVerifier.publicKey);
-              return verifyP256Signature(signedData, decoded.signature, p256PublicKey);
+              const normalizedSignature = normalizeP256Signature(decoded.signature);
+              return verifyP256Signature(signedData, normalizedSignature, p256PublicKey);
             }
             return verifyEd25519Signature(signedData, decoded.signature, edVerifier.publicKey);
           } catch (error) {

@@ -237,11 +237,15 @@ export class UCANDelegationService {
         const config = await original(filtered);
         if (sessionProofs.length > 0) {
           const existing = (config as { proofs?: Array<unknown> }).proofs ?? [];
+          const mergedProofs = [...sessionProofs, ...existing];
+          const dedupedProofs = this.dedupeProofsByCid(mergedProofs);
           console.log('🧾 Invocation config proofs', {
             sessionProofs: sessionProofs.map((proof) => this.getProofLogInfo(proof)),
             existing: existing.length,
+            merged: mergedProofs.length,
+            deduped: dedupedProofs.length,
           });
-          return { ...config, proofs: [...sessionProofs, ...existing] };
+          return { ...config, proofs: dedupedProofs };
         }
         return config;
       };
@@ -821,6 +825,29 @@ export class UCANDelegationService {
         ? Array.from(signature.slice(0, 2))
         : undefined;
     return { cid, signatureLength, signaturePrefix };
+  }
+
+  private getProofCid(proof: unknown): string | undefined {
+    const proofObj = proof as { cid?: { toString?: () => string } };
+    return proofObj?.cid?.toString?.();
+  }
+
+  private dedupeProofsByCid(proofs: Array<unknown>): Array<unknown> {
+    const seen = new Set<string>();
+    const deduped: Array<unknown> = [];
+    for (const proof of proofs) {
+      const cid = this.getProofCid(proof);
+      if (!cid) {
+        deduped.push(proof);
+        continue;
+      }
+      if (seen.has(cid)) {
+        continue;
+      }
+      seen.add(cid);
+      deduped.push(proof);
+    }
+    return deduped;
   }
 
   private getSessionDelegationTtlMs(): number {
@@ -2661,6 +2688,14 @@ export class UCANDelegationService {
     const now = Date.now();
     const serviceConfig = getServiceConfig();
     const revocationUrl = serviceConfig.revocationUrl ?? 'https://up.storacha.network';
+
+    // Some locally-imported delegations use synthetic IDs (e.g. "hw-import-..."),
+    // which are not CIDs and should not be sent to the revocation endpoint.
+    if (!this.isLikelyCid(delegationCID)) {
+      this.setRevocationCache(delegationCID, false);
+      console.log(`Skipping revocation check for non-CID delegation id: ${delegationCID}`);
+      return false;
+    }
     
     // Check cache first (unless forcing refresh)
     if (!forceRefresh) {
@@ -2709,6 +2744,17 @@ export class UCANDelegationService {
       // If we can't reach the server, fail open (assume not revoked)
       return false;
     }
+  }
+
+  /**
+   * Best-effort CID shape check to avoid querying revocation endpoints with synthetic IDs.
+   * Supports common CID forms used in this app (bafy..., Qm..., z...).
+   */
+  private isLikelyCid(value: string): boolean {
+    const cidV1Base32 = /^b[a-z2-7]{20,}$/;
+    const cidV0Base58 = /^Qm[1-9A-HJ-NP-Za-km-z]{44}$/;
+    const cidBase58btc = /^z[1-9A-HJ-NP-Za-km-z]{20,}$/;
+    return cidV1Base32.test(value) || cidV0Base58.test(value) || cidBase58btc.test(value);
   }
 
   /**
