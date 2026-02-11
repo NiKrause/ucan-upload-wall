@@ -118,6 +118,13 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
   let spaceDid: string;
   let spaceProof: DelegationProof;
 
+  async function waitForAppShell(page: Page): Promise<void> {
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('button', { name: /Upload Files/i }).first()).toBeVisible({
+      timeout: 15000,
+    });
+  }
+
   async function ensureHelia(): Promise<HeliaNode> {
     if (heliaNode) {
       return heliaNode;
@@ -199,7 +206,7 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
   }
 
   test.beforeEach(async ({ browser }) => {
-    test.setTimeout(180000); // 3 minutes timeout for network operations
+    test.setTimeout(300000); // 5 minutes timeout for slower network propagation
 
     console.log('🚀 Setting up test environment with two browsers...');
 
@@ -344,13 +351,7 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
       }
     );
 
-    await pageA.goto('/');
-    await pageA.evaluate(() => {
-      localStorage.clear();
-      sessionStorage.clear();
-    });
-    await pageA.reload();
-    await pageA.waitForLoadState('networkidle');
+    await waitForAppShell(pageA);
     console.log('✅ Browser A setup complete');
 
     // 8. Setup Browser B (downloader)
@@ -383,13 +384,7 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
       }
     );
 
-    await pageB.goto('/');
-    await pageB.evaluate(() => {
-      localStorage.clear();
-      sessionStorage.clear();
-    });
-    await pageB.reload();
-    await pageB.waitForLoadState('networkidle');
+    await waitForAppShell(pageB);
     console.log('✅ Browser B setup complete');
   });
 
@@ -592,39 +587,59 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
     // We'll use the browser's console to call our IPFS fetch function
     console.log('🔍 Attempting to fetch file via IPFS in Browser B...');
 
-    // Inject the CID and fetch via IPFS (Helia only, no gateway fallback)
-    const downloadResult = await pageB.evaluate(
-      async (cid) => {
-        try {
-          // Import the loadIpfsBlobFromHelia function to test IPFS network directly
-          const { loadIpfsBlobFromHelia } = await import('/src/lib/ipfs-fetch.ts');
+    // Inject the CID and fetch via IPFS (Helia only, no gateway fallback).
+    // Keep each attempt bounded and retry briefly to absorb network propagation delays.
+    let downloadResult: { success: boolean; content?: string; source?: string; error?: string } = {
+      success: false,
+      error: 'Download did not run',
+    };
+    const maxFetchAttempts = 10;
+    const fetchAttemptTimeoutMs = 15000;
+    for (let attempt = 1; attempt <= maxFetchAttempts; attempt += 1) {
+      console.log(`🔁 Browser B fetch attempt ${attempt}/${maxFetchAttempts}...`);
+      downloadResult = await pageB.evaluate(
+        async ({ cid, timeoutMs }) => {
+          try {
+            const { loadIpfsBlobFromHelia } = await import('/src/lib/ipfs-fetch.ts');
+            console.log('🟣 Browser B: Starting IPFS fetch from Helia for CID:', cid);
 
-          console.log('🟣 Browser B: Starting IPFS fetch from Helia for CID:', cid);
+            const result = await Promise.race([
+              loadIpfsBlobFromHelia(cid),
+              new Promise<never>((_, reject) =>
+                setTimeout(
+                  () => reject(new Error(`Timed out waiting for Helia content after ${timeoutMs}ms`)),
+                  timeoutMs
+                )
+              ),
+            ]);
 
-          // Fetch the content from Helia only (no gateway fallback)
-          const result = await loadIpfsBlobFromHelia(cid);
+            console.log('🟣 Browser B: IPFS fetch completed, source:', result.source);
+            const decoder = new TextDecoder();
+            const content = decoder.decode(result.data);
 
-          console.log('🟣 Browser B: IPFS fetch completed, source:', result.source);
+            return {
+              success: true,
+              content,
+              source: result.source,
+            };
+          } catch (error) {
+            console.error('🟣 Browser B: IPFS fetch failed:', error);
+            return {
+              success: false,
+              error: (error as Error).message,
+            };
+          }
+        },
+        { cid: rootCid, timeoutMs: fetchAttemptTimeoutMs }
+      );
 
-          // Convert bytes to string
-          const decoder = new TextDecoder();
-          const content = decoder.decode(result.data);
-
-          return {
-            success: true,
-            content,
-            source: result.source,
-          };
-        } catch (error) {
-          console.error('🟣 Browser B: IPFS fetch failed:', error);
-          return {
-            success: false,
-            error: (error as Error).message,
-          };
-        }
-      },
-      rootCid
-    );
+      if (downloadResult.success) {
+        break;
+      }
+      if (attempt < maxFetchAttempts) {
+        await pageB.waitForTimeout(3000);
+      }
+    }
 
     console.log('📊 Download result:', downloadResult);
 
