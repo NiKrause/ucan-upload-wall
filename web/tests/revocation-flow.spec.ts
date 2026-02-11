@@ -102,10 +102,6 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     console.log('🌐 Setting up browser context...');
     context = await browser.newContext();
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-    await context.addInitScript(() => {
-      localStorage.clear();
-      sessionStorage.clear();
-    });
     page = await context.newPage();
 
     cdpSession = await enableVirtualAuthenticator(context);
