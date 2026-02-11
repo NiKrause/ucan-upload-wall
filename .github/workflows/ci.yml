@@ -22,7 +22,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: './web/package-lock.json'
 
@@ -55,4 +55,3 @@ jobs:
           name: playwright-report
           path: web/test-results/
           retention-days: 7
-
