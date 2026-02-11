@@ -356,7 +356,7 @@ test.describe('CAR Examples - Error Handling', () => {
       console.log('  CAR size:', carBytes.length, 'bytes');
       expect(carBytes.length).toBeGreaterThan(0);
     } catch (error) {
-      console.log('  ❌ Should not have thrown error');
+      console.log('  ❌ Should not have thrown error', error);
       expect(true).toBe(false);
     }
     

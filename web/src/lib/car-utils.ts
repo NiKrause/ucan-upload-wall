@@ -205,6 +205,7 @@ export async function isValidCarFile(bytes: Uint8Array): Promise<boolean> {
     const roots = await reader.getRoots();
     return roots.length > 0;
   } catch (error) {
+    console.error('Error validating CAR file:', error);
     return false;
   }
 }

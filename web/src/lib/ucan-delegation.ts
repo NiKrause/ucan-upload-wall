@@ -25,7 +25,6 @@ import {
 } from './secure-ed25519-did';
 import { HardwareUCANDelegationService, getStoredHardwareSignerInfo } from './hardware-ucan-service';
 import { checkEd25519Support } from './webauthn-ed25519-signer';
-import { config } from '../config';
 
 // Storage keys for localStorage
 const STORAGE_KEYS = {
@@ -1063,6 +1062,7 @@ export class UCANDelegationService {
         capability.can = fallbackCan;
       }
       if (typeof capability.invoke !== 'function') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         capability.invoke = ({ issuer, audience, with: resource, nb, proofs, nonce, expiration, facts, notBefore, lifetimeInSeconds }: any) =>
           invoke({
             issuer,
@@ -1478,7 +1478,6 @@ export class UCANDelegationService {
       const principal = await this.getBasePrincipal();
       const session = await this.ensureSessionDelegation(true);
       const sessionPrincipal = session?.signer ?? (await this.getBasePrincipal());
-      const sessionCaps = this.getDelegationCapsForLog(session?.proofObj);
 
       console.log('📋 Principal DID:', principal.did());
       console.log('📋 Session DID:', sessionPrincipal.did());
@@ -1535,6 +1534,7 @@ export class UCANDelegationService {
       } catch (listError) {
         console.error('Failed to list uploads:', listError);
         // Extract detailed error information
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const error = listError as any;
         if (error) {
           console.error('❌ Error Details:');

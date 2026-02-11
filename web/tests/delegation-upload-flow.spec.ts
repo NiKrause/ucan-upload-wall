@@ -352,6 +352,7 @@ for (const modeConfig of TEST_MODES) {
           console.warn('🟣 Helia CAR import skipped:', error?.message ?? error);
         });
       },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       onInvocation: (invocation: any) => {
         for (const capability of invocation.capabilities ?? []) {
           if (capability.can === 'space/index/add' && !capturedIndexLink && capability.nb?.index) {

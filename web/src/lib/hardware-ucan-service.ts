@@ -319,9 +319,11 @@ export class HardwareUCANDelegationService {
         }
         
         // Extract capabilities from delegation
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const capabilities = delegation.capabilities.map((cap: any) => 
           cap.can || cap.capability || cap
         );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const spaceDid = delegation.capabilities.find((cap: any) => cap?.with)?.with;
         
         return {
@@ -341,11 +343,13 @@ export class HardwareUCANDelegationService {
         }
         // Not a varsig-encoded delegation, use standard verification
         console.log('Not a varsig delegation, using standard verification');
-        
+
         // Extract capabilities from delegation
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const capabilities = delegation.capabilities.map((cap: any) => 
           cap.can || cap.capability || cap
         );
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const spaceDid = delegation.capabilities.find((cap: any) => cap?.with)?.with;
         
         return {

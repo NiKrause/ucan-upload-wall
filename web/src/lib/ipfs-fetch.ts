@@ -205,7 +205,7 @@ function detectImageMime(bytes: Uint8Array): string | undefined {
 }
 
 async function fetchFromHelia(cid: string): Promise<Uint8Array> {
-  const { helia, fs } = await getHeliaClient();
+  const { fs } = await getHeliaClient();
   const { CID } = await import('multiformats/cid');
   console.log(`🟣 Helia fs.cat started for ${cid}`);
   const chunks: Uint8Array[] = [];

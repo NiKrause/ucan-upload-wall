@@ -33,7 +33,7 @@ function App() {
     loading: boolean;
     error?: string;
   } | null>(null);
-  const { uploadFile, isUploading, error, delegationService } = useFileUpload();
+  const { uploadFile, isUploading, delegationService } = useFileUpload();
   const [hasDeleteCapability, setHasDeleteCapability] = useState(false);
   const [securityNoticeDismissed, setSecurityNoticeDismissed] = useState(() => {
     return localStorage.getItem('security_notice_dismissed') === 'true';

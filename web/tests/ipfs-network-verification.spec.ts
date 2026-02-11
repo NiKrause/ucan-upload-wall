@@ -242,7 +242,7 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
       audience: spaceAgent,
       capabilities: [{ can: '*', with: space.did() }],
     });
-    console.log('🧾 Space proof created');
+    console.log('🧾 Space proof created', spaceProof);
 
     // 4. Provision the space
     console.log('📝 Provisioning space with upload service...');
