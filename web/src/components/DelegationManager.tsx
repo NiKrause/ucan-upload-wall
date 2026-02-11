@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Share, Copy, Check, Plus, Download, Upload, Shield, Trash2, ArrowRight, User, Clock, Key, XCircle, Ban, Lock, Cpu } from 'lucide-react';
+import { Share, Copy, Check, Plus, Download, Upload, Shield, Trash2, ArrowRight, User, Clock, Key, XCircle, Ban, Lock, Cpu, MessageCircle, Hash } from 'lucide-react';
 import { UCANDelegationService, DelegationInfo } from '../lib/ucan-delegation';
 import { createCarFile } from '../lib/car-utils';
 import { Setup } from './Setup';
@@ -273,6 +273,12 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
     } catch (error) {
       console.error('Failed to copy:', error);
     }
+  };
+
+  const shareToTelegram = (text: string, label: string) => {
+    const message = `🔐 UCAN Delegation ${label}\n\n${text}\n\nImport this in your browser to gain access!`;
+    const url = `https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleDeleteCreatedDelegations = () => {
@@ -1424,6 +1430,16 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                       ) : (
                         <><Copy className="h-4 w-4 mr-1" /> Copy</>
                       )}
+                    </button>
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={() => shareToTelegram(uploadedDelegationCID, 'CID')}
+                      className="flex items-center bg-blue-500 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-600 transition-colors"
+                      title="Share on Telegram"
+                    >
+                      <MessageCircle className="h-4 w-4 mr-1" />
+                      Share on Telegram
                     </button>
                   </div>
                 </div>
