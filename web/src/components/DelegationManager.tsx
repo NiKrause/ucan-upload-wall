@@ -1,15 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Share, Copy, Check, Plus, Download, Upload, Shield, Trash2, ArrowRight, User, Clock, Key, XCircle, Ban, Lock, Cpu } from 'lucide-react';
+import { Share, Copy, Check, Plus, Download, Upload, Shield, Trash2, ArrowRight, User, Clock, Key, XCircle, Ban, Lock, Cpu, MessageCircle } from 'lucide-react';
 import { UCANDelegationService, DelegationInfo } from '../lib/ucan-delegation';
+import { createCarFile } from '../lib/car-utils';
 import { Setup } from './Setup';
 
 interface DelegationManagerProps {
   delegationService: UCANDelegationService;
   onDidCreated?: () => void;
   onDelegationImported?: () => void;
+  onDelegationUploaded?: (cid: string) => void;
 }
 
-export function DelegationManager({ delegationService, onDidCreated, onDelegationImported }: DelegationManagerProps) {
+export function DelegationManager({ delegationService, onDidCreated, onDelegationImported, onDelegationUploaded }: DelegationManagerProps) {
   const [currentDID, setCurrentDID] = useState<string | null>(null);
   const [isNativeEd25519, setIsNativeEd25519] = useState(false);
   const [createdDelegations, setCreatedDelegations] = useState<DelegationInfo[]>([]);
@@ -20,10 +22,13 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
   const [targetDID, setTargetDID] = useState('');
   const [importProof, setImportProof] = useState('');
   const [delegationName, setDelegationName] = useState('');
+  const [detectedInputType, setDetectedInputType] = useState<'token' | 'cid' | 'unknown'>('unknown');
   const [isCreating, setIsCreating] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [showDelegationProof, setShowDelegationProof] = useState(false);
   const [createdDelegationProof, setCreatedDelegationProof] = useState('');
+  const [uploadedDelegationCID, setUploadedDelegationCID] = useState<string | null>(null);
   const [selectedCapabilities, setSelectedCapabilities] = useState<string[]>([
     'space/blob/add', 'upload/add'
   ]);
@@ -148,6 +153,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
     alert('Credentials saved successfully!');
   };
 
+
   const handleCreateDelegation = async () => {
     if (!targetDID) {
       alert('Please enter a target DID');
@@ -168,15 +174,33 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       console.log('✅ Delegation created, proof length:', delegationProof?.length || 0);
       console.log('📄 Delegation proof preview:', delegationProof?.substring(0, 100) + '...');
       
+      // Generate a CAR file from the delegation proof
+      console.log('📁 Generating CAR file from delegation proof...');
+      
+      const carFile = await createCarFile(delegationProof, targetDID);
+      
+      console.log('✅ CAR file created, size:', carFile.size, 'bytes');
+      console.log('📁 Filename created in createCarFile():', carFile.name);
+      
+      // Upload the file
+      console.log('📤 Uploading delegation file...');
+      const uploadResult = await delegationService.uploadFile(carFile);
+      const cid = uploadResult.cid;
+      console.log('✅ Delegation file uploaded, CID:', cid);
+      if (onDelegationUploaded) {
+        onDelegationUploaded(cid);
+      }
+      
       loadData();
       setShowCreateForm(false);
       setTargetDID('');
       
-      // Show the created delegation proof in modal
+      // Show the created delegation proof and CID in modal
       if (delegationProof && delegationProof.length > 0) {
         setCreatedDelegationProof(delegationProof);
+        setUploadedDelegationCID(cid);
         setShowDelegationProof(true);
-        console.log('📋 Modal state set - showing delegation proof');
+        console.log('📋 Modal state set - showing delegation proof and CID');
       } else {
         console.error('❌ Empty delegation proof received!');
         alert('Delegation was created but proof is empty. Check console for details.');
@@ -189,18 +213,43 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
     }
   };
 
+  // Detect input type when user types
+  const handleImportProofChange = (value: string) => {
+    setImportProof(value);
+    
+    const cleaned = value.trim();
+    if (!cleaned) {
+      setDetectedInputType('unknown');
+      return;
+    }
+    
+    // Check if it looks like a CID
+    const isCIDv1 = cleaned.startsWith('baf') && cleaned.length >= 46 && cleaned.length <= 62;
+    const isCIDv0 = cleaned.startsWith('Qm') && cleaned.length >= 44 && cleaned.length <= 48;
+    
+    if (isCIDv1 || isCIDv0) {
+      setDetectedInputType('cid');
+    } else if (cleaned.startsWith('m') || cleaned.startsWith('u')) {
+      setDetectedInputType('token');
+    } else {
+      setDetectedInputType('unknown');
+    }
+  };
+
   const handleImportDelegation = async () => {
     if (!importProof) {
-      alert('Please paste a delegation proof');
+      alert('Please paste a delegation proof or CID');
       return;
     }
 
+    setIsImporting(true);
     try {
       await delegationService.importDelegation(importProof, delegationName || undefined);
       loadData();
       setShowImportForm(false);
       setImportProof('');
       setDelegationName(''); // Clear the name field
+      setDetectedInputType('unknown'); // Reset detection
       
       // UX improvement: After successful import, automatically:
       // 1. Reload files in background (to show any existing uploads)
@@ -211,6 +260,8 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       }
     } catch (error) {
       alert(`Failed to import delegation: ${error}`);
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -222,6 +273,12 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
     } catch (error) {
       console.error('Failed to copy:', error);
     }
+  };
+
+  const shareToTelegram = (text: string, label: string) => {
+    const message = `🔐 UCAN Delegation ${label}\n\n${text}\n\nImport this in your browser to gain access!`;
+    const url = `https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   const handleDeleteCreatedDelegations = () => {
@@ -412,6 +469,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
         <button
           onClick={() => setShowImportForm(!showImportForm)}
           className="btn-primary"
+          data-testid="toggle-import-form-button"
         >
           <Download className="h-5 w-5 mr-2" />
           {showImportForm ? 'Hide Import Form' : 'Import UCAN Delegation'}
@@ -760,23 +818,48 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
 
             <div>
               <label className="block text-sm font-medium text-neutral-700 mb-2">
-                UCAN Token (Base64)
+                UCAN Token or CID
               </label>
               <textarea
                 value={importProof}
-                onChange={(e) => setImportProof(e.target.value)}
-                placeholder="Paste your base64 UCAN token here...\n\nExample: mAYIEAKMYOqJlcm9vdHO..."
+                onChange={(e) => handleImportProofChange(e.target.value)}
+                placeholder="Paste your UCAN token or CAR file CID here. Token example: mAYIEAKMYOqJlcm9vdHO. CID example: bafkreiabcd1234..."
                 className="input-field font-mono text-sm"
                 rows={6}
+                data-testid="import-delegation-textarea"
               />
               <p className="text-xs text-neutral-500 mt-2">
-                💡 Get this token from `storacha delegation create YOUR_DID --base64`
+                💡 Get token from `storacha delegation create YOUR_DID --base64` or use the CID from uploaded delegation
               </p>
+
+              {detectedInputType !== 'unknown' && (
+                <div
+                  className={`mt-2 border rounded-lg p-3 ${
+                    detectedInputType === 'cid'
+                      ? 'bg-purple-50 border-purple-200'
+                      : 'bg-blue-50 border-blue-200'
+                  }`}
+                  data-testid="detected-input-type"
+                  data-input-type={detectedInputType}
+                >
+                  <div className="text-xs font-medium">
+                    {detectedInputType === 'cid' ? (
+                      <span className="text-purple-800">
+                        🔍 <strong>Detected: CID</strong> - Will fetch delegation from IPFS
+                      </span>
+                    ) : (
+                      <span className="text-blue-800">
+                        ✓ <strong>Detected: UCAN Token</strong> - Will import directly
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="mt-2 bg-accent-purple border border-accent-blue rounded-xl p-3">
                 <div className="text-xs text-accent-blue-dark">
-                  <strong>✓ Auto-detects format:</strong> Supports Storacha CLI (multibase-base64 with 'm' prefix),
-                  base64url ('u' prefix), CAR files, and legacy JSON formats. The detected format will be displayed after import.
+                  <strong>✓ Auto-detects format:</strong> Supports CIDs (bafk..., Qm...), Storacha CLI tokens (multibase-base64 with 'm' prefix),
+                  base64url ('u' prefix), CAR files, and legacy JSON formats.
                 </div>
               </div>
             </div>
@@ -784,10 +867,11 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
             <div className="flex gap-3">
               <button
                 onClick={handleImportDelegation}
-                className="btn-primary"
+                disabled={isImporting}
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Download className="h-5 w-5 mr-2" />
-                Import UCAN Delegation
+                {isImporting ? 'Importing...' : 'Import UCAN Delegation'}
               </button>
 
               <button
@@ -1299,25 +1383,67 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                 Debug: Proof length: {createdDelegationProof?.length || 0}
               </div>
 
-              <div className="relative">
-                <textarea
-                  value={createdDelegationProof || 'No delegation proof available'}
-                  readOnly
-                  className="input-field font-mono text-xs bg-neutral-50"
-                  rows={8}
-                  placeholder="Delegation proof will appear here..."
-                />
-                <button
-                  onClick={() => copyToClipboard(createdDelegationProof, 'delegation-proof')}
-                  className="absolute top-2 right-2 bg-storacha-red text-white px-3 py-1 rounded-lg text-sm hover:bg-storacha-red-dark flex items-center transition-colors"
-                >
-                  {copiedField === 'delegation-proof' ? (
-                    <><Check className="h-4 w-4 mr-1" /> Copied!</>
-                  ) : (
-                    <><Copy className="h-4 w-4 mr-1" /> Copy</>
-                  )}
-                </button>
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 mb-2">
+                  Delegation Token
+                </label>
+                <div className="relative">
+                  <textarea
+                    value={createdDelegationProof || 'No delegation proof available'}
+                    readOnly
+                    className="input-field font-mono text-xs bg-neutral-50"
+                    rows={8}
+                    placeholder="Delegation proof will appear here..."
+                  />
+                  <button
+                    onClick={() => copyToClipboard(createdDelegationProof, 'delegation-proof')}
+                    className="absolute top-2 right-2 bg-storacha-red text-white px-3 py-1 rounded-lg text-sm hover:bg-storacha-red-dark flex items-center transition-colors"
+                  >
+                    {copiedField === 'delegation-proof' ? (
+                      <><Check className="h-4 w-4 mr-1" /> Copied!</>
+                    ) : (
+                      <><Copy className="h-4 w-4 mr-1" /> Copy</>
+                    )}
+                  </button>
+                </div>
               </div>
+
+              {uploadedDelegationCID && (
+                <div>
+                  <label className="block text-sm font-medium text-neutral-700 mb-2">
+                    Uploaded File CID
+                  </label>
+                  <div className="relative">
+                    <textarea
+                      value={uploadedDelegationCID}
+                      readOnly
+                      className="input-field font-mono text-xs bg-neutral-50"
+                      rows={3}
+                      placeholder="CID will appear here..."
+                    />
+                    <button
+                      onClick={() => copyToClipboard(uploadedDelegationCID, 'delegation-cid')}
+                      className="absolute top-2 right-2 bg-storacha-red text-white px-3 py-1 rounded-lg text-sm hover:bg-storacha-red-dark flex items-center transition-colors"
+                    >
+                      {copiedField === 'delegation-cid' ? (
+                        <><Check className="h-4 w-4 mr-1" /> Copied!</>
+                      ) : (
+                        <><Copy className="h-4 w-4 mr-1" /> Copy</>
+                      )}
+                    </button>
+                  </div>
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={() => shareToTelegram(uploadedDelegationCID, 'CID')}
+                      className="flex items-center bg-blue-500 text-white px-3 py-2 rounded-lg text-sm hover:bg-blue-600 transition-colors"
+                      title="Share on Telegram"
+                    >
+                      <MessageCircle className="h-4 w-4 mr-1" />
+                      Share on Telegram
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <div className="bg-accent-purple border border-accent-blue rounded-xl p-4">
                 <h4 className="font-medium text-dark mb-2">📋 Next Steps:</h4>
@@ -1325,14 +1451,22 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                   <li>Copy the delegation proof above</li>
                   <li>Open the target browser (Browser B)</li>
                   <li>Go to the Delegations tab</li>
-                  <li>Click "Import Delegation" and paste the proof</li>
+                  <li>Click \"Import Delegation\" and paste the proof</li>
                   <li>Browser B can now upload files using your permissions!</li>
+                  {uploadedDelegationCID && (
+                    <li className="mt-2 font-medium">
+                      The delegation has been uploaded to Storacha with CID: {uploadedDelegationCID}
+                    </li>
+                  )}
                 </ol>
               </div>
 
               <div className="flex justify-end">
                 <button
-                  onClick={() => setShowDelegationProof(false)}
+                  onClick={() => {
+                    setShowDelegationProof(false);
+                    setUploadedDelegationCID(null);
+                  }}
                   className="btn-secondary"
                 >
                   Close

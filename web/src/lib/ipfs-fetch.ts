@@ -99,36 +99,38 @@ async function getHeliaClient(): Promise<{ helia: HeliaClient; fs: UnixFsLike }>
       });
       const fs = unixfs(helia);
       if (!heliaBootstrap?.peerId || heliaBootstrap.addrs.length === 0) {
-        throw new Error('No Helia bootstrap address provided. Start the local server Helia.');
-      }
-      try {
-        const { multiaddr } = await import('@multiformats/multiaddr');
-        const { peerIdFromString } = await import('@libp2p/peer-id');
-        const peerId = peerIdFromString(heliaBootstrap.peerId);
-        const addrs = heliaBootstrap.addrs.map((addr) => multiaddr(addr));
-        await libp2p.peerStore.patch(peerId, { multiaddrs: addrs });
-        await dialWithTimeout(libp2p, heliaBootstrap.peerId);
-        (globalThis as GlobalHeliaOverrides).__HELIA_READY__ = true;
-        (globalThis as GlobalHeliaOverrides).__HELIA_READY_PEER__ = heliaBootstrap.peerId;
-        (globalThis as GlobalHeliaOverrides).__HELIA_READY_ERROR__ = undefined;
-        logHeliaConnections(libp2p, 'dialed local peer');
-        if (libp2p.services?.ping) {
-          try {
-            const latency = await libp2p.services.ping.ping(peerId);
-            console.log(`🟣 Helia ping local peer: ${latency}ms`);
-          } catch (error) {
-            console.warn('🟣 Helia ping failed:', (error as Error).message);
-          }
-        }
-      } catch (error) {
-        const message = `Helia local peer unavailable. Ensure the local server Helia is running. Details: ${
-          (error as Error).message
-        }`;
+        console.log('🟣 Helia starting without local bootstrap (public DHT only)');
         (globalThis as GlobalHeliaOverrides).__HELIA_READY__ = false;
-        (globalThis as GlobalHeliaOverrides).__HELIA_READY_ERROR__ = message;
-        throw new Error(message);
+        (globalThis as GlobalHeliaOverrides).__HELIA_READY_PEER__ = undefined;
+        (globalThis as GlobalHeliaOverrides).__HELIA_READY_ERROR__ = undefined;
+      } else {
+        try {
+          const { multiaddr } = await import('@multiformats/multiaddr');
+          const { peerIdFromString } = await import('@libp2p/peer-id');
+          const peerId = peerIdFromString(heliaBootstrap.peerId);
+          const addrs = heliaBootstrap.addrs.map((addr) => multiaddr(addr));
+          await libp2p.peerStore.patch(peerId, { multiaddrs: addrs });
+          await dialWithTimeout(libp2p, heliaBootstrap.peerId);
+          (globalThis as GlobalHeliaOverrides).__HELIA_READY__ = true;
+          (globalThis as GlobalHeliaOverrides).__HELIA_READY_PEER__ = heliaBootstrap.peerId;
+          (globalThis as GlobalHeliaOverrides).__HELIA_READY_ERROR__ = undefined;
+          logHeliaConnections(libp2p, 'dialed local peer');
+          if (libp2p.services?.ping) {
+            try {
+              const latency = await libp2p.services.ping.ping(peerId);
+              console.log(`🟣 Helia ping local peer: ${latency}ms`);
+            } catch (error) {
+              console.warn('🟣 Helia ping failed:', (error as Error).message);
+            }
+          }
+          console.log(`🟣 Helia node started in browser (dialed ${heliaBootstrap.peerId})`);
+        } catch (error) {
+          const message = `Helia local peer unavailable. Details: ${(error as Error).message}`;
+          (globalThis as GlobalHeliaOverrides).__HELIA_READY__ = false;
+          (globalThis as GlobalHeliaOverrides).__HELIA_READY_ERROR__ = message;
+          console.warn('🟣 Helia local peer unavailable:', message);
+        }
       }
-      console.log(`🟣 Helia node started in browser (dialed ${heliaBootstrap.peerId})`);
       return { helia, fs };
     })();
   }
@@ -137,10 +139,6 @@ async function getHeliaClient(): Promise<{ helia: HeliaClient; fs: UnixFsLike }>
 
 export function warmupHeliaClient(): void {
   if (heliaPromise) {
-    return;
-  }
-  const heliaBootstrap = (globalThis as GlobalHeliaOverrides).__HELIA_BOOTSTRAP__;
-  if (!heliaBootstrap?.peerId) {
     return;
   }
   console.log('🟣 Helia warmup starting...');
@@ -207,7 +205,7 @@ function detectImageMime(bytes: Uint8Array): string | undefined {
 }
 
 async function fetchFromHelia(cid: string): Promise<Uint8Array> {
-  const { helia, fs } = await getHeliaClient();
+  const { fs } = await getHeliaClient();
   const { CID } = await import('multiformats/cid');
   console.log(`🟣 Helia fs.cat started for ${cid}`);
   const chunks: Uint8Array[] = [];
@@ -259,10 +257,6 @@ export async function loadIpfsBlobUrl(
     console.log(`🟣 Helia blob URL created for ${cid}`);
     return { url, source: 'helia' };
   } catch (error) {
-    const message = (error as Error).message ?? String(error);
-    if (message.includes('Helia local peer unavailable') || message.includes('No Helia bootstrap')) {
-      throw error;
-    }
     console.warn('Helia fetch failed, falling back to gateways:', error);
   }
 
@@ -271,6 +265,47 @@ export async function loadIpfsBlobUrl(
   const url = URL.createObjectURL(new Blob([Uint8Array.from(bytes)], { type }));
   (globalThis as GlobalHeliaOverrides).__LAST_IPFS_BLOB_URL__ = url;
   return { url, source: 'gateway', gateway };
+}
+
+/**
+ * Load IPFS blob from gateway only
+ */
+export async function loadIpfsBlobFromGateway(
+  cid: string,
+): Promise<{ data: Uint8Array; source: 'gateway'; gateway: string }> {
+  const { bytes, gateway } = await fetchFromGateways(cid);
+  return { data: bytes, source: 'gateway', gateway };
+}
+
+/**
+ * Load IPFS blob from Helia only
+ */
+export async function loadIpfsBlobFromHelia(
+  cid: string,
+): Promise<{ data: Uint8Array; source: 'helia' }> {
+  console.log(`🟣 Loading IPFS blob from Helia for ${cid}`);
+  const bytes = await fetchFromHelia(cid);
+  console.log(`🟣 Helia blob data retrieved for ${cid}`);
+  return { data: bytes, source: 'helia' };
+}
+
+/**
+ * Load IPFS blob - tries gateways first, falls back to Helia
+ */
+export async function loadIpfsBlob(
+  cid: string,
+): Promise<{ data: Uint8Array; source: 'helia' | 'gateway'; gateway?: string }> {
+  try {
+    return await loadIpfsBlobFromGateway(cid);
+  } catch (error) {
+    console.warn('Gateway fetch failed, falling back to Helia:', error);
+  }
+  try {
+    return await loadIpfsBlobFromHelia(cid);
+  } catch (error) {
+    console.warn('Helia fetch failed:', error);
+    throw error;
+  }
 }
 
 export function getGatewayUrl(cid: string): string {

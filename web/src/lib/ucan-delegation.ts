@@ -25,7 +25,6 @@ import {
 } from './secure-ed25519-did';
 import { HardwareUCANDelegationService, getStoredHardwareSignerInfo } from './hardware-ucan-service';
 import { checkEd25519Support } from './webauthn-ed25519-signer';
-import { config } from '../config';
 
 // Storage keys for localStorage
 const STORAGE_KEYS = {
@@ -238,11 +237,15 @@ export class UCANDelegationService {
         const config = await original(filtered);
         if (sessionProofs.length > 0) {
           const existing = (config as { proofs?: Array<unknown> }).proofs ?? [];
+          const mergedProofs = [...sessionProofs, ...existing];
+          const dedupedProofs = this.dedupeProofsByCid(mergedProofs);
           console.log('🧾 Invocation config proofs', {
             sessionProofs: sessionProofs.map((proof) => this.getProofLogInfo(proof)),
             existing: existing.length,
+            merged: mergedProofs.length,
+            deduped: dedupedProofs.length,
           });
-          return { ...config, proofs: [...sessionProofs, ...existing] };
+          return { ...config, proofs: dedupedProofs };
         }
         return config;
       };
@@ -824,6 +827,29 @@ export class UCANDelegationService {
     return { cid, signatureLength, signaturePrefix };
   }
 
+  private getProofCid(proof: unknown): string | undefined {
+    const proofObj = proof as { cid?: { toString?: () => string } };
+    return proofObj?.cid?.toString?.();
+  }
+
+  private dedupeProofsByCid(proofs: Array<unknown>): Array<unknown> {
+    const seen = new Set<string>();
+    const deduped: Array<unknown> = [];
+    for (const proof of proofs) {
+      const cid = this.getProofCid(proof);
+      if (!cid) {
+        deduped.push(proof);
+        continue;
+      }
+      if (seen.has(cid)) {
+        continue;
+      }
+      seen.add(cid);
+      deduped.push(proof);
+    }
+    return deduped;
+  }
+
   private getSessionDelegationTtlMs(): number {
     const minutesRaw = import.meta.env.VITE_SESSION_DELEGATION_TTL_MIN;
     const minutes = minutesRaw ? Number(minutesRaw) : 15;
@@ -1063,6 +1089,7 @@ export class UCANDelegationService {
         capability.can = fallbackCan;
       }
       if (typeof capability.invoke !== 'function') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         capability.invoke = ({ issuer, audience, with: resource, nb, proofs, nonce, expiration, facts, notBefore, lifetimeInSeconds }: any) =>
           invoke({
             issuer,
@@ -1478,7 +1505,6 @@ export class UCANDelegationService {
       const principal = await this.getBasePrincipal();
       const session = await this.ensureSessionDelegation(true);
       const sessionPrincipal = session?.signer ?? (await this.getBasePrincipal());
-      const sessionCaps = this.getDelegationCapsForLog(session?.proofObj);
 
       console.log('📋 Principal DID:', principal.did());
       console.log('📋 Session DID:', sessionPrincipal.did());
@@ -1535,6 +1561,7 @@ export class UCANDelegationService {
       } catch (listError) {
         console.error('Failed to list uploads:', listError);
         // Extract detailed error information
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const error = listError as any;
         if (error) {
           console.error('❌ Error Details:');
@@ -1993,12 +2020,54 @@ export class UCANDelegationService {
    * @param delegationProof The delegation proof string (multibase encoded)
    * @param name Optional user-friendly name for this delegation
    */
+  /**
+   * Detect if a string is a CID (Content Identifier)
+   * CIDs typically start with 'baf' (base32) or 'Qm' (base58) and have specific length ranges
+   */
+  private isCID(input: string): boolean {
+    const cleaned = input.trim();
+    // Base32 CIDs (v1): start with 'baf' and are typically 46-59 characters
+    // Base58 CIDs (v0): start with 'Qm' and are typically 46 characters
+    const isCIDv1 = cleaned.startsWith('baf') && cleaned.length >= 46 && cleaned.length <= 62;
+    const isCIDv0 = cleaned.startsWith('Qm') && cleaned.length >= 44 && cleaned.length <= 48;
+    return isCIDv1 || isCIDv0;
+  }
+
+  /**
+   * Fetch delegation from IPFS using CID
+   */
+  private async fetchDelegationByCID(cid: string): Promise<string> {
+    console.log('📥 Fetching delegation from CID:', cid);
+    
+    try {
+      // Warmup Helia client to ensure it's ready for potential fallback
+      const { warmupHeliaClient, loadIpfsBlob } = await import('./ipfs-fetch');
+      warmupHeliaClient();
+      
+      // Fetch CAR file
+      const result = await loadIpfsBlob(cid);
+      
+      console.log(`✅ Fetched CAR file bytes, size: ${result.data.length} bytes`);
+      
+      // Parse CAR file to extract the delegation token
+      const { carBytesToToken } = await import('./car-utils');
+      const token = await carBytesToToken(result.data);
+      
+      console.log('✅ Extracted delegation token from CAR file, length:', token.length);
+      
+      return token;
+    } catch (error) {
+      console.error('❌ Failed to fetch delegation from CID:', error);
+      throw new Error(`Failed to fetch delegation from CID: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   async importDelegation(delegationProof: string, name?: string): Promise<void> {
     try {
       // Check if this is a hardware-varsig delegation
       const cleanedProof = delegationProof.trim().replace(/\s+/g, '').replace(/[\r\n]/g, '');
-      const normalizedProof = this.normalizeDelegationProof(cleanedProof);
-      
+      let normalizedProof = this.normalizeDelegationProof(cleanedProof);
+     
       // Try hardware verification first if we have hardware mode
       if (this.hardwareService) {
         try {
@@ -2057,6 +2126,9 @@ export class UCANDelegationService {
           console.log('ℹ️ Not a hardware delegation, trying worker mode:', hardwareError);
           // Fall through to worker mode
         }
+      }
+      if (this.isCID(normalizedProof)) {
+        normalizedProof = await this.fetchDelegationByCID(normalizedProof);
       }
       
       // WORKER MODE: Use existing verification logic
@@ -2616,6 +2688,14 @@ export class UCANDelegationService {
     const now = Date.now();
     const serviceConfig = getServiceConfig();
     const revocationUrl = serviceConfig.revocationUrl ?? 'https://up.storacha.network';
+
+    // Some locally-imported delegations use synthetic IDs (e.g. "hw-import-..."),
+    // which are not CIDs and should not be sent to the revocation endpoint.
+    if (!this.isLikelyCid(delegationCID)) {
+      this.setRevocationCache(delegationCID, false);
+      console.log(`Skipping revocation check for non-CID delegation id: ${delegationCID}`);
+      return false;
+    }
     
     // Check cache first (unless forcing refresh)
     if (!forceRefresh) {
@@ -2664,6 +2744,17 @@ export class UCANDelegationService {
       // If we can't reach the server, fail open (assume not revoked)
       return false;
     }
+  }
+
+  /**
+   * Best-effort CID shape check to avoid querying revocation endpoints with synthetic IDs.
+   * Supports common CID forms used in this app (bafy..., Qm..., z...).
+   */
+  private isLikelyCid(value: string): boolean {
+    const cidV1Base32 = /^b[a-z2-7]{20,}$/;
+    const cidV0Base58 = /^Qm[1-9A-HJ-NP-Za-km-z]{44}$/;
+    const cidBase58btc = /^z[1-9A-HJ-NP-Za-km-z]{20,}$/;
+    return cidV1Base32.test(value) || cidV0Base58.test(value) || cidBase58btc.test(value);
   }
 
   /**
@@ -3028,7 +3119,7 @@ export class UCANDelegationService {
   }
 
   private normalizeDelegationProof(proof: string): string {
-    if (proof.startsWith('m') || proof.startsWith('u')) {
+    if (proof.startsWith('m') || proof.startsWith('u') || this.isCID(proof)) {
       return proof;
     }
 
