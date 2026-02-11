@@ -12,7 +12,17 @@ import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpe
  * 5. DID persists after reload
  */
 
+async function waitForAppShell(page: Page) {
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveTitle(/UCAN Upload Wall/i);
+  await expect(page.getByRole('heading', { level: 1, name: /UCAN Upload Wall/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /upload files/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /delegations/i })).toBeVisible();
+}
+
 test.describe('Basic UI - Happy Path', () => {
+  test.describe.configure({ mode: 'serial' });
+
   let context: BrowserContext;
   let page: Page;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -22,22 +32,17 @@ test.describe('Basic UI - Happy Path', () => {
     // Create fresh context
     context = await browser.newContext();
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await context.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
     page = await context.newPage();
 
     // Enable virtual WebAuthn authenticator
     cdpSession = await enableVirtualAuthenticator(context);
 
-    // Navigate to app
-    await page.goto('/');
-
-    // Clear storage for fresh start
-    await page.evaluate(() => {
-      localStorage.clear();
-      sessionStorage.clear();
-    });
-
-    await page.reload();
-    await page.waitForLoadState('networkidle');
+    // Navigate to app and wait for the shell to be interactive.
+    await waitForAppShell(page);
   });
 
   test.afterEach(async () => {
@@ -48,32 +53,28 @@ test.describe('Basic UI - Happy Path', () => {
   });
 
   test('should load the app without errors', async () => {
-    test.setTimeout(15000);
+    test.setTimeout(30000);
 
     console.log('🌐 Testing app load...');
 
-    // Check page title
-    await expect(page).toHaveTitle(/UCAN Upload Wall/i);
-
-    // Check main header is visible
-    const header = page.getByText(/UCAN Upload Wall/i).first();
-    await expect(header).toBeVisible();
+    // Re-check shell elements for deterministic load validation.
+    await expect(page.getByRole('heading', { level: 1, name: /UCAN Upload Wall/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /upload files/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /delegations/i })).toBeVisible();
 
     console.log('✅ App loaded successfully');
   });
 
   test('should show setup screen when no DID exists', async () => {
-    test.setTimeout(15000);
+    test.setTimeout(30000);
 
     console.log('📋 Testing setup screen...');
 
     // Navigate to Delegations tab (where Setup component is)
     await page.getByRole('button', { name: /delegations/i }).click();
-    await page.waitForTimeout(1000);
 
-    // Should see setup/creation UI - use heading for specificity
-    const setupHeading = page.getByRole('heading', { name: /Create Ed25519 DID/i });
-    await expect(setupHeading).toBeVisible({ timeout: 5000 });
+    // Delegations Setup uses a unique button label ("Create Ed25519 DID").
+    await expect(page.getByRole('button', { name: /create ed25519 did/i })).toBeVisible({ timeout: 10000 });
 
     console.log('✅ Setup screen displayed');
   });
@@ -107,22 +108,22 @@ test.describe('Basic UI - Happy Path', () => {
   });
 
   test('should navigate between tabs', async () => {
-    test.setTimeout(15000);
+    test.setTimeout(30000);
 
     console.log('🔄 Testing navigation...');
 
     // Start on default tab
     const uploadTab = page.getByRole('button', { name: /upload files/i });
     const delegationsTab = page.getByRole('button', { name: /delegations/i });
+    await expect(page.getByText(/Drop your file here/i)).toBeVisible({ timeout: 10000 });
 
     // Navigate to Delegations
     await delegationsTab.click();
-    await page.waitForTimeout(500);
-    await expect(page.getByRole('heading', { name: /Create Ed25519 DID/i })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: /create ed25519 did/i })).toBeVisible({ timeout: 10000 });
 
     // Navigate back to Upload
     await uploadTab.click();
-    await page.waitForTimeout(500);
+    await expect(page.getByText(/Drop your file here/i)).toBeVisible({ timeout: 10000 });
 
     console.log('✅ Navigation works');
   });

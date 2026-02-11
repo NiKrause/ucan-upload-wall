@@ -1171,7 +1171,7 @@ for (const modeConfig of TEST_MODES) {
     console.log('\n✅ TEST PASSED: All delegation formats work correctly!\n');
   });
 
-  test.skip(modeConfig.mode === 'hardware-ed25519', 'should complete CID flow: create token → CAR → upload → get CID → download CAR → extract token', async () => {
+  test('should complete CID flow: create token → CAR → upload → get CID → download CAR → extract token', async () => {
     console.log('\n🎯 TEST START: CID Flow\n');
 
     // Step 1: Create DID in UI

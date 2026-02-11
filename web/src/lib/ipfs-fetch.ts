@@ -295,6 +295,21 @@ export async function loadIpfsBlobFromHelia(
 export async function loadIpfsBlob(
   cid: string,
 ): Promise<{ data: Uint8Array; source: 'helia' | 'gateway'; gateway?: string }> {
+  const heliaBootstrap = (globalThis as GlobalHeliaOverrides).__HELIA_BOOTSTRAP__;
+  const preferHelia = Boolean(heliaBootstrap?.peerId && heliaBootstrap.addrs?.length);
+
+  // In local/test mode we have an explicit in-process Helia peer and content may
+  // exist only there (not on public gateways). Prefer Helia first to avoid long
+  // gateway hangs before falling back.
+  if (preferHelia) {
+    try {
+      return await loadIpfsBlobFromHelia(cid);
+    } catch (error) {
+      console.warn('Helia fetch failed, falling back to gateways:', error);
+    }
+    return await loadIpfsBlobFromGateway(cid);
+  }
+
   try {
     return await loadIpfsBlobFromGateway(cid);
   } catch (error) {
