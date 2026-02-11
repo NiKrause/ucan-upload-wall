@@ -1,6 +1,7 @@
 # 🔐 UCAN Upload Wall
 
-[![CI](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ci.yml)
+[![CI (main)](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ci.yml?query=branch%3Amain)
+[![CI (dev)](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ci.yml?query=branch%3Adev)
 
 > **⚠️ SECURITY WARNING**: This code has **NOT been security audited** and should **NOT be used in production**. See **[SECURITY.md](./SECURITY.md)** for critical security considerations, attack vectors, and limitations.
 
