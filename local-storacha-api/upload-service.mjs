@@ -506,7 +506,7 @@ export async function startUploadApiServer(context, options = {}) {
       const body = CARTransport.request.encode(message).body;
       res.writeHead(200, {
         'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/car',
+        'Content-Type': CARTransport.request.contentType,
       });
       res.end(body);
       return;
@@ -728,7 +728,7 @@ export async function startUploadApiServer(context, options = {}) {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-          'Content-Type': 'application/car',
+          'Content-Type': CARTransport.response.contentType,
         });
         res.end(responseBody);
         return;
