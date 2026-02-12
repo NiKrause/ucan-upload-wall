@@ -104,6 +104,8 @@ test.beforeAll(async () => {
 
 test.describe(`IPFS Network Verification - Two Browser Test (${modeConfig.titleSuffix})`, () => {
   const mode = modeConfig.mode;
+  const expectedDidPattern =
+    mode === 'hardware-p256' ? /^did:key:zDna/i : /^did:key:z6Mk/i;
   const screenshotMode =
     process.env.IPFS_SCREENSHOT_MODE ??
     (mode === 'hardware-ed25519' ? 'hardware-ed25519' : mode === 'hardware-p256' ? 'hardware-p256' : 'worker');
@@ -479,22 +481,42 @@ test.describe(`IPFS Network Verification - Two Browser Test (${modeConfig.titleS
     await expect(createButton).toBeVisible({ timeout: 10000 });
     await expect(createButton).toBeEnabled({ timeout: 5000 });
 
+    const maxAttempts = mode === 'worker' ? 3 : 1;
     let browserDID: string | null = null;
     let lastError: unknown;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         await createButton.click();
         await page.getByRole('button', { name: /delegations/i }).click();
         await page.waitForTimeout(1000);
         const didElement = page.getByTestId('did-display');
         await expect(didElement).toBeVisible({ timeout: 10000 });
+        await expect
+          .poll(
+            async () => (await didElement.textContent())?.trim() ?? '',
+            {
+              timeout: 30000,
+              message: `${browserLabel} DID did not converge to expected ${mode} format`,
+            }
+          )
+          .toMatch(expectedDidPattern);
         browserDID = (await didElement.textContent())?.trim() ?? null;
         expect(browserDID).toBeTruthy();
-        expect(browserDID).toMatch(/^did:key:/);
+        expect(browserDID).toMatch(expectedDidPattern);
         break;
       } catch (error) {
         lastError = error;
-        if (attempt < 3) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const contextClosed =
+          page.isClosed() ||
+          /Target page, context or browser has been closed/i.test(errorMessage) ||
+          /Test timeout .* exceeded/i.test(errorMessage);
+
+        if (contextClosed) {
+          throw error;
+        }
+
+        if (attempt < maxAttempts) {
           console.log(`ℹ️ ${browserLabel} DID creation attempt ${attempt} did not complete, retrying...`);
           await page.waitForTimeout(500);
           await page.getByRole('button', { name: /Upload Files/i }).click();
