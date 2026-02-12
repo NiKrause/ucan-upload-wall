@@ -29,6 +29,12 @@ A browser-only file upload application powered by **hardware-backed WebAuthn Ed2
 
 ⚠️ **Demo is for testing only** - do not use with valuable data (see security warnings above)
 
+## 📸 Delegation Flow Screenshots (GitHub Pages)
+
+Fixed, step-by-step screenshots from CI are published here:
+
+**[https://nikrause.github.io/ucan-upload-wall/](https://nikrause.github.io/ucan-upload-wall/)**
+
 **To mitigate the above stated security risks**, please use the browser app only in:
 
 - Browsers **without any installed browser extensions** (e.g., Chrome extensions), or
