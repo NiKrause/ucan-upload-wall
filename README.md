@@ -35,6 +35,16 @@ Fixed, step-by-step screenshots from CI are published here:
 
 **[https://nikrause.github.io/ucan-upload-wall/](https://nikrause.github.io/ucan-upload-wall/)**
 
+## 🌐 IPFS Network Flow (3 Modes)
+
+The two-browser IPFS verification flow now runs as a separate 3-job workflow (Worker, Hardware Ed25519, Hardware P-256):
+
+**[IPFS Network Flow workflow](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ipfs-network-flow.yml)**
+
+Each push publishes a bundled artifact in a separate directory layout (`ipfs-network-flow/`) via the artifact:
+
+- `ipfs-network-flow-published`
+
 **To mitigate the above stated security risks**, please use the browser app only in:
 
 - Browsers **without any installed browser extensions** (e.g., Chrome extensions), or

@@ -14,6 +14,8 @@
  */
 
 import type { Server } from 'node:http';
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { test, expect, BrowserContext, Page } from '@playwright/test';
 import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpers/webauthn';
 import * as ed25519 from '@ucanto/principal/ed25519';
@@ -80,6 +82,19 @@ type HeliaNode = {
 let createContext: CreateContext;
 let cleanupContext: CleanupContext;
 
+type TestMode = 'hardware-ed25519' | 'hardware-p256' | 'worker';
+
+const forceWorkerMode =
+  process.env.TEST_FORCE_WORKER === '1' || process.env.TEST_FORCE_WORKER === 'true';
+const forceP256Hardware =
+  process.env.TEST_HARDWARE_P256 === '1' || process.env.TEST_HARDWARE_P256 === 'true';
+
+const modeConfig: { mode: TestMode; titleSuffix: string } = forceWorkerMode
+  ? { mode: 'worker', titleSuffix: 'Worker Fallback (Forced)' }
+  : forceP256Hardware
+    ? { mode: 'hardware-p256', titleSuffix: 'Hardware P-256 (Fallback)' }
+    : { mode: 'hardware-ed25519', titleSuffix: 'Hardware Ed25519' };
+
 test.beforeAll(async () => {
   const uploadApiHelpers = await loadUploadApiTestContext();
   createContext = uploadApiHelpers.createContext as CreateContext;
@@ -87,7 +102,20 @@ test.beforeAll(async () => {
   console.log('✅ Upload-api test utilities loaded successfully');
 });
 
-test.describe('IPFS Network Verification - Two Browser Test', () => {
+test.describe(`IPFS Network Verification - Two Browser Test (${modeConfig.titleSuffix})`, () => {
+  const mode = modeConfig.mode;
+  const screenshotMode =
+    process.env.IPFS_SCREENSHOT_MODE ??
+    (mode === 'hardware-ed25519' ? 'hardware-ed25519' : mode === 'hardware-p256' ? 'hardware-p256' : 'worker');
+  const screenshotDir = join('test-results', 'ipfs-network-flow', screenshotMode);
+
+  async function captureStepScreenshot(page: Page, stepFileName: string) {
+    await mkdir(screenshotDir, { recursive: true });
+    const screenshotPath = join(screenshotDir, `${stepFileName}.png`);
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    console.log(`📸 Step screenshot saved: ${screenshotPath}`);
+  }
+
   const IPFS_BOOTSTRAP = [
     '/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN',
     '/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa',
@@ -209,6 +237,7 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
     test.setTimeout(300000); // 5 minutes timeout for slower network propagation
 
     console.log('🚀 Setting up test environment with two browsers...');
+    console.log(`🧪 Mode: ${modeConfig.titleSuffix}`);
 
     // 1. Create in-memory upload service
     console.log('📦 Creating in-memory upload service...');
@@ -330,12 +359,14 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
     });
 
     await pageA.addInitScript(
-      ({ url, did, heliaBootstrap }) => {
+      ({ url, did, heliaBootstrap, forceWorker, forceP256 }) => {
         const globalOverrides = globalThis as typeof globalThis & {
           __UPLOAD_SERVICE_URL__?: string;
           __UPLOAD_SERVICE_DID__?: string;
           __RECEIPTS_URL__?: string;
           __HELIA_BOOTSTRAP__?: { peerId: string; addrs: string[] };
+          __FORCE_WORKER_MODE__?: boolean;
+          __FORCE_P256_HARDWARE__?: boolean;
         };
         if (url) {
           globalOverrides.__UPLOAD_SERVICE_URL__ = url;
@@ -343,11 +374,15 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
           globalOverrides.__RECEIPTS_URL__ = `${url}/receipt/`;
         }
         globalOverrides.__HELIA_BOOTSTRAP__ = heliaBootstrap;
+        globalOverrides.__FORCE_WORKER_MODE__ = forceWorker;
+        globalOverrides.__FORCE_P256_HARDWARE__ = forceP256;
       },
       {
         url: uploadApiUrl,
         did: uploadServiceContext.id.did(),
         heliaBootstrap: { peerId: heliaPeerId, addrs: [heliaWsMultiaddr] },
+        forceWorker: mode === 'worker',
+        forceP256: mode === 'hardware-p256',
       }
     );
 
@@ -373,14 +408,20 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
     });
 
     await pageB.addInitScript(
-      ({ heliaBootstrap }) => {
+      ({ heliaBootstrap, forceWorker, forceP256 }) => {
         const globalOverrides = globalThis as typeof globalThis & {
           __HELIA_BOOTSTRAP__?: { peerId: string; addrs: string[] };
+          __FORCE_WORKER_MODE__?: boolean;
+          __FORCE_P256_HARDWARE__?: boolean;
         };
         globalOverrides.__HELIA_BOOTSTRAP__ = heliaBootstrap;
+        globalOverrides.__FORCE_WORKER_MODE__ = forceWorker;
+        globalOverrides.__FORCE_P256_HARDWARE__ = forceP256;
       },
       {
         heliaBootstrap: { peerId: heliaPeerId, addrs: [heliaWsMultiaddr] },
+        forceWorker: mode === 'worker',
+        forceP256: mode === 'hardware-p256',
       }
     );
 
@@ -438,23 +479,36 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
     await expect(createButton).toBeVisible({ timeout: 10000 });
     await expect(createButton).toBeEnabled({ timeout: 5000 });
 
-    await createButton.click();
-    await page.waitForFunction(
-      () => Boolean(localStorage.getItem('webauthn_ed25519_hardware_signer')),
-      null,
-      { timeout: 20000 }
-    );
+    let browserDID: string | null = null;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        await createButton.click();
+        await page.getByRole('button', { name: /delegations/i }).click();
+        await page.waitForTimeout(1000);
+        const didElement = page.getByTestId('did-display');
+        await expect(didElement).toBeVisible({ timeout: 10000 });
+        browserDID = (await didElement.textContent())?.trim() ?? null;
+        expect(browserDID).toBeTruthy();
+        expect(browserDID).toMatch(/^did:key:/);
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) {
+          console.log(`ℹ️ ${browserLabel} DID creation attempt ${attempt} did not complete, retrying...`);
+          await page.waitForTimeout(500);
+          await page.getByRole('button', { name: /Upload Files/i }).click();
+          await page.waitForTimeout(500);
+        }
+      }
+    }
 
-    await page.getByRole('button', { name: /delegations/i }).click();
-    await page.waitForTimeout(1000);
-    const didElement = page.getByTestId('did-display');
-    await expect(didElement).toBeVisible({ timeout: 10000 });
-    const browserDID = (await didElement.textContent())?.trim();
-    expect(browserDID).toBeTruthy();
-    expect(browserDID).toMatch(/^did:key:/);
+    if (!browserDID) {
+      throw (lastError ?? new Error(`Failed to create DID in ${browserLabel}`));
+    }
 
     console.log(`✅ ${browserLabel} DID:`, browserDID);
-    return browserDID as string;
+    return browserDID;
   }
 
   test('should upload file in Browser A and download in Browser B via IPFS', async () => {
@@ -467,6 +521,7 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
 
     // Step 1: Create DID in Browser A
     const browserADID = await createDIDInBrowser(pageA, 'Browser A');
+    await captureStepScreenshot(pageA, 'step-01-browser-a-did-created');
 
     // Step 2: Create delegation for Browser A
     console.log('🔐 Creating delegation for Browser A...');
@@ -521,6 +576,7 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
     await pageA.waitForTimeout(3000);
 
     console.log('✅ Delegation imported in Browser A');
+    await captureStepScreenshot(pageA, 'step-02-browser-a-delegation-imported');
 
     // Step 4: Upload file in Browser A
     console.log('📤 Uploading file in Browser A...');
@@ -562,6 +618,7 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
     const uploadSuccessAlert = pageA.getByText(new RegExp(`Successfully uploaded ${testFileName}`, 'i'));
     await expect(uploadSuccessAlert).toBeVisible({ timeout: 60000 });
     console.log('✅ File uploaded successfully in Browser A');
+    await captureStepScreenshot(pageA, 'step-03-browser-a-upload-complete');
 
     // Step 5: Get the CID from Browser A
     console.log('🔍 Getting CID from Browser A...');
@@ -573,6 +630,7 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
     const rootCid = (await rootCode.textContent())?.trim() ?? '';
     expect(rootCid).toMatch(/^baf/);
     console.log('✅ CID obtained:', rootCid);
+    await captureStepScreenshot(pageA, 'step-04-browser-a-cid-visible');
 
     // Wait for Helia to have the content
     console.log('⏳ Waiting for content to be available in Helia...');
@@ -660,6 +718,7 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
     console.log('🔍 Verifying content matches...');
     expect(downloadResult.content).toBe(testFileContent);
     console.log('✅ Content verified - matches uploaded file!');
+    await captureStepScreenshot(pageB, 'step-05-browser-b-ipfs-download-success');
 
     console.log('\n🎉 TEST COMPLETE: IPFS Network Verification Passed!\n');
     console.log('Summary:');
