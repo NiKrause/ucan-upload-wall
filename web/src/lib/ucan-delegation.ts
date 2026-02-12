@@ -471,7 +471,8 @@ export class UCANDelegationService {
           privateKey: '', // Not accessible in hardware mode
           did: hardwareDID
         };
-        console.log('✅ Using hardware mode for Ed25519 operations');
+        const hardwareAlgorithm = this.hardwareService?.getHardwareAlgorithm() ?? 'Ed25519';
+        console.log(`✅ Using hardware mode for ${hardwareAlgorithm} operations`);
         return this.ed25519Keypair;
       }
     }

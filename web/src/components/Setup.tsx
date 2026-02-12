@@ -11,6 +11,11 @@ interface SetupProps {
 }
 
 export function Setup({ delegationService, onSetupComplete, onDidCreated }: SetupProps) {
+  const detectAlgorithmFromDid = (did: string | null): 'Ed25519' | 'P-256' | null => {
+    if (!did) return null;
+    return did.startsWith('did:key:zDna') ? 'P-256' : 'Ed25519';
+  };
+
   const [credentials, setCredentials] = useState({
     key: '',
     proof: '',
@@ -57,16 +62,19 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
     if (credInfo) {
       try {
         const parsed = JSON.parse(credInfo);
-        setKeyAlgorithm(parsed.keyAlgorithm || 'P-256');
+        setKeyAlgorithm(parsed.keyAlgorithm || mode.algorithm || detectAlgorithmFromDid(did));
         setIsNativeEd25519(parsed.isNativeEd25519 || false);
       } catch (e) {
         console.error('Failed to parse credential info:', e);
+        setKeyAlgorithm(mode.algorithm || detectAlgorithmFromDid(did));
       }
     } else {
       const storedHardware = getStoredHardwareSignerInfo();
       if (storedHardware) {
         setKeyAlgorithm(storedHardware.algorithm);
         setIsNativeEd25519(false);
+      } else {
+        setKeyAlgorithm(mode.algorithm || detectAlgorithmFromDid(did));
       }
     }
   }, [delegationService]);
@@ -107,16 +115,19 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
       if (credInfo) {
         try {
           const parsed = JSON.parse(credInfo);
-          setKeyAlgorithm(parsed.keyAlgorithm || 'P-256');
+          setKeyAlgorithm(parsed.keyAlgorithm || mode.algorithm || detectAlgorithmFromDid(did));
           setIsNativeEd25519(parsed.isNativeEd25519 || false);
         } catch (e) {
           console.error('Failed to parse credential info:', e);
+          setKeyAlgorithm(mode.algorithm || detectAlgorithmFromDid(did));
         }
       } else {
         const storedHardware = getStoredHardwareSignerInfo();
         if (storedHardware) {
           setKeyAlgorithm(storedHardware.algorithm);
           setIsNativeEd25519(false);
+        } else {
+          setKeyAlgorithm(mode.algorithm || detectAlgorithmFromDid(did));
         }
       }
       

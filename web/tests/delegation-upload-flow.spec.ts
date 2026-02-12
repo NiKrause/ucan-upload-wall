@@ -535,11 +535,40 @@ for (const modeConfig of TEST_MODES) {
     await expect(createButton).toBeVisible({ timeout: 10000 });
     await expect(createButton).toBeEnabled({ timeout: 5000 });
 
+    const expectedAlgorithm = mode === 'hardware-p256' ? 'P-256' : 'Ed25519';
+    const expectedUploadSignerLine =
+      mode === 'worker'
+        ? /Signer mode:\s*Worker-based \(Ed25519\)/i
+        : mode === 'hardware-p256'
+          ? /Signer mode:\s*Hardware-backed \(P-256\)/i
+          : /Signer mode:\s*Hardware-backed \(Ed25519\)/i;
+    const expectedDelegationModeLabel = mode === 'worker' ? /Worker Mode/i : /Hardware Mode/i;
+    const expectedDelegationAlgorithmLabel =
+      mode === 'hardware-p256' ? /\(P-256\)/i : mode === 'hardware-ed25519' ? /\(Ed25519\)/i : null;
+
+    const assertUploadLabels = async () => {
+      await expect(page.getByTestId('header-did-status')).toContainText(
+        `${expectedAlgorithm} DID Active`,
+        { timeout: 10000 }
+      );
+      await expect(
+        page.getByRole('main').getByText(new RegExp(`^${expectedAlgorithm} DID Active$`, 'i'))
+      ).toBeVisible({
+        timeout: 10000,
+      });
+      await expect(page.getByText(expectedUploadSignerLine)).toBeVisible({ timeout: 10000 });
+    };
+
     const getDidDisplay = async () => {
       await page.getByRole('button', { name: /delegations/i }).click();
       await page.waitForTimeout(1000);
       const didElement = page.getByTestId('did-display');
       await expect(didElement).toBeVisible({ timeout: 10000 });
+      await expect(page.getByRole('heading', { name: /Your DID/i })).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText(expectedDelegationModeLabel)).toBeVisible({ timeout: 10000 });
+      if (expectedDelegationAlgorithmLabel) {
+        await expect(page.getByText(expectedDelegationAlgorithmLabel)).toBeVisible({ timeout: 10000 });
+      }
       const browserDID = (await didElement.textContent())?.trim();
       expect(browserDID).toBeTruthy();
       expect(browserDID).toMatch(/^did:key:/);
@@ -547,6 +576,7 @@ for (const modeConfig of TEST_MODES) {
     };
 
     let lastError: unknown;
+    let didCreated = false;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
         await createButton.click();
@@ -564,7 +594,6 @@ for (const modeConfig of TEST_MODES) {
           );
         }
         if (mode !== 'worker') {
-          const expectedAlgorithm = mode === 'hardware-p256' ? 'P-256' : 'Ed25519';
           const storedAlgorithm = await page.evaluate((key) => {
             const stored = localStorage.getItem(key);
             if (!stored) return null;
@@ -577,9 +606,8 @@ for (const modeConfig of TEST_MODES) {
           expect(storedAlgorithm).toBe(expectedAlgorithm);
           console.log(`✅ Hardware algorithm confirmed: ${storedAlgorithm}`);
         }
-        const browserDID = await getDidDisplay();
-        console.log('✅ Browser DID:', browserDID);
-        return browserDID;
+        didCreated = true;
+        break;
       } catch (error) {
         lastError = error;
         console.log(`ℹ️ DID creation attempt ${attempt} did not complete, retrying...`);
@@ -587,7 +615,14 @@ for (const modeConfig of TEST_MODES) {
       }
     }
 
-    throw lastError ?? new Error('Failed to create DID in UI');
+    if (!didCreated) {
+      throw lastError ?? new Error('Failed to create DID in UI');
+    }
+
+    await assertUploadLabels();
+    const browserDID = await getDidDisplay();
+    console.log('✅ Browser DID:', browserDID);
+    return browserDID;
   }
 
   async function waitForDidDisplay(expectedDid?: string): Promise<string> {

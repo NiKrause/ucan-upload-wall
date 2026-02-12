@@ -8,12 +8,21 @@ interface HeaderProps {
 
 export function Header({ delegationService }: HeaderProps) {
   const currentDID = delegationService?.getCurrentDID();
+  const signingMode = delegationService?.getSigningMode();
   const serviceConfig = getServiceConfig();
   const uploadUrl = serviceConfig.uploadServiceUrl ?? '';
   const isLocalService =
     uploadUrl.startsWith('http://127.0.0.1') || uploadUrl.startsWith('http://localhost');
   const sessionStatus = delegationService?.getSessionDelegationStatus();
   const sessionDid = delegationService?.getSessionDelegationDid();
+  const detectedAlgorithm =
+    signingMode?.algorithm ??
+    (currentDID?.startsWith('did:key:zDna') ? 'P-256' : currentDID ? 'Ed25519' : null);
+  const didStatusLabel = detectedAlgorithm ? `${detectedAlgorithm} DID Active` : 'DID Active';
+  const didStatusTitle =
+    detectedAlgorithm === 'P-256'
+      ? 'P-256 DID active. Signatures are generated with a hardware-backed WebAuthn signer when available.'
+      : 'Ed25519 DID active. Keys are stored locally in your browser (no extra WebAuthn keystore encryption).';
 
   const sessionLabel = (() => {
     if (!sessionStatus?.enabled) {
@@ -65,10 +74,11 @@ export function Header({ delegationService }: HeaderProps) {
               {/* Security status */}
               <div 
                 className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50 border border-gray-200"
-                title="Ed25519 DID active. Keys are stored locally in your browser (no extra WebAuthn keystore encryption)."
+                title={didStatusTitle}
+                data-testid="header-did-status"
               >
                 <Shield className="h-4 w-4 text-blue-600" />
-                <span className="text-sm font-medium text-blue-700">Ed25519 DID Active</span>
+                <span className="text-sm font-medium text-blue-700">{didStatusLabel}</span>
               </div>
               {sessionStatus && (
                 <div
