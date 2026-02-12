@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -98,6 +103,8 @@ jobs:
     defaults:
       run:
         working-directory: ./web
+    env:
+      DELEGATION_SCREENSHOT_MODE: worker
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -118,6 +125,15 @@ jobs:
       - name: Run Delegation Flow E2E (Worker Fallback)
         run: npx playwright test tests/delegation-upload-flow.spec.ts --project=chromium --grep "Worker Fallback \(Forced\)"
 
+      - name: Upload delegation flow screenshots (worker)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delegation-flow-screenshots-worker
+          path: web/test-results/delegation-flow-screenshots/worker
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v4
@@ -131,6 +147,8 @@ jobs:
     defaults:
       run:
         working-directory: ./web
+    env:
+      DELEGATION_SCREENSHOT_MODE: hardware-ed25519
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -151,6 +169,15 @@ jobs:
       - name: Run Delegation Flow E2E (Hardware Ed25519)
         run: npx playwright test tests/delegation-upload-flow.spec.ts --project=chromium --grep "Hardware Ed25519"
 
+      - name: Upload delegation flow screenshots (hardware-ed25519)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delegation-flow-screenshots-hardware-ed25519
+          path: web/test-results/delegation-flow-screenshots/hardware-ed25519
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v4
@@ -166,6 +193,7 @@ jobs:
         working-directory: ./web
     env:
       TEST_HARDWARE_P256: '1'
+      DELEGATION_SCREENSHOT_MODE: hardware-p256
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -186,6 +214,15 @@ jobs:
       - name: Run Delegation Flow E2E (Hardware P-256)
         run: npx playwright test tests/delegation-upload-flow.spec.ts --project=chromium --grep "Hardware P-256 \(Fallback\)"
 
+      - name: Upload delegation flow screenshots (hardware-p256)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: delegation-flow-screenshots-hardware-p256
+          path: web/test-results/delegation-flow-screenshots/hardware-p256
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v4
@@ -193,3 +230,94 @@ jobs:
           name: playwright-report-hardware-p256
           path: web/test-results/
           retention-days: 7
+
+  build-delegation-flow-pages:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs:
+      - delegation-flow-worker
+      - delegation-flow-hardware-ed25519
+      - delegation-flow-hardware-p256
+    steps:
+      - name: Download screenshot artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: delegation-flow-screenshots-*
+          path: screenshots
+
+      - name: Build GitHub Pages site
+        run: |
+          set -euo pipefail
+          mkdir -p site/assets/worker site/assets/hardware-ed25519 site/assets/hardware-p256
+          shopt -s nullglob
+          cp screenshots/delegation-flow-screenshots-worker/*.png site/assets/worker/ || true
+          cp screenshots/delegation-flow-screenshots-hardware-ed25519/*.png site/assets/hardware-ed25519/ || true
+          cp screenshots/delegation-flow-screenshots-hardware-p256/*.png site/assets/hardware-p256/ || true
+
+          cat > site/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <title>Delegation Flow Screenshots</title>
+            <style>
+              body { font-family: sans-serif; margin: 24px; background: #f8fafc; color: #111827; }
+              h1 { margin-bottom: 8px; }
+              h2 { margin-top: 32px; }
+              .step { margin: 18px 0 28px; }
+              .label { font-weight: 600; margin-bottom: 8px; }
+              img { width: 100%; max-width: 1200px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; }
+              code { background: #e2e8f0; padding: 2px 6px; border-radius: 4px; }
+            </style>
+          </head>
+          <body>
+            <h1>Delegation Flow Screenshots</h1>
+            <p>Fixed filenames per mode and step.</p>
+
+            <h2>Worker</h2>
+            <div class="step"><div class="label"><code>step-01-did-created-upload-tab.png</code></div><img src="assets/worker/step-01-did-created-upload-tab.png" alt="Worker Step 1" /></div>
+            <div class="step"><div class="label"><code>step-02-delegations-did-visible.png</code></div><img src="assets/worker/step-02-delegations-did-visible.png" alt="Worker Step 2" /></div>
+            <div class="step"><div class="label"><code>step-03-import-form-open.png</code></div><img src="assets/worker/step-03-import-form-open.png" alt="Worker Step 3" /></div>
+            <div class="step"><div class="label"><code>step-04-delegation-imported.png</code></div><img src="assets/worker/step-04-delegation-imported.png" alt="Worker Step 4" /></div>
+            <div class="step"><div class="label"><code>step-05-upload-complete.png</code></div><img src="assets/worker/step-05-upload-complete.png" alt="Worker Step 5" /></div>
+            <div class="step"><div class="label"><code>step-06-file-preview-open.png</code></div><img src="assets/worker/step-06-file-preview-open.png" alt="Worker Step 6" /></div>
+            <div class="step"><div class="label"><code>step-07-flow-complete.png</code></div><img src="assets/worker/step-07-flow-complete.png" alt="Worker Step 7" /></div>
+
+            <h2>Hardware Ed25519</h2>
+            <div class="step"><div class="label"><code>step-01-did-created-upload-tab.png</code></div><img src="assets/hardware-ed25519/step-01-did-created-upload-tab.png" alt="Hardware Ed25519 Step 1" /></div>
+            <div class="step"><div class="label"><code>step-02-delegations-did-visible.png</code></div><img src="assets/hardware-ed25519/step-02-delegations-did-visible.png" alt="Hardware Ed25519 Step 2" /></div>
+            <div class="step"><div class="label"><code>step-03-import-form-open.png</code></div><img src="assets/hardware-ed25519/step-03-import-form-open.png" alt="Hardware Ed25519 Step 3" /></div>
+            <div class="step"><div class="label"><code>step-04-delegation-imported.png</code></div><img src="assets/hardware-ed25519/step-04-delegation-imported.png" alt="Hardware Ed25519 Step 4" /></div>
+            <div class="step"><div class="label"><code>step-05-upload-complete.png</code></div><img src="assets/hardware-ed25519/step-05-upload-complete.png" alt="Hardware Ed25519 Step 5" /></div>
+            <div class="step"><div class="label"><code>step-06-file-preview-open.png</code></div><img src="assets/hardware-ed25519/step-06-file-preview-open.png" alt="Hardware Ed25519 Step 6" /></div>
+            <div class="step"><div class="label"><code>step-07-flow-complete.png</code></div><img src="assets/hardware-ed25519/step-07-flow-complete.png" alt="Hardware Ed25519 Step 7" /></div>
+
+            <h2>Hardware P-256</h2>
+            <div class="step"><div class="label"><code>step-01-did-created-upload-tab.png</code></div><img src="assets/hardware-p256/step-01-did-created-upload-tab.png" alt="Hardware P-256 Step 1" /></div>
+            <div class="step"><div class="label"><code>step-02-delegations-did-visible.png</code></div><img src="assets/hardware-p256/step-02-delegations-did-visible.png" alt="Hardware P-256 Step 2" /></div>
+            <div class="step"><div class="label"><code>step-03-import-form-open.png</code></div><img src="assets/hardware-p256/step-03-import-form-open.png" alt="Hardware P-256 Step 3" /></div>
+            <div class="step"><div class="label"><code>step-04-delegation-imported.png</code></div><img src="assets/hardware-p256/step-04-delegation-imported.png" alt="Hardware P-256 Step 4" /></div>
+            <div class="step"><div class="label"><code>step-05-upload-complete.png</code></div><img src="assets/hardware-p256/step-05-upload-complete.png" alt="Hardware P-256 Step 5" /></div>
+            <div class="step"><div class="label"><code>step-06-file-preview-open.png</code></div><img src="assets/hardware-p256/step-06-file-preview-open.png" alt="Hardware P-256 Step 6" /></div>
+            <div class="step"><div class="label"><code>step-07-flow-complete.png</code></div><img src="assets/hardware-p256/step-07-flow-complete.png" alt="Hardware P-256 Step 7" /></div>
+          </body>
+          </html>
+          HTML
+
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy-delegation-flow-pages:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs: build-delegation-flow-pages
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

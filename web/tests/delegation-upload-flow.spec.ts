@@ -11,6 +11,8 @@
  */
 
 import type { Server } from 'node:http';
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { test, expect, BrowserContext, Page } from '@playwright/test';
 import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpers/webauthn';
 import * as ed25519 from '@ucanto/principal/ed25519';
@@ -132,6 +134,22 @@ if (ENABLE_P256) {
 
 for (const modeConfig of TEST_MODES) {
   test.describe(`Delegation and Upload Flow - E2E (${modeConfig.titleSuffix})`, () => {
+  const screenshotMode =
+    process.env.DELEGATION_SCREENSHOT_MODE ??
+    (modeConfig.mode === 'hardware-ed25519'
+      ? 'hardware-ed25519'
+      : modeConfig.mode === 'hardware-p256'
+        ? 'hardware-p256'
+        : 'worker');
+  const screenshotDir = join('test-results', 'delegation-flow-screenshots', screenshotMode);
+
+  async function captureStepScreenshot(stepFileName: string) {
+    await mkdir(screenshotDir, { recursive: true });
+    const screenshotPath = join(screenshotDir, `${stepFileName}.png`);
+    await page.screenshot({ path: screenshotPath, fullPage: true });
+    console.log(`📸 Step screenshot saved: ${screenshotPath}`);
+  }
+
   const IPFS_BOOTSTRAP = [
     '/dnsaddr/bootstrap.libp2p.io/p2p/QmNnooDu7bfjPFoTZYxMNLWUQJyrVwtbZg5gBMjTezGAJN',
     '/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcMqAqQPR2i9bChDtGNJchTbq5TbXJJ16u19uLTa',
@@ -657,6 +675,7 @@ for (const modeConfig of TEST_MODES) {
     // ========================================
     console.log('📝 STEP 1: Creating DID in React UI...');
     const browserDID = await createDIDInUI(modeConfig.mode);
+    await captureStepScreenshot('step-01-did-created-upload-tab');
     
     // Navigate away and back to reset UI state
     console.log('🔄 Navigating away and back to Delegations tab...');
@@ -751,6 +770,7 @@ for (const modeConfig of TEST_MODES) {
     }
     
     console.log('✅ DID is displayed on page');
+    await captureStepScreenshot('step-02-delegations-did-visible');
     
     // Wait for the page to be fully loaded
     await page.waitForLoadState('networkidle');
@@ -774,6 +794,7 @@ for (const modeConfig of TEST_MODES) {
     await importButton.click();
     console.log('✅ Clicked Import UCAN Delegation button');
     await page.waitForTimeout(1500);
+    await captureStepScreenshot('step-03-import-form-open');
 
     // ========================================
     // STEP 5: Fill in and submit the import form
@@ -847,6 +868,7 @@ for (const modeConfig of TEST_MODES) {
     expect(parsedDelegations.length).toBeGreaterThan(0);
     console.log('✅ Delegation imported successfully');
     console.log('🧾 Browser received delegations:', browserDelegations);
+    await captureStepScreenshot('step-04-delegation-imported');
 
     // ========================================
     // STEP 7: Upload a file
@@ -981,6 +1003,7 @@ for (const modeConfig of TEST_MODES) {
       .locator('h3', { hasText: 'test-file.txt' });
     await expect(uploadedFilename).toBeVisible({ timeout: 60000 });
     console.log('✅ Upload completed and appeared in list');
+    await captureStepScreenshot('step-05-upload-complete');
 
     // ========================================
     // STEP 7B: View uploaded file via Helia/gateways
@@ -1041,6 +1064,7 @@ for (const modeConfig of TEST_MODES) {
       return win.__LAST_IPFS_BLOB_URL__;
     });
     expect(viewUrl).toMatch(/^blob:/);
+    await captureStepScreenshot('step-06-file-preview-open');
     const closeButton = viewerModal.getByRole('button', { name: 'Close preview' });
     await closeButton.click();
     console.log('✅ View opened from Helia or gateway fallback');
@@ -1055,6 +1079,7 @@ for (const modeConfig of TEST_MODES) {
     await expect(uploadFilesTab).toBeVisible({ timeout: 5000 });
     
     console.log('✅ Upload UI interaction completed successfully');
+    await captureStepScreenshot('step-07-flow-complete');
     
     console.log('\n🎉 TEST COMPLETE: Full Delegation Workflow Passed!\n');
     console.log('✅ Step 1: Created DID in browser');
