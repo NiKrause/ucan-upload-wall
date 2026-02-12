@@ -1,7 +1,7 @@
 # 🔐 UCAN Upload Wall
 
-[![CI (main)](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ci.yml?query=branch%3Amain)
-[![CI (dev)](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ci.yml?query=branch%3Adev)
+[![Delegation Flow (main)](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/delegation-flow.yml/badge.svg?branch=main)](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/delegation-flow.yml?query=branch%3Amain)
+[![IPFS Network Flow (main)](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ipfs-network-flow.yml/badge.svg?branch=main)](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ipfs-network-flow.yml?query=branch%3Amain)
 
 > **⚠️ SECURITY WARNING**: This code has **NOT been security audited** and should **NOT be used in production**. See **[SECURITY.md](./SECURITY.md)** for critical security considerations, attack vectors, and limitations.
 
@@ -33,17 +33,15 @@ A browser-only file upload application powered by **hardware-backed WebAuthn Ed2
 
 Fixed, step-by-step screenshots from CI are published here:
 
-**[https://nikrause.github.io/ucan-upload-wall/](https://nikrause.github.io/ucan-upload-wall/)**
+- **Portal:** [https://nikrause.github.io/ucan-upload-wall/](https://nikrause.github.io/ucan-upload-wall/)
+- **Delegation Flow:** [https://nikrause.github.io/ucan-upload-wall/delegation-flow/](https://nikrause.github.io/ucan-upload-wall/delegation-flow/)
 
 ## 🌐 IPFS Network Flow (3 Modes)
 
 The two-browser IPFS verification flow now runs as a separate 3-job workflow (Worker, Hardware Ed25519, Hardware P-256):
 
-**[IPFS Network Flow workflow](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ipfs-network-flow.yml)**
-
-Each push publishes a bundled artifact in a separate directory layout (`ipfs-network-flow/`) via the artifact:
-
-- `ipfs-network-flow-published`
+- **Workflow:** [IPFS Network Flow workflow](https://github.com/NiKrause/ucan-upload-wall/actions/workflows/ipfs-network-flow.yml)
+- **GitHub Pages:** [https://nikrause.github.io/ucan-upload-wall/ipfs-network-flow/](https://nikrause.github.io/ucan-upload-wall/ipfs-network-flow/)
 
 **To mitigate the above stated security risks**, please use the browser app only in:
 
