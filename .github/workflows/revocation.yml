@@ -1,0 +1,109 @@
+name: Revocation Flow
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  revocation-flow-worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web
+    env:
+      TEST_FORCE_WORKER: '1'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: './web/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npm run playwright:install
+
+      - name: Run Revocation Flow E2E (Worker Fallback)
+        run: npx playwright test tests/revocation-flow.spec.ts --project=chromium --grep "Worker Fallback \(Forced\)"
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-revocation-worker
+          path: web/test-results/
+          retention-days: 7
+
+  revocation-flow-hardware-ed25519:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: './web/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npm run playwright:install
+
+      - name: Run Revocation Flow E2E (Hardware Ed25519)
+        run: npx playwright test tests/revocation-flow.spec.ts --project=chromium --grep "Hardware Ed25519"
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-revocation-hardware-ed25519
+          path: web/test-results/
+          retention-days: 7
+
+  revocation-flow-hardware-p256:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web
+    env:
+      TEST_HARDWARE_P256: '1'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: './web/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npm run playwright:install
+
+      - name: Run Revocation Flow E2E (Hardware P-256)
+        run: npx playwright test tests/revocation-flow.spec.ts --project=chromium --grep "Hardware P-256 \(Fallback\)"
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-revocation-hardware-p256
+          path: web/test-results/
+          retention-days: 7

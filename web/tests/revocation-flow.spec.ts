@@ -34,7 +34,21 @@ test.beforeAll(async () => {
   console.log('✅ Upload-api test utilities loaded successfully');
 });
 
-test.describe('UCAN Revocation Flow - E2E', () => {
+type TestMode = 'hardware-ed25519' | 'hardware-p256' | 'worker';
+
+const forceWorkerMode =
+  process.env.TEST_FORCE_WORKER === '1' || process.env.TEST_FORCE_WORKER === 'true';
+const forceP256Hardware =
+  process.env.TEST_HARDWARE_P256 === '1' || process.env.TEST_HARDWARE_P256 === 'true';
+
+const modeConfig: { mode: TestMode; titleSuffix: string } = forceWorkerMode
+  ? { mode: 'worker', titleSuffix: 'Worker Fallback (Forced)' }
+  : forceP256Hardware
+    ? { mode: 'hardware-p256', titleSuffix: 'Hardware P-256 (Fallback)' }
+    : { mode: 'hardware-ed25519', titleSuffix: 'Hardware Ed25519' };
+
+test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
+  const mode = modeConfig.mode;
   async function waitForAppShell(page: Page) {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveTitle(/UCAN Upload Wall/i);
@@ -107,7 +121,19 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     cdpSession = await enableVirtualAuthenticator(context);
 
     await context.addInitScript(
-      ({ revocationUrl, revocationDid, uploadServiceUrl, uploadServiceDid }) => {
+      ({ revocationUrl, revocationDid, uploadServiceUrl, uploadServiceDid, forceWorker, forceP256 }) => {
+        (
+          globalThis as typeof globalThis & {
+            __FORCE_WORKER_MODE__?: boolean;
+            __FORCE_P256_HARDWARE__?: boolean;
+          }
+        ).__FORCE_WORKER_MODE__ = forceWorker;
+        (
+          globalThis as typeof globalThis & {
+            __FORCE_WORKER_MODE__?: boolean;
+            __FORCE_P256_HARDWARE__?: boolean;
+          }
+        ).__FORCE_P256_HARDWARE__ = forceP256;
         window.__REVOCATION_URL__ = revocationUrl;
         window.__REVOCATION_DID__ = revocationDid;
         window.__UPLOAD_SERVICE_URL__ = uploadServiceUrl;
@@ -118,6 +144,8 @@ test.describe('UCAN Revocation Flow - E2E', () => {
         revocationDid: uploadServiceContext.id.did(),
         uploadServiceUrl: uploadApiServer.url,
         uploadServiceDid: uploadServiceContext.id.did(),
+        forceWorker: mode === 'worker',
+        forceP256: mode === 'hardware-p256',
       }
     );
 
@@ -163,7 +191,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
       await expect(didElement).toBeVisible({ timeout: 10000 });
       const browserDID = (await didElement.textContent())?.trim();
       expect(browserDID).toBeTruthy();
-      expect(browserDID).toMatch(/^did:key:z6Mk/);
+      expect(browserDID).toMatch(/^did:key:/);
       return browserDID as string;
     };
 
