@@ -233,7 +233,7 @@ jobs:
 
   build-delegation-flow-pages:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push'
     needs:
       - delegation-flow-worker
       - delegation-flow-hardware-ed25519
@@ -316,7 +316,7 @@ jobs:
 
   deploy-delegation-flow-pages:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push'
     needs: build-delegation-flow-pages
     environment:
       name: github-pages
