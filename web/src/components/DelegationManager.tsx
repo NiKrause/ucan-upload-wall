@@ -485,6 +485,92 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
           <Download className="h-5 w-5 mr-2" />
           {showImportForm ? 'Hide Import Form' : 'Import UCAN Delegation'}
         </button>
+
+        {showImportForm && (
+          <div className="mt-6 pt-6 border-t border-primary-200 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-2">
+                Delegation Name (Optional)
+              </label>
+              <input
+                type="text"
+                value={delegationName}
+                onChange={(e) => setDelegationName(e.target.value)}
+                placeholder="e.g., Alice's Upload Token, Work Laptop, etc."
+                className="input-field"
+              />
+              <p className="text-xs text-neutral-500 mt-1">
+                💡 Give this delegation a friendly name to remember where it came from
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-2">
+                UCAN Token or CID
+              </label>
+              <textarea
+                value={importProof}
+                onChange={(e) => handleImportProofChange(e.target.value)}
+                placeholder="Paste your UCAN token or CAR file CID here. Token example: mAYIEAKMYOqJlcm9vdHO. CID example: bafkreiabcd1234..."
+                className="input-field font-mono text-sm"
+                rows={6}
+                data-testid="import-delegation-textarea"
+              />
+              <p className="text-xs text-neutral-500 mt-2">
+                💡 Get token from `storacha delegation create YOUR_DID --base64` or use the CID from uploaded delegation
+              </p>
+
+              {detectedInputType !== 'unknown' && (
+                <div
+                  className={`mt-2 border rounded-lg p-3 ${
+                    detectedInputType === 'cid'
+                      ? 'bg-purple-50 border-purple-200'
+                      : 'bg-blue-50 border-blue-200'
+                  }`}
+                  data-testid="detected-input-type"
+                  data-input-type={detectedInputType}
+                >
+                  <div className="text-xs font-medium">
+                    {detectedInputType === 'cid' ? (
+                      <span className="text-purple-800">
+                        🔍 <strong>Detected: CID</strong> - Will fetch delegation from IPFS
+                      </span>
+                    ) : (
+                      <span className="text-blue-800">
+                        ✓ <strong>Detected: UCAN Token</strong> - Will import directly
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-2 bg-accent-purple border border-accent-blue rounded-xl p-3">
+                <div className="text-xs text-accent-blue-dark">
+                  <strong>✓ Auto-detects format:</strong> Supports CIDs (bafk..., Qm...), Storacha CLI tokens (multibase-base64 with 'm' prefix),
+                  base64url ('u' prefix), CAR files, and legacy JSON formats.
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={handleImportDelegation}
+                disabled={isImporting}
+                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Download className="h-5 w-5 mr-2" />
+                {isImporting ? 'Importing...' : 'Import UCAN Delegation'}
+              </button>
+
+              <button
+                onClick={() => setShowImportForm(false)}
+                className="btn-secondary"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Secondary Option: Storacha Credentials */}
@@ -506,8 +592,21 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                 <span className="text-sm font-medium">Saved</span>
               </div>
             )}
+            {!savedCredentials && isCredentialsExpanded && (
+              <button
+                onClick={() => setShowCredentialsForm(!showCredentialsForm)}
+                className="text-storacha-red hover:text-storacha-red-dark text-sm font-medium transition-colors"
+              >
+                {showCredentialsForm ? 'Hide Form' : 'Add Credentials'}
+              </button>
+            )}
             <button
-              onClick={() => setIsCredentialsExpanded(!isCredentialsExpanded)}
+              onClick={() => {
+                if (isCredentialsExpanded) {
+                  setShowCredentialsForm(false);
+                }
+                setIsCredentialsExpanded(!isCredentialsExpanded);
+              }}
               className="inline-flex items-center text-sm text-neutral-600 hover:text-dark transition-colors"
             >
               {isCredentialsExpanded ? 'Collapse' : 'Expand'}
@@ -806,102 +905,6 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
 
               <button
                 onClick={() => setShowCreateForm(false)}
-                className="btn-secondary"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Import UCAN Delegation Form */}
-      {showImportForm && (
-        <div className="card border border-primary-200 p-6">
-          <h3 className="text-xl font-semibold font-heading text-dark mb-2">
-            Import UCAN Delegation
-          </h3>
-          <p className="text-sm text-neutral-600 mb-4">
-            Paste the base64 UCAN token that was delegated to your Ed25519 DID
-          </p>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-2">
-                Delegation Name (Optional)
-              </label>
-              <input
-                type="text"
-                value={delegationName}
-                onChange={(e) => setDelegationName(e.target.value)}
-                placeholder="e.g., Alice's Upload Token, Work Laptop, etc."
-                className="input-field"
-              />
-              <p className="text-xs text-neutral-500 mt-1">
-                💡 Give this delegation a friendly name to remember where it came from
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-2">
-                UCAN Token or CID
-              </label>
-              <textarea
-                value={importProof}
-                onChange={(e) => handleImportProofChange(e.target.value)}
-                placeholder="Paste your UCAN token or CAR file CID here. Token example: mAYIEAKMYOqJlcm9vdHO. CID example: bafkreiabcd1234..."
-                className="input-field font-mono text-sm"
-                rows={6}
-                data-testid="import-delegation-textarea"
-              />
-              <p className="text-xs text-neutral-500 mt-2">
-                💡 Get token from `storacha delegation create YOUR_DID --base64` or use the CID from uploaded delegation
-              </p>
-
-              {detectedInputType !== 'unknown' && (
-                <div
-                  className={`mt-2 border rounded-lg p-3 ${
-                    detectedInputType === 'cid'
-                      ? 'bg-purple-50 border-purple-200'
-                      : 'bg-blue-50 border-blue-200'
-                  }`}
-                  data-testid="detected-input-type"
-                  data-input-type={detectedInputType}
-                >
-                  <div className="text-xs font-medium">
-                    {detectedInputType === 'cid' ? (
-                      <span className="text-purple-800">
-                        🔍 <strong>Detected: CID</strong> - Will fetch delegation from IPFS
-                      </span>
-                    ) : (
-                      <span className="text-blue-800">
-                        ✓ <strong>Detected: UCAN Token</strong> - Will import directly
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-2 bg-accent-purple border border-accent-blue rounded-xl p-3">
-                <div className="text-xs text-accent-blue-dark">
-                  <strong>✓ Auto-detects format:</strong> Supports CIDs (bafk..., Qm...), Storacha CLI tokens (multibase-base64 with 'm' prefix),
-                  base64url ('u' prefix), CAR files, and legacy JSON formats.
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <button
-                onClick={handleImportDelegation}
-                disabled={isImporting}
-                className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Download className="h-5 w-5 mr-2" />
-                {isImporting ? 'Importing...' : 'Import UCAN Delegation'}
-              </button>
-
-              <button
-                onClick={() => setShowImportForm(false)}
                 className="btn-secondary"
               >
                 Cancel

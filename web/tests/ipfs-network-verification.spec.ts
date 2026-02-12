@@ -429,7 +429,7 @@ test.describe('IPFS Network Verification - Two Browser Test', () => {
     await page.getByRole('button', { name: /Upload Files/i }).click();
     await page.waitForTimeout(1000);
 
-    const uploadHeading = page.getByRole('heading', { name: /Step 1: Create Ed25519 DID/i });
+    const uploadHeading = page.getByRole('heading', { name: /Step 1: Create (Ed25519 )?DID/i });
     await expect(uploadHeading).toBeVisible({ timeout: 10000 });
 
     const createButton = page.getByRole('button', {

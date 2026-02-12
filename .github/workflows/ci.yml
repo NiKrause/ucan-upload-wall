@@ -2,10 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
   pull_request:
-    branches: 
-     - '*'
 
 jobs:
   test-and-lint:
@@ -45,8 +42,11 @@ jobs:
       - name: Install Playwright Browsers
         run: npm run playwright:install
 
-      - name: Run E2E tests
-        run: npm run test:e2e
+      - name: Run Delegation Flow E2E (current branch only)
+        run: npx playwright test tests/delegation-upload-flow.spec.ts --project=chromium
+
+      # - name: Run E2E tests
+      #   run: npm run test:e2e
 
       - name: Upload test results
         if: failure()

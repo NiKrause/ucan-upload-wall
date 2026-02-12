@@ -405,7 +405,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
       console.log('✅ Delegations Received section visible');
 
       // Verify Active badge is shown
-      const activeBadge = page.locator('.bg-green-100.text-green-800', { hasText: 'Active' });
+      const activeBadge = page.getByText('Active', { exact: true });
       const hasActiveBadge = await activeBadge.isVisible().catch(() => false);
 
       if (hasActiveBadge) {
@@ -486,7 +486,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
       }
 
       // Look for Active badge
-      const activeBadge = page.locator('.bg-green-100.text-green-800', { hasText: 'Active' });
+      const activeBadge = page.getByText('Active', { exact: true });
       const hasActiveBadge = await activeBadge.isVisible().catch(() => false);
       if (hasActiveBadge) {
         console.log('✅ Active badge visible');
@@ -521,7 +521,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     await page.getByRole('button', { name: /delegations/i }).click();
     await page.waitForTimeout(2000);
 
-    const activeBadge = page.locator('.bg-green-100.text-green-800', { hasText: 'Active' });
+    const activeBadge = page.getByText('Active', { exact: true });
     await expect(activeBadge).toBeVisible({ timeout: 5000 });
     console.log('✅ Delegation shows Active status');
 
@@ -699,7 +699,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     await page.waitForTimeout(1000);
 
     // Look for either Expired badge OR the delegation in the list
-    const expiredBadge = page.locator('.bg-orange-100.text-orange-800', { hasText: 'Expired' });
+    const expiredBadge = page.getByText('Expired', { exact: true });
     const hasExpiredBadge = await expiredBadge.isVisible().catch(() => false);
 
     if (hasExpiredBadge) {
@@ -791,7 +791,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     await page.waitForLoadState('networkidle');
 
     // Check for Active badge (should still be there)
-    const activeBadge = page.locator('.bg-green-100.text-green-800', { hasText: 'Active' });
+    const activeBadge = page.getByText('Active', { exact: true });
     const hasActiveBadge = await activeBadge.isVisible().catch(() => false);
 
     if (hasActiveBadge) {
@@ -846,7 +846,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     console.log('✅ Second delegation imported');
 
     // Step 6: Verify multiple Active badges
-    const activeBadges = page.locator('.bg-green-100.text-green-800', { hasText: 'Active' });
+    const activeBadges = page.getByText('Active', { exact: true });
     const badgeCount = await activeBadges.count();
     console.log(`✅ Found ${badgeCount} Active badge(s)`);
     expect(badgeCount).toBeGreaterThanOrEqual(2);
@@ -1281,7 +1281,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     });
 
     // The delegation should still show as Active (not revoked)
-    const activeBadge = page.locator('.bg-green-100.text-green-800', { hasText: 'Active' });
+    const activeBadge = page.getByText('Active', { exact: true });
     const isActive = await activeBadge.isVisible().catch(() => false);
     if (isActive) {
       console.log('✅ Delegation shows Active status (not revoked by issuer)');
@@ -1318,7 +1318,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
     await page.waitForTimeout(2000);
 
     // Step 4: Check initial state - should be Active
-    const activeBadge = page.locator('.bg-green-100.text-green-800', { hasText: 'Active' });
+    const activeBadge = page.getByText('Active', { exact: true });
     const hasActiveBadge = await activeBadge.isVisible().catch(() => false);
 
     if (hasActiveBadge) {
@@ -1564,7 +1564,7 @@ test.describe('UCAN Revocation Flow - E2E', () => {
       console.log('✅ Delegations section still visible despite network error');
 
       // The badge should show Active (fail open behavior)
-      const activeBadge = page.locator('.bg-green-100.text-green-800', { hasText: 'Active' });
+      const activeBadge = page.getByText('Active', { exact: true });
       const hasActiveBadge = await activeBadge.isVisible().catch(() => false);
 
       if (hasActiveBadge) {
