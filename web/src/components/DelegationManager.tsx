@@ -449,7 +449,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       )}
 
       {/* Primary Action: Import UCAN Delegation */}
-      <div className="card border border-primary-200">
+      <div className="card border border-primary-200 p-6">
         <div className="flex items-center mb-4">
           <Download className="h-6 w-6 text-accent-blue mr-3" />
           <div>
@@ -477,8 +477,8 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       </div>
 
       {/* Secondary Option: Storacha Credentials */}
-      <div className="card">
-        <div className="flex items-center justify-between mb-4">
+      <div className="card p-6">
+        <div className="flex items-start justify-between mb-4">
           <div className="flex items-center">
             <Key className="h-6 w-6 text-accent-blue mr-3" />
             <div>
@@ -527,7 +527,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
             {showCredentialsForm && (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  <label className="block text-sm font-medium text-neutral-700 mb-2">
                     Private Key
                   </label>
                   <textarea
@@ -540,7 +540,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  <label className="block text-sm font-medium text-neutral-700 mb-2">
                     Space Proof
                   </label>
                   <textarea
@@ -553,7 +553,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-neutral-700 mb-1">
+                  <label className="block text-sm font-medium text-neutral-700 mb-2">
                     Space DID
                   </label>
                   <input
@@ -604,7 +604,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
 
       {/* Create Delegation (show if user has credentials OR received delegations for chaining) */}
       {(savedCredentials || receivedDelegations.length > 0) && !isNativeEd25519 && (
-        <div className="card">
+        <div className="card p-6">
           <div className="flex items-center mb-4">
             <Share className="h-6 w-6 text-storacha-red mr-3" />
             <div>
@@ -618,7 +618,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
           </div>
 
           {!savedCredentials && receivedDelegations.length > 0 && (
-            <div className="bg-accent-purple border border-accent-blue rounded-xl p-3 mb-4">
+            <div className="bg-accent-purple border border-accent-blue rounded-xl p-4 mb-4">
               <p className="text-accent-blue-dark text-sm">
                 <strong>🔗 UCAN Chaining:</strong> You can re-delegate your received UCAN to another DID. This creates a delegation chain.
               </p>
@@ -637,14 +637,14 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
 
       {/* Create Delegation Form */}
       {showCreateForm && (
-        <div className="card">
+        <div className="card p-6">
           <h3 className="text-xl font-semibold font-heading text-dark mb-4">
             Create New Delegation
           </h3>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-1">
+              <label className="block text-sm font-medium text-neutral-700 mb-2">
                 Target DID (from another browser)
               </label>
               <input
@@ -657,7 +657,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-neutral-700 mb-1">
+              <label className="block text-sm font-medium text-neutral-700 mb-2">
                 Delegation Expiration
               </label>
               <select
@@ -791,7 +791,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
 
       {/* Import UCAN Delegation Form */}
       {showImportForm && (
-        <div className="card border border-primary-200">
+        <div className="card border border-primary-200 p-6">
           <h3 className="text-xl font-semibold font-heading text-dark mb-2">
             Import UCAN Delegation
           </h3>
@@ -886,7 +886,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       )}
 
       {/* Created Delegations */}
-      <div className="card">
+      <div className="card p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center">
             <Upload className="h-6 w-6 text-storacha-red mr-3" />
@@ -1109,8 +1109,8 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       </div>
 
       {/* Received Delegations */}
-      <div className="card">
-        <div className="flex items-center justify-between mb-4">
+      <div className="card p-6">
+        <div className="flex items-start justify-between mb-4">
           <div className="flex items-center">
             <Download className="h-6 w-6 text-accent-blue mr-3" />
             <h3 className="text-xl font-semibold font-heading text-dark">
