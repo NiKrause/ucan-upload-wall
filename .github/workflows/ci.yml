@@ -42,8 +42,16 @@ jobs:
       - name: Install Playwright Browsers
         run: npm run playwright:install
 
-      - name: Run Delegation Flow E2E (current branch only)
-        run: npx playwright test tests/delegation-upload-flow.spec.ts --project=chromium
+      - name: Run Delegation Flow E2E (Worker Fallback)
+        run: npx playwright test tests/delegation-upload-flow.spec.ts --project=chromium --grep "Worker Fallback \(Forced\)"
+
+      - name: Run Delegation Flow E2E (Hardware Ed25519)
+        run: npx playwright test tests/delegation-upload-flow.spec.ts --project=chromium --grep "Hardware Ed25519"
+
+      - name: Run Delegation Flow E2E (Hardware P-256)
+        env:
+          TEST_HARDWARE_P256: "1"
+        run: npx playwright test tests/delegation-upload-flow.spec.ts --project=chromium --grep "Hardware P-256 \(Fallback\)"
 
       # - name: Run E2E tests
       #   run: npm run test:e2e
