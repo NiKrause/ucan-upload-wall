@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Share, Copy, Check, Plus, Download, Upload, Shield, Trash2, ArrowRight, User, Clock, Key, XCircle, Ban, Lock, Cpu, MessageCircle } from 'lucide-react';
+import { Share, Copy, Check, Plus, Download, Upload, Shield, Trash2, ArrowRight, User, Clock, Key, XCircle, Ban, Lock, Cpu, MessageCircle, ChevronDown } from 'lucide-react';
 import { UCANDelegationService, DelegationInfo } from '../lib/ucan-delegation';
 import { createCarFile } from '../lib/car-utils';
 import { Setup } from './Setup';
@@ -40,6 +40,8 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
   });
   const [savedCredentials, setSavedCredentials] = useState(false);
   const [showCredentialsForm, setShowCredentialsForm] = useState(false);
+  const [isCredentialsExpanded, setIsCredentialsExpanded] = useState(true);
+  const [isCreateExpanded, setIsCreateExpanded] = useState(true);
   const [revokingDelegation, setRevokingDelegation] = useState<string | null>(null);
   const [signingMode, setSigningMode] = useState<{
     mode: 'hardware' | 'worker';
@@ -394,13 +396,22 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       {/* Show delegation management when DID exists */}
       {currentDID && (
         <>
-          <div className="text-center">
-            <h2 className="text-3xl font-heading font-semibold text-dark mb-3">
-              Setup Your DID & Upload Access
-            </h2>
-            <p className="text-neutral-600">
-              Import a UCAN delegation token to get upload access, or add Storacha credentials directly
-            </p>
+          <div className="card p-4 md:p-5 border border-primary-200 bg-gradient-to-r from-white via-accent-purple/40 to-primary-50">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-white border border-primary-200 flex items-center justify-center shadow-card">
+                  <svg width="22" height="24" viewBox="0 0 154 172" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Storacha logo">
+                    <path d="M110.999 41.5313H71.4081C70.2881 41.5313 69.334 42.4869 69.334 43.6087V154.359C69.334 159.461 69.1847 164.596 69.334 169.698C69.334 169.773 69.334 169.839 69.334 169.914C69.334 171.036 70.2881 171.992 71.4081 171.992H111.646C112.766 171.992 113.72 171.036 113.72 169.914V129.613L111.646 131.69H151.884C153.004 131.69 153.959 130.735 153.959 129.613V95.7513C153.959 91.6796 154.041 87.5996 153.942 83.5362C153.685 72.9996 149.512 62.8038 142.318 55.1091C135.125 47.4144 125.319 42.7029 114.907 41.7141C113.604 41.5894 112.302 41.5313 110.991 41.5313C108.319 41.523 108.319 45.6777 110.991 45.6861C120.772 45.7193 130.305 49.4171 137.457 56.1229C144.608 62.8287 149.022 71.9443 149.702 81.6416C149.993 85.813 149.802 90.0592 149.802 94.2306V124.677C149.802 126.231 149.694 127.826 149.802 129.38C149.802 129.455 149.802 129.53 149.802 129.604L151.876 127.527H111.638C110.518 127.527 109.564 128.483 109.564 129.604V169.906L111.638 167.829H71.3998L73.474 169.906V48.7689C73.474 47.1319 73.5818 45.4617 73.474 43.8247C73.474 43.7499 73.474 43.6834 73.474 43.6087L71.3998 45.6861H110.991C113.662 45.6861 113.662 41.5313 110.991 41.5313H110.999Z" fill="#E91315" />
+                    <path d="M108.519 68.9694C108.452 62.9532 104.727 57.66 99.1103 55.5494C93.4935 53.4387 87.0886 55.2669 83.3718 59.779C79.5554 64.4157 78.9165 71.0966 82.0277 76.2901C85.1389 81.4836 91.2037 84.0762 97.1025 82.9544C103.723 81.6996 108.444 75.617 108.527 68.9694C108.56 66.2937 104.412 66.2937 104.379 68.9694C104.329 73.1325 101.749 77.0878 97.7579 78.4838C93.7673 79.8798 89.03 78.6749 86.3087 75.2265C83.5875 71.778 83.4879 67.2077 85.6865 63.6346C87.8851 60.0615 92.2076 58.1752 96.2811 59.0477C100.985 60.0532 104.32 64.1664 104.379 68.9777C104.412 71.6533 108.56 71.6533 108.527 68.9777L108.519 68.9694Z" fill="#E91315" />
+                    <path d="M94.265 73.3237C96.666 73.3237 98.6124 71.3742 98.6124 68.9695C98.6124 66.5647 96.666 64.6152 94.265 64.6152C91.8641 64.6152 89.9177 66.5647 89.9177 68.9695C89.9177 71.3742 91.8641 73.3237 94.265 73.3237Z" fill="#E91315" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-2xl md:text-3xl font-heading font-semibold text-dark">Storacha Upload Access</h2>
+                  <p className="text-sm text-neutral-600">Import a UCAN delegation token to get upload access, or add Storacha credentials directly</p>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Current DID - Most Important! */}
@@ -488,22 +499,24 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
               <p className="text-sm text-neutral-600">Advanced: Add credentials directly if you have a Storacha account</p>
             </div>
           </div>
-          {savedCredentials ? (
-            <div className="flex items-center text-accent-blue">
-              <Check className="h-5 w-5 mr-1" />
-              <span className="text-sm font-medium">Saved</span>
-            </div>
-          ) : (
+          <div className="flex items-center gap-3">
+            {savedCredentials && (
+              <div className="flex items-center text-accent-blue">
+                <Check className="h-5 w-5 mr-1" />
+                <span className="text-sm font-medium">Saved</span>
+              </div>
+            )}
             <button
-              onClick={() => setShowCredentialsForm(!showCredentialsForm)}
-              className="text-storacha-red hover:text-storacha-red-dark text-sm font-medium transition-colors"
+              onClick={() => setIsCredentialsExpanded(!isCredentialsExpanded)}
+              className="inline-flex items-center text-sm text-neutral-600 hover:text-dark transition-colors"
             >
-              {showCredentialsForm ? 'Hide' : 'Add Credentials'}
+              {isCredentialsExpanded ? 'Collapse' : 'Expand'}
+              <ChevronDown className={`h-4 w-4 ml-1 transition-transform ${isCredentialsExpanded ? 'rotate-180' : ''}`} />
             </button>
-          )}
+          </div>
         </div>
 
-        {savedCredentials ? (
+        {isCredentialsExpanded && (savedCredentials ? (
           <div className="bg-accent-purple border border-accent-blue rounded-xl p-4">
             <p className="text-accent-blue-dark text-sm">
               ✓ Storacha credentials configured. You can now create delegations and upload files.
@@ -575,7 +588,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
               </div>
             )}
           </>
-        )}
+        ))}
       </div>
 
       {/* Info message for native Ed25519 users */}
@@ -605,33 +618,46 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       {/* Create Delegation (show if user has credentials OR received delegations for chaining) */}
       {(savedCredentials || receivedDelegations.length > 0) && !isNativeEd25519 && (
         <div className="card p-6">
-          <div className="flex items-center mb-4">
-            <Share className="h-6 w-6 text-storacha-red mr-3" />
-            <div>
-              <h3 className="text-xl font-semibold font-heading text-dark">Create Delegation for Others</h3>
-              <p className="text-sm text-neutral-600">
-                {savedCredentials
-                  ? 'Share upload access with other DIDs using your Storacha credentials'
-                  : 'Chain your UCAN delegation - share access with other DIDs'}
-              </p>
+          <div className="flex items-start justify-between mb-4">
+            <div className="flex items-center">
+              <Share className="h-6 w-6 text-storacha-red mr-3" />
+              <div>
+                <h3 className="text-xl font-semibold font-heading text-dark">Create Delegation for Others</h3>
+                <p className="text-sm text-neutral-600">
+                  {savedCredentials
+                    ? 'Share upload access with other DIDs using your Storacha credentials'
+                    : 'Chain your UCAN delegation - share access with other DIDs'}
+                </p>
+              </div>
             </div>
+            <button
+              onClick={() => setIsCreateExpanded(!isCreateExpanded)}
+              className="inline-flex items-center text-sm text-neutral-600 hover:text-dark transition-colors"
+            >
+              {isCreateExpanded ? 'Collapse' : 'Expand'}
+              <ChevronDown className={`h-4 w-4 ml-1 transition-transform ${isCreateExpanded ? 'rotate-180' : ''}`} />
+            </button>
           </div>
 
-          {!savedCredentials && receivedDelegations.length > 0 && (
-            <div className="bg-accent-purple border border-accent-blue rounded-xl p-4 mb-4">
-              <p className="text-accent-blue-dark text-sm">
-                <strong>🔗 UCAN Chaining:</strong> You can re-delegate your received UCAN to another DID. This creates a delegation chain.
-              </p>
-            </div>
-          )}
+          {isCreateExpanded && (
+            <>
+              {!savedCredentials && receivedDelegations.length > 0 && (
+                <div className="bg-accent-purple border border-accent-blue rounded-xl p-4 mb-4">
+                  <p className="text-accent-blue-dark text-sm">
+                    <strong>🔗 UCAN Chaining:</strong> You can re-delegate your received UCAN to another DID. This creates a delegation chain.
+                  </p>
+                </div>
+              )}
 
-          <button
-            onClick={() => setShowCreateForm(!showCreateForm)}
-            className="btn-primary"
-          >
-            <Plus className="h-5 w-5 mr-2" />
-            {showCreateForm ? 'Hide Form' : 'Create New Delegation'}
-          </button>
+              <button
+                onClick={() => setShowCreateForm(!showCreateForm)}
+                className="btn-primary"
+              >
+                <Plus className="h-5 w-5 mr-2" />
+                {showCreateForm ? 'Hide Form' : 'Create New Delegation'}
+              </button>
+            </>
+          )}
         </div>
       )}
 

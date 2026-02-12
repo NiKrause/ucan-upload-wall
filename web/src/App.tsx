@@ -468,36 +468,6 @@ function App() {
                 </div>
               )}
 
-              <div className="text-center mb-12">
-                <h2 className="text-4xl font-bold text-gray-900 mb-3">
-                  Decentralised File Backup
-                </h2>
-                <p className="text-lg text-gray-600 max-w-2xl">
-                  on{' '}
-                  <a 
-                    href="https://filecoin.io" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="font-semibold text-blue-600 hover:text-blue-800 border-b-2 border-dotted border-blue-400 transition-colors"
-                    title="Filecoin: Decentralized storage network for humanity's most important information"
-                  >
-                    Filecoin
-                  </a>
-                  {' '}via{' '}
-                  <a 
-                    href="https://storacha.network" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="font-semibold text-blue-600 hover:text-blue-800 border-b-2 border-dotted border-blue-400 transition-colors"
-                    title="Storacha network: Uploads use centralized gateways for reliability. Downloads leverage the decentralized IPFS network for resilience and censorship resistance."
-                  >
-                    Storacha network
-                  </a>
-                  {' '}with WebAuthn DID + UCAN authorization.
-                  Your data stays verifiable, private, and under your control — no servers, no intermediaries.
-                </p>
-              </div>
-
               <UploadZone 
                 onFileSelect={handleFileSelect} 
                 isUploading={isUploading}
