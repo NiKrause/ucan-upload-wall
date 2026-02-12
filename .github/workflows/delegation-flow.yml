@@ -233,12 +233,15 @@ jobs:
 
   build-delegation-flow-pages:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs:
       - delegation-flow-worker
       - delegation-flow-hardware-ed25519
       - delegation-flow-hardware-p256
     steps:
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
       - name: Download screenshot artifacts
         uses: actions/download-artifact@v4
         with:
@@ -308,11 +311,12 @@ jobs:
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: delegation-flow-pages
           path: site
 
   deploy-delegation-flow-pages:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build-delegation-flow-pages
     environment:
       name: github-pages
@@ -321,3 +325,5 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: delegation-flow-pages
