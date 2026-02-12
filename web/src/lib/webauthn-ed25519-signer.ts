@@ -11,10 +11,15 @@ import {
   reconstructSignedData,
   verifyEd25519Signature,
   verifyP256Signature,
-  concat,
-  type WebAuthnAssertion
+  concat
 } from 'iso-webauthn-varsig';
 import * as DagUcanSignature from '@ipld/dag-ucan/signature';
+
+interface WebAuthnAssertion {
+  authenticatorData: Uint8Array;
+  clientDataJSON: Uint8Array;
+  signature: Uint8Array;
+}
 
 const wrapQueuedSign = <T extends { sign: (data: Uint8Array) => Promise<Uint8Array> }>(
   signer: T
@@ -112,6 +117,10 @@ export class WebAuthnEd25519Signer {
   getDid(): string {
     return this.did;
   }
+
+  getCredentialId(): BufferSource {
+    return this.credentialId;
+  }
   
   /**
    * Verify a varsig-encoded signature
@@ -119,7 +128,7 @@ export class WebAuthnEd25519Signer {
    * @param signature - The varsig-encoded signature
    * @returns True if signature is valid
    */
-  async verify(data: Uint8Array, signature: Uint8Array): Promise<boolean> {
+  async verify(_data: Uint8Array, signature: Uint8Array): Promise<boolean> {
     try {
       const signatureBytes = (signature as Uint8Array & { raw?: Uint8Array }).raw ?? signature;
       // Decode varsig v1
@@ -251,6 +260,10 @@ export class WebAuthnP256Signer {
   getDid(): string {
     return this.did;
   }
+
+  getCredentialId(): BufferSource {
+    return this.credentialId;
+  }
   
   /**
    * Verify a varsig-encoded signature
@@ -258,7 +271,7 @@ export class WebAuthnP256Signer {
    * @param signature - The varsig-encoded signature
    * @returns True if signature is valid
    */
-  async verify(data: Uint8Array, signature: Uint8Array): Promise<boolean> {
+  async verify(_data: Uint8Array, signature: Uint8Array): Promise<boolean> {
     try {
       const signatureBytes = (signature as Uint8Array & { raw?: Uint8Array }).raw ?? signature;
       // Decode varsig v1
@@ -346,13 +359,13 @@ export async function createWebAuthnEd25519Credential(
     
     const userIdBytes = new TextEncoder().encode(userId);
     const challenge = crypto.getRandomValues(new Uint8Array(32));
-    const pubKeyCredParams = forceP256Hardware
-      ? [{ type: 'public-key', alg: -7 }]
+    const pubKeyCredParams: PublicKeyCredentialParameters[] = forceP256Hardware
+      ? [{ type: 'public-key' as const, alg: -7 }]
       : [
-          { type: 'public-key', alg: -50 },  // Ed25519 (RFC 9864) - PREFERRED (fully-specified)
-          { type: 'public-key', alg: -8 },   // EdDSA (legacy polymorphic) - fallback
-          { type: 'public-key', alg: -7 },   // ES256 (P-256) - fallback
-          { type: 'public-key', alg: -257 }  // RS256 (RSA) - broad compatibility
+          { type: 'public-key' as const, alg: -50 },  // Ed25519 (RFC 9864) - PREFERRED (fully-specified)
+          { type: 'public-key' as const, alg: -8 },   // EdDSA (legacy polymorphic) - fallback
+          { type: 'public-key' as const, alg: -7 },   // ES256 (P-256) - fallback
+          { type: 'public-key' as const, alg: -257 }  // RS256 (RSA) - broad compatibility
         ];
     
     // Create WebAuthn credential with Ed25519

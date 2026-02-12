@@ -28,6 +28,13 @@ type Libp2pConnectionLike = {
 };
 
 type Libp2pLike = Pick<Libp2p, 'dial' | 'getConnections' | 'peerStore'>;
+type Libp2pWithPing = Libp2pLike & {
+  services?: {
+    ping?: {
+      ping: (...args: unknown[]) => Promise<number>;
+    };
+  };
+};
 
 type HeliaClient = {
   libp2p: Libp2pLike;
@@ -115,9 +122,10 @@ async function getHeliaClient(): Promise<{ helia: HeliaClient; fs: UnixFsLike }>
           (globalThis as GlobalHeliaOverrides).__HELIA_READY_PEER__ = heliaBootstrap.peerId;
           (globalThis as GlobalHeliaOverrides).__HELIA_READY_ERROR__ = undefined;
           logHeliaConnections(libp2p, 'dialed local peer');
-          if (libp2p.services?.ping) {
+          const pingService = (libp2p as Libp2pWithPing).services?.ping;
+          if (pingService) {
             try {
-              const latency = await libp2p.services.ping.ping(peerId);
+              const latency = await pingService.ping(peerId);
               console.log(`🟣 Helia ping local peer: ${latency}ms`);
             } catch (error) {
               console.warn('🟣 Helia ping failed:', (error as Error).message);
@@ -155,8 +163,9 @@ export async function pingHeliaLocalPeer(): Promise<void> {
   const { helia } = await getHeliaClient();
   const { peerIdFromString } = await import('@libp2p/peer-id');
   const peerId = peerIdFromString(heliaBootstrap.peerId);
-  if (helia.libp2p.services?.ping) {
-    const latency = await helia.libp2p.services.ping.ping(peerId);
+  const pingService = (helia.libp2p as Libp2pWithPing).services?.ping;
+  if (pingService) {
+    const latency = await pingService.ping(peerId);
     console.log(`🟣 Helia ping local peer (pre-view): ${latency}ms`);
   }
 }

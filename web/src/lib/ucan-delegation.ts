@@ -245,7 +245,9 @@ export class UCANDelegationService {
             merged: mergedProofs.length,
             deduped: dedupedProofs.length,
           });
-          return { ...config, proofs: dedupedProofs };
+          const configObject =
+            typeof config === 'object' && config !== null ? config : {};
+          return { ...configObject, proofs: dedupedProofs };
         }
         return config;
       };
@@ -816,14 +818,17 @@ export class UCANDelegationService {
   }
 
   private getProofLogInfo(proof: unknown): { cid?: string; signatureLength?: number; signaturePrefix?: number[] } {
-    const proofObj = proof as { cid?: { toString?: () => string }; signature?: { raw?: Uint8Array } | Uint8Array };
+    const proofObj = proof as {
+      cid?: { toString?: () => string };
+      signature?: Uint8Array | { raw?: Uint8Array } | { [key: string]: unknown };
+    };
     const cid = proofObj?.cid?.toString?.();
-    const signature = (proofObj?.signature as { raw?: Uint8Array })?.raw ?? proofObj?.signature;
-    const signatureLength = signature?.byteLength ?? signature?.length;
-    const signaturePrefix =
-      signature?.byteLength || signature?.length
-        ? Array.from(signature.slice(0, 2))
-        : undefined;
+    const signatureCandidate =
+      (proofObj?.signature as { raw?: Uint8Array })?.raw ?? proofObj?.signature;
+    const signature =
+      signatureCandidate instanceof Uint8Array ? signatureCandidate : undefined;
+    const signatureLength = signature?.byteLength;
+    const signaturePrefix = signature ? Array.from(signature.slice(0, 2)) : undefined;
     return { cid, signatureLength, signaturePrefix };
   }
 
@@ -998,17 +1003,25 @@ export class UCANDelegationService {
       const delegation = await delegate({
         issuer,
         audience: Verifier.parse(sessionSigner.did() as UcanDID),
-        capabilities: requiredCaps.map((capability) => ({ with: spaceDid, can: capability })),
+        capabilities: requiredCaps.map((capability) => ({ with: spaceDid, can: capability })) as never,
         expiration,
-        proofs: [proofDelegation],
+        proofs: [proofDelegation as never],
         facts: [],
       });
 
       const archiveResult = await delegation.archive();
       const carBytes =
-        typeof archiveResult === 'object' && archiveResult && 'ok' in archiveResult
-          ? archiveResult.ok
-          : archiveResult;
+        archiveResult instanceof Uint8Array
+          ? archiveResult
+          : typeof archiveResult === 'object' &&
+              archiveResult &&
+              'ok' in archiveResult &&
+              archiveResult.ok instanceof Uint8Array
+            ? archiveResult.ok
+            : undefined;
+      if (!carBytes) {
+        throw new Error('Failed to archive session delegation');
+      }
       const proof = 'm' + this.arrayBufferToBase64(new Uint8Array(carBytes).buffer);
       const proofObj = await this.parseDelegationProof(proof);
 
@@ -2102,6 +2115,9 @@ export class UCANDelegationService {
           
           if (result.valid) {
             console.log('✅ Hardware varsig verification succeeded!');
+            if (!result.issuer || !result.audience || !result.capabilities) {
+              throw new Error('Hardware verification succeeded but delegation metadata is incomplete');
+            }
             
             // Create delegation info
             const delegationInfo: DelegationInfo = {
@@ -3101,15 +3117,16 @@ export class UCANDelegationService {
     }
 
     const { Verifier } = await import('@ucanto/principal');
-    return Verifier.parse(serviceDid);
+    return Verifier.parse(serviceDid as `did:${string}:${string}`);
   }
 
-  private getSpaceDidFromDelegation(delegation: { capabilities?: Array<{ with?: unknown }> } | null): string | null {
-    if (!delegation?.capabilities?.length) {
+  private getSpaceDidFromDelegation(delegation: unknown): string | null {
+    const parsed = delegation as { capabilities?: Array<{ with?: unknown }> } | null;
+    if (!parsed?.capabilities?.length) {
       return null;
     }
 
-    for (const cap of delegation.capabilities) {
+    for (const cap of parsed.capabilities) {
       if (typeof cap?.with === 'string' && cap.with.startsWith('did:')) {
         return cap.with;
       }

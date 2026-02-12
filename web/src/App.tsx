@@ -46,6 +46,7 @@ function App() {
     mode: 'hardware' | 'worker';
     did: string | null;
     secure: boolean;
+    algorithm?: 'Ed25519' | 'P-256';
   } | null>(null);
   
   useEffect(() => {

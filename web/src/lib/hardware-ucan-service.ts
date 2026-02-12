@@ -154,13 +154,13 @@ export class HardwareUCANDelegationService {
     type UcanVerifier = any;
     
     // Create verifier for target
-    const targetVerifier = Verifier.parse(toDid) as UcanVerifier;
+    const targetVerifier = Verifier.parse(toDid as `did:${string}:${string}`) as UcanVerifier;
     
     // Build capabilities
     const ucanCapabilities = capabilities.map(cap => ({
       with: spaceDid,
       can: cap
-    }));
+    })) as unknown[];
     
     // Calculate expiration
     const expirationTimestamp = expirationHours !== null
@@ -174,9 +174,9 @@ export class HardwareUCANDelegationService {
     const delegation = await delegate({
       issuer: this.hardwareSigner.toUcantoSigner() as UcanSigner,
       audience: targetVerifier,
-      capabilities: ucanCapabilities,
+      capabilities: ucanCapabilities as never,
       expiration: expirationTimestamp,
-      proofs,
+      proofs: proofs as never,
       facts: []
     });
     
@@ -189,7 +189,16 @@ export class HardwareUCANDelegationService {
     const carBytes = await delegation.archive();
     
     // Encode as multibase base64url
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(carBytes.ok)));
+    const archivedBytes =
+      carBytes instanceof Uint8Array
+        ? carBytes
+        : carBytes && typeof carBytes === 'object' && 'ok' in carBytes && carBytes.ok instanceof Uint8Array
+          ? carBytes.ok
+          : undefined;
+    if (!archivedBytes) {
+      throw new Error('Failed to archive delegation');
+    }
+    const base64 = btoa(String.fromCharCode(...new Uint8Array(archivedBytes)));
     const multibaseProof = 'u' + base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
     
     return multibaseProof;
@@ -204,6 +213,10 @@ export class HardwareUCANDelegationService {
   ): Promise<{
     valid: boolean;
     error?: string;
+    issuer?: string;
+    audience?: string;
+    capabilities?: string[];
+    expiration?: number;
     issuerDid?: string;
     audienceDid?: string;
     spaceDid?: string;
@@ -330,6 +343,8 @@ export class HardwareUCANDelegationService {
           valid: true,
           issuer: delegation.issuer.did(),
           audience: delegation.audience.did(),
+          issuerDid: delegation.issuer.did(),
+          audienceDid: delegation.audience.did(),
           capabilities: capabilities,
           expiration: delegation.expiration,
           spaceDid
@@ -356,6 +371,8 @@ export class HardwareUCANDelegationService {
           valid: true,
           issuer: delegation.issuer.did(),
           audience: delegation.audience.did(),
+          issuerDid: delegation.issuer.did(),
+          audienceDid: delegation.audience.did(),
           capabilities: capabilities,
           expiration: delegation.expiration,
           spaceDid
@@ -373,8 +390,20 @@ export class HardwareUCANDelegationService {
    * Store hardware signer info
    */
   private async storeHardwareSigner(signer: WebAuthnEd25519Signer | WebAuthnP256Signer): Promise<void> {
+    const credentialId = signer.getCredentialId();
+    const credentialIdBytes =
+      credentialId instanceof Uint8Array
+        ? credentialId
+        : new Uint8Array(
+            credentialId instanceof ArrayBuffer
+              ? credentialId
+              : credentialId.buffer.slice(
+                  credentialId.byteOffset,
+                  credentialId.byteOffset + credentialId.byteLength
+                )
+          );
     const info: HardwareSignerInfo = {
-      credentialId: btoa(String.fromCharCode(...new Uint8Array(signer['credentialId'] as ArrayBuffer))),
+      credentialId: btoa(String.fromCharCode(...Array.from(credentialIdBytes as Uint8Array))),
       did: signer.did,
       publicKey: Array.from(signer.publicKey).map(b => b.toString(16).padStart(2, '0')).join(''),
       algorithm: signer.algorithm,

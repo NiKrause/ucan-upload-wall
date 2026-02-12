@@ -165,7 +165,7 @@ export async function createCarFile(token: string, targetDID: string): Promise<F
   const unixTimestamp = Math.floor(Date.now() / 1000);
   const filename = `${targetDID}-${unixTimestamp}.car`;
   
-  const carBlob = new Blob([carBytes], {
+  const carBlob = new Blob([Uint8Array.from(carBytes)], {
     type: 'application/vnd.ipld.car'
   });
   
