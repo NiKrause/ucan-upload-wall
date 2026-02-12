@@ -147,7 +147,16 @@ jobs:
 
   publish-ipfs-network-artifacts:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: >-
+      ${{
+        github.event_name == 'push' &&
+        always() &&
+        (
+          needs.ipfs-network-worker.result == 'success' ||
+          needs.ipfs-network-hardware-ed25519.result == 'success' ||
+          needs.ipfs-network-hardware-p256.result == 'success'
+        )
+      }}
     needs:
       - ipfs-network-worker
       - ipfs-network-hardware-ed25519
