@@ -5,13 +5,11 @@ on:
   pull_request:
 
 jobs:
-  test-and-lint:
+  lint:
     runs-on: ubuntu-latest
-    
     defaults:
       run:
         working-directory: ./web
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,15 +27,68 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
-      # disable type check for now until we have a way to fix the errors
-      # - name: Run TypeScript type check
-      #   run: npm run typecheck
+  unit-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: './web/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Run unit tests
         run: npm run test:run
 
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: './web/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Build project
         run: npm run build
+
+  delegation-flow-worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: './web/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Install Playwright Browsers
         run: npm run playwright:install
@@ -45,21 +96,78 @@ jobs:
       - name: Run Delegation Flow E2E (Worker Fallback)
         run: npx playwright test tests/delegation-upload-flow.spec.ts --project=chromium --grep "Worker Fallback \(Forced\)"
 
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-worker
+          path: web/test-results/
+          retention-days: 7
+
+  delegation-flow-hardware-ed25519:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: './web/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npm run playwright:install
+
       - name: Run Delegation Flow E2E (Hardware Ed25519)
         run: npx playwright test tests/delegation-upload-flow.spec.ts --project=chromium --grep "Hardware Ed25519"
-
-      - name: Run Delegation Flow E2E (Hardware P-256)
-        env:
-          TEST_HARDWARE_P256: "1"
-        run: npx playwright test tests/delegation-upload-flow.spec.ts --project=chromium --grep "Hardware P-256 \(Fallback\)"
-
-      # - name: Run E2E tests
-      #   run: npm run test:e2e
 
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-hardware-ed25519
+          path: web/test-results/
+          retention-days: 7
+
+  delegation-flow-hardware-p256:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web
+    env:
+      TEST_HARDWARE_P256: '1'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: './web/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npm run playwright:install
+
+      - name: Run Delegation Flow E2E (Hardware P-256)
+        run: npx playwright test tests/delegation-upload-flow.spec.ts --project=chromium --grep "Hardware P-256 \(Fallback\)"
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-hardware-p256
           path: web/test-results/
           retention-days: 7
