@@ -25,11 +25,18 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
     () => localStorage.getItem('skip_upload_sign_confirm') === 'true'
   );
   const [rememberSignChoice, setRememberSignChoice] = useState(false);
+  const [signingMode, setSigningMode] = useState<{
+    mode: 'hardware' | 'worker';
+    did: string | null;
+    secure: boolean;
+    algorithm?: 'Ed25519' | 'P-256';
+  } | null>(null);
 
   useEffect(() => {
     setWebauthnSupported(WebAuthnDIDProvider.isSupported());
     const did = delegationService.getCurrentDID();
     setCurrentDID(did);
+    setSigningMode(delegationService.getSigningMode());
   }, [delegationService]);
 
   const handleCreateDID = async (authenticatorType?: 'platform' | 'cross-platform') => {
@@ -48,6 +55,7 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
 
       const did = delegationService.getCurrentDID();
       setCurrentDID(did);
+      setSigningMode(delegationService.getSigningMode());
 
       if (onDidCreated) {
         onDidCreated();
@@ -237,7 +245,7 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
           <div className="flex items-center">
             <AlertCircle className="h-5 w-5 text-storacha-red mr-3" />
             <div>
-              <h3 className="text-primary-800 font-medium">WebAuthn Not Supported</h3>
+              <h3 className="text-primary-800 font-semibold">WebAuthn Not Supported</h3>
               <p className="text-primary-700 text-sm">
                 Your browser doesn't support WebAuthn. Please use a modern browser like Chrome, Firefox, or Safari.
               </p>
@@ -248,13 +256,13 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
 
       {/* DID Setup Section */}
       {!currentDID ? (
-        <div className="card p-6 border-2 border-accent-blue">
+        <div className="card p-6 border border-primary-200">
           <div className="flex items-center mb-4">
-            <div className="w-10 h-10 bg-accent-blue rounded-lg flex items-center justify-center mr-3">
-              <Shield className="h-5 w-5 text-white" />
+            <div className="w-10 h-10 bg-accent-purple rounded-lg flex items-center justify-center mr-3">
+              <Shield className="h-5 w-5 text-accent-blue" />
             </div>
-            <h3 className="text-xl font-heading font-semibold text-dark">
-              Step 1: Create Ed25519 DID
+            <h3 className="text-lg font-heading font-semibold text-dark">
+              Step 1: Create DID
             </h3>
           </div>
 
@@ -292,7 +300,7 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
             <button
               onClick={() => handleCreateDID(authenticatorMode)}
               disabled={isCreatingDID}
-              className="btn-accent flex items-center"
+              className="btn-primary flex items-center"
               data-testid="create-did-button"
             >
               {authenticatorMode === 'platform' ? (
@@ -300,7 +308,7 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
               ) : (
                 <Shield className="h-4 w-4 mr-2" />
               )}
-              {isCreatingDID ? 'Generating...' : 'Create DID'}
+              {isCreatingDID ? 'Generating...' : 'Create Secure DID'}
             </button>
 
             {isCreatingDID && (
@@ -317,25 +325,33 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
           </div>
         </div>
       ) : (
-        <div className="bg-gradient-to-r from-green-50 to-accent-purple rounded-xl border border-green-200 p-4">
+        <div className="bg-accent-purple rounded-xl border border-accent-blue p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
-              <div className="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center mr-3">
+              <div className="w-8 h-8 bg-accent-blue rounded-lg flex items-center justify-center mr-3">
                 <Shield className="h-4 w-4 text-white" />
               </div>
               <div>
-                <span className="text-green-800 font-medium">Ed25519 DID Active</span>
+                <span className="text-accent-blue-dark font-medium">
+                  {signingMode?.algorithm ? `${signingMode.algorithm} DID Active` : 'DID Active'}
+                </span>
                 <code
-                  className="block text-xs text-green-700 mt-1 break-all font-mono"
+                  className="block text-xs text-accent-blue-dark mt-1 break-all font-mono"
                   data-testid="did-display"
                 >
                   {currentDID.substring(0, 30)}...{currentDID.slice(-10)}
                 </code>
+                {signingMode && (
+                  <p className="text-xs text-neutral-600 mt-1">
+                    Signer mode: {signingMode.mode === 'hardware' ? 'Hardware-backed' : 'Worker-based'}
+                    {signingMode.algorithm ? ` (${signingMode.algorithm})` : ''}
+                  </p>
+                )}
               </div>
             </div>
             <button
               onClick={() => copyToClipboard(currentDID)}
-              className="flex items-center text-green-600 hover:text-green-800 p-2 hover:bg-green-100 rounded-lg transition-colors"
+              className="flex items-center text-accent-blue hover:text-accent-blue-dark p-2 hover:bg-primary-100 rounded-lg transition-colors"
               data-testid="copy-did-button"
             >
               {copiedDID ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -346,12 +362,12 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
 
       {/* Upload Credentials Warning */}
       {!canUpload && currentDID && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <div className="bg-primary-50 border border-primary-200 rounded-xl p-4">
           <div className="flex items-center">
-            <AlertCircle className="h-5 w-5 text-amber-500 mr-3" />
+            <AlertCircle className="h-5 w-5 text-storacha-red mr-3" />
             <div>
-              <h3 className="text-amber-800 font-medium">Upload Credentials Needed</h3>
-              <p className="text-amber-700 text-sm">
+              <h3 className="text-primary-800 font-semibold">Upload Credentials Needed</h3>
+              <p className="text-primary-700 text-sm">
                 Go to the Delegations tab to add Storacha credentials or import a delegation to enable uploads.
               </p>
             </div>
@@ -365,7 +381,7 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         className={`
-          relative border-2 border-dashed rounded-xl p-12 transition-all duration-200
+          relative border-2 border-dashed rounded-xl p-8 md:p-12 transition-all duration-200
           ${isDragging ? 'border-storacha-red bg-primary-50' : 'border-neutral-300 bg-white'}
           ${isUploading || !canUpload ? 'opacity-50 pointer-events-none' : 'hover:border-neutral-400 hover:shadow-card'}
         `}
@@ -381,7 +397,7 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
           {!selectedFile ? (
             <>
               <div className="text-center">
-                <p className="text-lg font-heading font-medium text-dark mb-1">
+                <p className="text-lg font-heading font-semibold text-dark mb-1">
                   Drop your file here
                 </p>
                 <p className="text-sm text-neutral-500">
@@ -409,12 +425,12 @@ export function UploadZone({ onFileSelect, isUploading, delegationService, onDid
                   <img
                     src={previewUrl}
                     alt="Preview"
-                    className="max-w-full max-h-64 rounded-lg border border-neutral-200 shadow-card object-contain"
+                    className="max-w-full max-h-64 rounded-xl border border-neutral-200 shadow-card object-contain"
                   />
                 </div>
               )}
 
-              <div className="flex items-center gap-3 p-4 bg-neutral-50 rounded-lg">
+              <div className="flex items-center gap-3 p-4 bg-neutral-50 rounded-xl">
                 <FileText className="w-5 h-5 text-neutral-600 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-dark truncate">

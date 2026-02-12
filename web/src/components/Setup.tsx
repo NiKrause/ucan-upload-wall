@@ -155,55 +155,54 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
     <div className="space-y-6">
       {/* NEW: Security Mode Banner */}
       {currentDID && signingMode && (
-        <div className={`border-2 rounded-lg p-4 ${
+        <div className={`border rounded-xl p-4 ${
           signingMode.mode === 'hardware' 
-            ? 'bg-green-50 border-green-200' 
-            : 'bg-yellow-50 border-yellow-200'
+            ? 'bg-accent-purple border-accent-blue' 
+            : 'bg-primary-50 border-primary-200'
         }`}>
           <div className="flex items-start gap-3">
             <div className="flex-shrink-0 mt-0.5">
               {signingMode.mode === 'hardware' ? (
-                <Lock className="w-6 h-6 text-green-600" />
+                <Lock className="w-6 h-6 text-accent-blue" />
               ) : (
-                <AlertCircle className="w-6 h-6 text-yellow-600" />
+                <AlertCircle className="w-6 h-6 text-storacha-red" />
               )}
             </div>
             <div className="flex-1">
               <h3 className={`text-sm font-semibold mb-1 ${
-                signingMode.mode === 'hardware' ? 'text-green-900' : 'text-yellow-900'
+                signingMode.mode === 'hardware' ? 'text-accent-blue-dark' : 'text-primary-800'
               }`}>
                 {signingMode.mode === 'hardware' ? (
-                  <>🔐 Hardware-Backed Security Active ({signingMode.algorithm || 'Ed25519'})</>
+                  <>🔐 Hardware-backed signer active ({signingMode.algorithm || 'Unknown'})</>
                 ) : (
-                  <>⚠️ Worker Mode Active (Less Secure)</>
+                  <>⚠️ Worker-based signer active</>
                 )}
               </h3>
               {signingMode.mode === 'hardware' ? (
-                <div className="text-sm text-green-800 space-y-1">
-                  <p className="font-medium">✅ Maximum Security Enabled:</p>
+                <div className="text-sm text-accent-blue-dark space-y-1">
+                  <p className="font-medium">✅ Hardware protections enabled:</p>
                   <ul className="ml-4 space-y-0.5">
-                    <li>• Private keys stored in secure hardware (TPM/Secure Enclave)</li>
-                    <li>• Biometric authentication required for each signature</li>
-                    <li>• Keys cannot be extracted by malicious extensions</li>
-                    <li>• XSS attacks cannot steal key material</li>
+                    <li>• Signing operations are delegated to your authenticator when supported.</li>
+                    <li>• Passkey/biometric confirmation is typically required for signatures.</li>
+                    <li>• Key extraction is significantly harder than worker-based mode.</li>
+                    <li>• This reduces, but does not eliminate, browser-side attack risk.</li>
                     {signingMode.algorithm === 'P-256' && (
-                      <li className="text-green-700 font-medium">
-                        • Using P-256 with ucanto fork (Ed25519 not available on this hardware)
+                      <li className="text-accent-blue-dark font-medium">
+                        • Using P-256 signer fallback because native WebAuthn Ed25519 is unavailable.
                       </li>
                     )}
                   </ul>
                 </div>
               ) : (
-                <div className="text-sm text-yellow-800 space-y-2">
+                <div className="text-sm text-primary-700 space-y-2">
                   <p className="font-medium">⚠️ Security Limitations:</p>
                   <ul className="ml-4 space-y-0.5 mb-2">
-                    <li>• Keys stored encrypted in browser localStorage</li>
-                    <li>• Keys exist in web worker memory during operations</li>
-                    <li>• Vulnerable to malicious browser extensions</li>
-                    <li>• Hardware mode not supported by your browser</li>
+                    <li>• Key material is managed in browser context (worker + local storage state).</li>
+                    <li>• Browser compromise or malicious extensions increase risk.</li>
+                    <li>• Hardware-backed signing is unavailable in the current environment.</li>
                   </ul>
-                  <div className="bg-yellow-100 border border-yellow-300 rounded p-2 mt-2">
-                    <p className="font-semibold text-yellow-900">
+                  <div className="bg-white border border-primary-300 rounded-lg p-2 mt-2">
+                    <p className="font-semibold text-primary-800">
                       🛡️ Recommended Security Practices:
                     </p>
                     <ul className="ml-4 mt-1 space-y-0.5">
@@ -228,14 +227,14 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
             <Key className="w-5 h-5 text-storacha-red" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold font-heading text-dark">Step 1: Create Ed25519 DID</h3>
+            <h3 className="text-lg font-semibold font-heading text-dark">Step 1: Create DID</h3>
             <p className="text-sm text-neutral-600">Create your decentralized identity</p>
           </div>
         </div>
 
         {!webauthnSupported && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-800">
+          <div className="mb-4 p-3 bg-primary-50 border border-primary-200 rounded-xl">
+            <p className="text-sm text-primary-800">
               <strong>WebAuthn not supported.</strong> Your browser doesn't support WebAuthn (required for biometric security).
             </p>
           </div>
@@ -243,10 +242,12 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
 
         {currentDID ? (
           <div className="space-y-3">
-            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="p-4 bg-accent-purple border border-accent-blue rounded-xl">
               <div className="flex items-center gap-2 mb-2">
-                <Shield className="w-5 h-5 text-green-600" />
-                <span className="font-medium text-green-900">DID Created Successfully</span>
+                <Shield className="w-5 h-5 text-accent-blue" />
+                <span className="font-medium text-accent-blue-dark">
+                  {keyAlgorithm ? `${keyAlgorithm} DID Created` : 'DID Created Successfully'}
+                </span>
               </div>
               
               {/* Show signing mode info */}
@@ -254,13 +255,13 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
                 <div className="flex items-center gap-2 mb-2">
                   {signingMode.mode === 'hardware' ? (
                     <>
-                      <Lock className="w-4 h-4 text-green-600" />
-                      <span className="text-sm text-green-800 font-medium">Hardware Mode</span>
+                      <Lock className="w-4 h-4 text-accent-blue" />
+                      <span className="text-sm text-accent-blue-dark font-medium">Hardware Mode</span>
                     </>
                   ) : (
                     <>
-                      <Cpu className="w-4 h-4 text-yellow-600" />
-                      <span className="text-sm text-yellow-800 font-medium">Worker Mode</span>
+                      <Cpu className="w-4 h-4 text-primary-700" />
+                      <span className="text-sm text-primary-800 font-medium">Worker Mode</span>
                     </>
                   )}
                 </div>
@@ -268,14 +269,14 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
               
               <div className="flex items-center gap-2">
                 <code
-                  className="flex-1 text-xs bg-white px-3 py-2 rounded border border-green-300 font-mono break-all"
+                  className="flex-1 text-xs bg-white px-3 py-2 rounded border border-primary-200 font-mono break-all"
                   data-testid="did-display"
                 >
                   {currentDID}
                 </code>
                 <button
                   onClick={handleCopyDID}
-                  className="flex-shrink-0 p-2 text-green-700 hover:text-green-900 hover:bg-green-100 rounded transition-colors"
+                  className="flex-shrink-0 p-2 text-accent-blue hover:text-accent-blue-dark hover:bg-primary-100 rounded transition-colors"
                   title="Copy DID"
                   data-testid="copy-did-button"
                 >
@@ -288,9 +289,9 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
               </div>
               
               {keyAlgorithm && (
-                <div className="mt-2 text-xs text-green-700">
+                <div className="mt-2 text-xs text-accent-blue-dark">
                   <span className="font-medium">Key Algorithm:</span> {keyAlgorithm}
-                  {isNativeEd25519 && <span className="ml-2 text-green-600">(Native WebAuthn Ed25519 ✨)</span>}
+                  {isNativeEd25519 && <span className="ml-2 text-accent-blue">(Native WebAuthn Ed25519 ✨)</span>}
                 </div>
               )}
             </div>
@@ -339,7 +340,7 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
                   ) : (
                     <Shield className="w-5 h-5" />
                   )}
-                  Create Ed25519 DID
+                  Create Secure DID
                 </>
               )}
             </button>
@@ -454,15 +455,15 @@ export function Setup({ delegationService, onSetupComplete, onDidCreated }: Setu
           {!savedCredentials ? (
             <button
               onClick={handleSaveCredentials}
-              className="btn-accent w-full py-3"
+              className="btn-primary w-full py-3"
             >
               <Shield className="w-5 h-5" />
               Save Credentials
             </button>
           ) : (
-            <div className="p-3 bg-green-50 border border-green-200 rounded-xl flex items-center gap-2">
-              <Check className="w-5 h-5 text-green-600" />
-              <span className="text-sm font-medium text-green-900">Credentials Saved</span>
+            <div className="p-3 bg-accent-purple border border-accent-blue rounded-xl flex items-center gap-2">
+              <Check className="w-5 h-5 text-accent-blue" />
+              <span className="text-sm font-medium text-accent-blue-dark">Credentials Saved</span>
             </div>
           )}
         </div>
