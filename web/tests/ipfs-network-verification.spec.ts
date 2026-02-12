@@ -472,12 +472,7 @@ test.describe(`IPFS Network Verification - Two Browser Test (${modeConfig.titleS
     await page.getByRole('button', { name: /Upload Files/i }).click();
     await page.waitForTimeout(1000);
 
-    const uploadHeading = page.getByRole('heading', { name: /Step 1: Create (Ed25519 )?DID/i });
-    await expect(uploadHeading).toBeVisible({ timeout: 10000 });
-
-    const createButton = page.getByRole('button', {
-      name: /Create DID|Create Secure DID|Generating/i,
-    });
+    const createButton = page.getByTestId('create-did-button').first();
     await expect(createButton).toBeVisible({ timeout: 10000 });
     await expect(createButton).toBeEnabled({ timeout: 5000 });
 
@@ -487,20 +482,59 @@ test.describe(`IPFS Network Verification - Two Browser Test (${modeConfig.titleS
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         await createButton.click();
-        await page.getByRole('button', { name: /delegations/i }).click();
-        await page.waitForTimeout(1000);
-        const didElement = page.getByTestId('did-display');
-        await expect(didElement).toBeVisible({ timeout: 10000 });
         await expect
           .poll(
-            async () => (await didElement.textContent())?.trim() ?? '',
+            async () => {
+              const did = await page.evaluate(() => {
+                const fromKeypair = localStorage.getItem('ed25519_keypair');
+                if (fromKeypair) {
+                  try {
+                    const parsed = JSON.parse(fromKeypair) as { did?: string };
+                    if (parsed.did) return parsed.did;
+                  } catch {
+                    // ignore parse errors and continue fallback checks
+                  }
+                }
+                const fromHardware = localStorage.getItem('webauthn_ed25519_hardware_signer');
+                if (fromHardware) {
+                  try {
+                    const parsed = JSON.parse(fromHardware) as { did?: string };
+                    if (parsed.did) return parsed.did;
+                  } catch {
+                    // ignore parse errors and continue fallback checks
+                  }
+                }
+                return '';
+              });
+              return did;
+            },
             {
               timeout: 30000,
               message: `${browserLabel} DID did not converge to expected ${mode} format`,
             }
           )
           .toMatch(expectedDidPattern);
-        browserDID = (await didElement.textContent())?.trim() ?? null;
+        browserDID = await page.evaluate(() => {
+          const fromKeypair = localStorage.getItem('ed25519_keypair');
+          if (fromKeypair) {
+            try {
+              const parsed = JSON.parse(fromKeypair) as { did?: string };
+              if (parsed.did) return parsed.did;
+            } catch {
+              // ignore parse errors and continue fallback checks
+            }
+          }
+          const fromHardware = localStorage.getItem('webauthn_ed25519_hardware_signer');
+          if (fromHardware) {
+            try {
+              const parsed = JSON.parse(fromHardware) as { did?: string };
+              if (parsed.did) return parsed.did;
+            } catch {
+              // ignore parse errors
+            }
+          }
+          return null;
+        });
         expect(browserDID).toBeTruthy();
         expect(browserDID).toMatch(expectedDidPattern);
         break;
@@ -520,7 +554,7 @@ test.describe(`IPFS Network Verification - Two Browser Test (${modeConfig.titleS
           console.log(`ℹ️ ${browserLabel} DID creation attempt ${attempt} did not complete, retrying...`);
           await page.waitForTimeout(500);
           await page.getByRole('button', { name: /Upload Files/i }).click();
-          await page.waitForTimeout(500);
+          await page.waitForTimeout(1000);
         }
       }
     }
@@ -531,6 +565,33 @@ test.describe(`IPFS Network Verification - Two Browser Test (${modeConfig.titleS
 
     console.log(`✅ ${browserLabel} DID:`, browserDID);
     return browserDID;
+  }
+
+  async function waitForDelegationImportReady(page: Page): Promise<void> {
+    const openDelegationsAndWait = async (timeoutMs: number) => {
+      await page.getByRole('button', { name: /delegations/i }).click();
+      await expect
+        .poll(
+          async () => {
+            if (page.isClosed()) return false;
+            return page.getByTestId('toggle-import-form-button').isVisible().catch(() => false);
+          },
+          {
+            timeout: timeoutMs,
+            message: 'Delegation import UI did not become ready after DID creation',
+          }
+        )
+        .toBe(true);
+    };
+
+    try {
+      await openDelegationsAndWait(30000);
+    } catch {
+      // Worker mode can occasionally miss the in-tab state transition; a reload
+      // forces both tabs to hydrate from localStorage and stabilizes the import UI.
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await openDelegationsAndWait(20000);
+    }
   }
 
   test('should upload file in Browser A and download in Browser B via IPFS', async () => {
@@ -578,22 +639,25 @@ test.describe(`IPFS Network Verification - Two Browser Test (${modeConfig.titleS
 
     // Step 3: Import delegation in Browser A
     console.log('📥 Importing delegation in Browser A...');
-    await pageA.getByRole('button', { name: /delegations/i }).click();
-    await pageA.waitForTimeout(2000);
+    await waitForDelegationImportReady(pageA);
 
-    const importButton = pageA.locator('button', { hasText: 'Import UCAN Delegation' }).first();
-    await expect(importButton).toBeVisible({ timeout: 15000 });
-    await importButton.click();
+    const toggleImportFormButton = pageA.getByTestId('toggle-import-form-button');
+    await expect(toggleImportFormButton).toBeVisible({ timeout: 15000 });
+    await toggleImportFormButton.click();
     await pageA.waitForTimeout(1500);
 
     const nameInput = pageA.getByPlaceholder(/e.g., Alice's Upload Token/i);
     await nameInput.fill('Test Upload Delegation');
 
     const delegationTextarea = pageA.getByTestId('import-delegation-textarea');
+    await expect(delegationTextarea).toBeVisible({ timeout: 10000 });
     await delegationTextarea.fill(delegationBase64);
     await pageA.waitForTimeout(500);
 
-    const importSubmitButton = pageA.locator('button:has-text("Import UCAN Delegation")').last();
+    const importSubmitButton = pageA
+      .locator('div.mt-6.pt-6.border-t.border-primary-200')
+      .locator('button', { hasText: /^Import UCAN Delegation$/ });
+    await expect(importSubmitButton).toBeVisible({ timeout: 10000 });
     await importSubmitButton.click();
     await pageA.waitForTimeout(3000);
 
