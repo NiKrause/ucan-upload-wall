@@ -11,6 +11,11 @@ export default defineConfig({
       protocolImports: true,
     }),
   ],
+  // Needed so `?worker` builds as ESM and supports code splitting. Some plugin combos
+  // can otherwise end up with `worker.format = iife`, which breaks production builds.
+  worker: {
+    format: 'es',
+  },
   optimizeDeps: {
     exclude: ['lucide-react'],
   },

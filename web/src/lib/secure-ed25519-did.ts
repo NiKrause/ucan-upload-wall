@@ -17,7 +17,11 @@ import { base58btc } from 'multiformats/bases/base58';
 import type {
   KeystoreRequestMessage,
   KeystoreResponseMessage
-} from '../workers/ed25519-keystore.worker';
+} from '../workers/ed25519-keystore.worker-types';
+
+// Force Vite to bundle/transpile the worker entry (otherwise it may be copied as a raw .ts asset in prod builds).
+// eslint-disable-next-line import/no-unresolved
+import KeystoreWorker from '../workers/ed25519-keystore.worker.js?worker';
 
 export interface Ed25519KeyPair {
   publicKey: Uint8Array;
@@ -103,11 +107,7 @@ const pendingRequests = new Map<number, { resolve: (value: any) => void; reject:
 function getKeystoreWorker(): Worker {
   if (!keystoreWorker) {
     console.log('[secure-ed25519-did] 🧵 Spawning ed25519-keystore worker');
-    keystoreWorker = new Worker(
-      // Vite/ESM-friendly worker URL
-      new URL('../workers/ed25519-keystore.worker.ts', import.meta.url),
-      { type: 'module' }
-    );
+    keystoreWorker = new KeystoreWorker();
 
     keystoreWorker.onmessage = (event: MessageEvent<KeystoreResponseMessage>) => {
       const response = event.data;
@@ -310,4 +310,3 @@ export async function decryptArchive(ciphertext: Uint8Array, iv: Uint8Array): Pr
   console.log('[secure-ed25519-did] ✅ decryptArchive() complete');
   return archive;
 }
-

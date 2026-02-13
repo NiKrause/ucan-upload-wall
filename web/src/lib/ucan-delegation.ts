@@ -354,6 +354,26 @@ export class UCANDelegationService {
       );
       
       if (initialized) {
+        // Before we commit to hardware mode for remote services, probe whether the configured
+        // upload service can verify varsig signatures. This avoids "works locally, fails in prod"
+        // when the service hasn't been upgraded yet.
+        const hardwareSigner = this.hardwareService.getSigner();
+        if (!hardwareSigner) {
+          console.log('⚠️ Hardware signer missing after init, falling back to worker mode');
+          this.useHardwareMode = false;
+          return false;
+        }
+
+        const ucantoSigner =
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (hardwareSigner.toUcantoSigner() as any) as UcanSigner<UcanDID<'key'>>;
+        const varsigSupported = await this.probeRemoteVarsigSupport(ucantoSigner);
+        if (!varsigSupported) {
+          console.log('⚠️ Remote service does not appear to support varsig yet; using worker mode');
+          this.useHardwareMode = false;
+          return false;
+        }
+
         this.useHardwareMode = true;
         const did = this.hardwareService.getHardwareDID();
         console.log('🎉 Hardware mode ACTIVE!');
@@ -870,14 +890,130 @@ export class UCANDelegationService {
   }
 
   private shouldAttemptHardwareMode(serviceUrl?: string): boolean {
+    // Env overrides always win.
     const forceHardware = import.meta.env.VITE_FORCE_HARDWARE_MODE;
     if (forceHardware === '1' || forceHardware === 'true') {
       return true;
     }
-    if (!serviceUrl) {
+    const forceWorker = import.meta.env.VITE_FORCE_WORKER_MODE;
+    if (forceWorker === '1' || forceWorker === 'true') {
       return false;
     }
-    return serviceUrl.startsWith('http://127.0.0.1') || serviceUrl.startsWith('http://localhost');
+
+    if (!serviceUrl) return false;
+
+    const isLocal =
+      serviceUrl.startsWith('http://127.0.0.1') || serviceUrl.startsWith('http://localhost');
+
+    // Policy:
+    // - dev default: local-only (avoid probing/prompting against real services during dev)
+    // - prod default: auto (allow hardware init, but we'll probe remote service support before enabling)
+    const policyRaw = import.meta.env.VITE_HARDWARE_MODE_POLICY;
+    const policy = policyRaw ?? (import.meta.env.PROD ? 'auto' : 'local-only');
+
+    if (policy === 'off') return false;
+    if (policy === 'local-only') return isLocal;
+
+    // auto: allow local immediately; for remote, allow only if we haven't cached "unsupported".
+    if (isLocal) return true;
+    const cached = this.getCachedRemoteVarsigSupport(serviceUrl);
+    return cached !== false;
+  }
+
+  private getRemoteVarsigSupportCacheKey(serviceUrl: string): string {
+    // Keyed by origin so different deployments don't interfere.
+    try {
+      const origin = new URL(serviceUrl).origin;
+      return `ucan-upload-wall:varsig-support:${origin}`;
+    } catch {
+      return `ucan-upload-wall:varsig-support:${serviceUrl}`;
+    }
+  }
+
+  private getCachedRemoteVarsigSupport(serviceUrl: string): boolean | null {
+    if (typeof localStorage === 'undefined') return null;
+    const raw = localStorage.getItem(this.getRemoteVarsigSupportCacheKey(serviceUrl));
+    if (raw === 'true') return true;
+    if (raw === 'false') return false;
+    return null;
+  }
+
+  private setCachedRemoteVarsigSupport(serviceUrl: string, supported: boolean) {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(this.getRemoteVarsigSupportCacheKey(serviceUrl), supported ? 'true' : 'false');
+  }
+
+  /**
+   * Probe whether the configured upload service can verify varsig signatures.
+   *
+   * We intentionally invoke a capability without proofs; we only care whether the service
+   * gets far enough to verify the signature format. If varsig is unsupported, we typically
+   * see "unsupported signature/codec" style errors. If varsig is supported, we expect an
+   * authorization/capability error instead.
+   */
+  private async probeRemoteVarsigSupport(
+    principal: UcanSigner<UcanDID<'key'>>
+  ): Promise<boolean> {
+    const serviceUrl = getServiceConfig().uploadServiceUrl;
+    if (!serviceUrl) return false;
+
+    // Local services are assumed to support our current varsig implementation.
+    const isLocal =
+      serviceUrl.startsWith('http://127.0.0.1') || serviceUrl.startsWith('http://localhost');
+    if (isLocal) return true;
+
+    // Don't repeatedly prompt for WebAuthn signatures once we've learned support.
+    const cached = this.getCachedRemoteVarsigSupport(serviceUrl);
+    if (cached !== null) return cached;
+
+    try {
+      const client = await this.createClient(principal);
+
+      // Storacha's `upload.list()` uses the client's current space. To force an invocation without
+      // requiring any real credentials, we create an ephemeral "space" delegation and set it.
+      // The server will still reject the request (unauthorized), but only after verifying the
+      // invocation signature format (which is what we are probing).
+      const Ed25519 = await import('@ucanto/principal/ed25519');
+      const { delegate } = await import('@ucanto/core/delegation');
+      const { Verifier } = await import('@ucanto/principal');
+
+      const fakeSpace = await Ed25519.generate();
+      const fakeDelegation = await delegate({
+        issuer: fakeSpace,
+        audience: Verifier.parse(principal.did() as UcanDID),
+        capabilities: [{ with: fakeSpace.did(), can: 'upload/list' }] as never,
+        expiration: Infinity,
+        proofs: [],
+        facts: [],
+      });
+
+      const space = await client.addSpace(fakeDelegation);
+      await client.setCurrentSpace(space.did());
+
+      await client.capability.upload.list();
+
+      // If it ever succeeds, varsig is supported.
+      this.setCachedRemoteVarsigSupport(serviceUrl, true);
+      return true;
+    } catch (error) {
+      const msg = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      const lower = msg.toLowerCase();
+
+      // Heuristic: treat "varsig"/"signature"/"codec"/"decode" failures as unsupported;
+      // treat everything else (typically unauthorized/capability) as supported.
+      const looksLikeSignatureUnsupported =
+        lower.includes('varsig') ||
+        (lower.includes('signature') && (lower.includes('unsupported') || lower.includes('invalid'))) ||
+        (lower.includes('codec') && (lower.includes('unsupported') || lower.includes('unknown'))) ||
+        lower.includes('unexpected end of input') ||
+        lower.includes('decode') ||
+        lower.includes('dag-ucan') && lower.includes('signature');
+
+      const supported = !looksLikeSignatureUnsupported;
+      console.log('🧪 Remote varsig probe result', JSON.stringify({ serviceUrl, supported, msg }));
+      this.setCachedRemoteVarsigSupport(serviceUrl, supported);
+      return supported;
+    }
   }
 
 
