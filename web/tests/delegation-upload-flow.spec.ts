@@ -168,6 +168,14 @@ for (const modeConfig of TEST_MODES) {
   let heliaStartPromise: Promise<HeliaNode> | null = null;
   let heliaWsMultiaddr: string | null = null;
   let heliaPeerId: string | null = null;
+
+  async function openDelegationsTab() {
+    const delegationsTab = page
+      .getByRole('navigation')
+      .getByRole('button', { name: 'Delegations', exact: true });
+    await expect(delegationsTab).toBeVisible({ timeout: 15000 });
+    await delegationsTab.click();
+  }
   const heliaRoots = new Set<string>();
   let spaceAgent: EdSigner; // The agent that owns the space
   let space: EdSigner; // The space identity
@@ -580,7 +588,7 @@ for (const modeConfig of TEST_MODES) {
     };
 
     const getDidDisplay = async () => {
-      await page.getByRole('button', { name: /delegations/i }).click();
+      await openDelegationsTab();
       await page.waitForTimeout(1000);
       const didElement = page.getByTestId('did-display');
       await expect(didElement).toBeVisible({ timeout: 10000 });
@@ -661,7 +669,7 @@ for (const modeConfig of TEST_MODES) {
       if (attempt === 1) {
         await page.getByRole('button', { name: /Upload Files/i }).click();
         await page.waitForTimeout(500);
-        await page.getByRole('button', { name: /delegations/i }).click();
+        await openDelegationsTab();
         await page.waitForTimeout(1000);
       }
     }
@@ -728,8 +736,7 @@ for (const modeConfig of TEST_MODES) {
     
     // Navigate fresh to Delegations tab (now that DID exists)
     console.log('🔄 Navigating to Delegations tab with DID already created...');
-    const delegationsTab = page.getByRole('button', { name: /delegations/i });
-    await delegationsTab.click();
+    await openDelegationsTab();
     await page.waitForTimeout(2000);
     
     // Wait for the DID to be displayed (confirms the page is fully loaded with DID)
@@ -851,7 +858,7 @@ for (const modeConfig of TEST_MODES) {
     // After import, the UI automatically switches to Upload tab
     // We need to navigate back to Delegations tab to verify
     console.log('🔄 Navigating back to Delegations tab to verify import...');
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab();
     await page.waitForTimeout(2000);
     await page.waitForLoadState('networkidle');
     
@@ -934,7 +941,7 @@ for (const modeConfig of TEST_MODES) {
 
       const retryBase64 = 'm' + Buffer.from(retryArchive.ok).toString('base64');
 
-      await page.getByRole('button', { name: /delegations/i }).click();
+      await openDelegationsTab();
       await page.waitForTimeout(1500);
       await page.waitForLoadState('networkidle');
 
@@ -1130,7 +1137,7 @@ for (const modeConfig of TEST_MODES) {
       console.log(`\n🔍 Testing format: ${format.name}`);
       
       // Navigate fresh to Delegations tab
-      await page.getByRole('button', { name: /delegations/i }).click();
+      await openDelegationsTab();
       await page.waitForTimeout(2000);
       
       // Wait for DID to be visible
@@ -1161,7 +1168,7 @@ for (const modeConfig of TEST_MODES) {
       await page.waitForTimeout(3000); // Wait for import to complete (UI auto-switches to Upload tab)
 
       // Navigate back to Delegations tab to verify import
-      await page.getByRole('button', { name: /delegations/i }).click();
+      await openDelegationsTab();
       await page.waitForTimeout(2000);
       await page.waitForLoadState('networkidle');
 
@@ -1191,7 +1198,7 @@ for (const modeConfig of TEST_MODES) {
       // Clean up for next format test without reloading (keeps DID state)
       await page.getByRole('button', { name: /Upload Files/i }).click();
       await page.waitForTimeout(1000);
-      await page.getByRole('button', { name: /delegations/i }).click();
+      await openDelegationsTab();
       await page.waitForTimeout(1000);
       await waitForDidDisplay(browserDID);
     }
@@ -1293,7 +1300,7 @@ for (const modeConfig of TEST_MODES) {
     console.log('📥 STEP 8: Importing delegation using CID in UI...');
     
     // Navigate to Delegations tab
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab();
     await page.waitForTimeout(2000);
     await page.waitForLoadState('networkidle');
     
@@ -1333,7 +1340,7 @@ for (const modeConfig of TEST_MODES) {
     await page.waitForTimeout(3000);
 
     // Verify import succeeded
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab();
     await page.waitForTimeout(2000);
     await page.waitForLoadState('networkidle');
     

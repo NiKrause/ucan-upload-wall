@@ -29,7 +29,10 @@ async function seedHardwareSigner(page: Page, seed: HardwareSignerSeed) {
 }
 
 async function openDelegations(page: Page) {
-  await page.getByRole('button', { name: /delegations/i }).click();
+  await page
+    .getByRole('navigation')
+    .getByRole('button', { name: 'Delegations', exact: true })
+    .click();
   await page.waitForTimeout(500);
 }
 
@@ -148,7 +151,8 @@ test.describe('Hardware mode fallbacks', () => {
     const didDisplay = page.getByTestId('did-display');
     await expect(didDisplay).toBeVisible({ timeout: 10000 });
     await expect(
-      page.getByRole('heading', { name: /Worker Mode Active/i })
+      page.getByRole('heading', { name: /worker-based signer active/i })
     ).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/worker mode/i)).toBeVisible({ timeout: 10000 });
   });
 });

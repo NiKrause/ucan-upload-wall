@@ -1,12 +1,7 @@
-import { test, expect, Page, BrowserContext, chromium, CDPSession } from '@playwright/test';
+import { test, expect, Page, BrowserContext, CDPSession } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpers/webauthn';
-
-// Launch a shared browser instance
-const browser = await chromium.launch({
-  headless: process.env.HEADLESS === 'true',
-});
 
 /**
  * User data for testing
@@ -34,12 +29,7 @@ test.describe('Alice & Bob: Delegation and File Sharing', () => {
   let contextBob: BrowserContext;
   let cdpSessionAlice: { client: CDPSession; authenticatorId: string };
   let cdpSessionBob: { client: CDPSession; authenticatorId: string };
-  let setupComplete = false;
-
-  test.beforeEach(async () => {
-    // Only setup once for all tests in serial mode
-    if (setupComplete) return;
-    
+  test.beforeAll(async ({ browser }) => {
     test.setTimeout(120000); // 2 minutes for setup
 
     // Initialize Alice's browser
@@ -67,8 +57,6 @@ test.describe('Alice & Bob: Delegation and File Sharing', () => {
     cdpSessionBob = await enableVirtualAuthenticator(contextBob);
     
     await initializePage(pageBob, users[1]);
-    
-    setupComplete = true;
   });
 
   test('1. Alice & Bob: Authenticate with Biometric and receive DIDs', async () => {
@@ -239,8 +227,6 @@ test.describe('Alice & Bob: Delegation and File Sharing', () => {
 
   // Cleanup after ALL tests complete (not after each test)
   test.afterAll(async () => {
-    if (!setupComplete) return; // Nothing to clean up
-    
     console.log('🧹 Cleaning up...');
     
     try {
@@ -377,14 +363,29 @@ async function ensureAliceDelegationForBob(
 
   let createdSubtab = pageAlice.getByTestId('delegations-subtab-created');
   if (!(await createdSubtab.isVisible({ timeout: 5000 }).catch(() => false))) {
-    // If delegations opens on setup branch, create/restore DID in-place, then retry.
-    const setupDidButton = pageAlice.getByTestId('create-did-button').first();
-    if (await setupDidButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await setupDidButton.click();
-      await pageAlice.waitForTimeout(4000);
-      await pageAlice.getByRole('button', { name: /delegations/i }).click();
-      createdSubtab = pageAlice.getByTestId('delegations-subtab-created');
+    // If Delegations opens on setup, ensure DID is available before retrying.
+    const didVisible = await pageAlice
+      .getByTestId('did-display')
+      .or(pageAlice.getByText(/ed25519 did active/i))
+      .first()
+      .isVisible({ timeout: 2000 })
+      .catch(() => false);
+
+    if (!didVisible) {
+      const setupDidButton = pageAlice.getByTestId('create-did-button').first();
+      if (await setupDidButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await expect(setupDidButton).toBeEnabled({ timeout: 15000 });
+        await setupDidButton.click();
+        await pageAlice
+          .getByTestId('did-display')
+          .or(pageAlice.getByText(/ed25519 did active/i))
+          .first()
+          .waitFor({ state: 'visible', timeout: 20000 });
+      }
     }
+
+    await pageAlice.getByRole('button', { name: /delegations/i }).click();
+    createdSubtab = pageAlice.getByTestId('delegations-subtab-created');
   }
   if (await createdSubtab.isVisible({ timeout: 10000 }).catch(() => false)) {
     await createdSubtab.click();
@@ -407,13 +408,49 @@ async function ensureAliceDelegationForBob(
 
   const submitButton = pageAlice.getByRole('button', { name: /^create delegation$/i }).first();
   await expect(submitButton).toBeEnabled({ timeout: 5000 });
+  const createdBefore = await pageAlice.evaluate(() => {
+    try {
+      const raw = localStorage.getItem('created_delegations');
+      const arr = raw ? (JSON.parse(raw) as unknown[]) : [];
+      return arr.length;
+    } catch {
+      return 0;
+    }
+  });
+
+  const dialogMessages: string[] = [];
+  const onDialog = async (dialog: { message: () => string; dismiss: () => Promise<void> }) => {
+    dialogMessages.push(dialog.message());
+    await dialog.dismiss().catch(() => {});
+  };
+  pageAlice.on('dialog', onDialog);
+
   await submitButton.click();
 
-  const successSignal = pageAlice
-    .getByRole('heading', { name: /delegations created \([1-9]/i })
-    .or(pageAlice.getByRole('heading', { name: /delegation created successfully/i }))
-    .first();
-  await expect(successSignal).toBeVisible({ timeout: 20000 });
+  try {
+    await pageAlice.waitForFunction(
+      (beforeCount) => {
+        try {
+          const raw = localStorage.getItem('created_delegations');
+          const arr = raw ? (JSON.parse(raw) as unknown[]) : [];
+          if (arr.length > beforeCount) return true;
+        } catch {
+          // continue to text fallback
+        }
+        const text = document.body?.innerText || '';
+        return /Delegation Created Successfully|Delegations Created \([1-9]/i.test(text);
+      },
+      createdBefore,
+      { timeout: 45000 }
+    );
+  } catch (error) {
+    if (dialogMessages.length > 0) {
+      throw new Error(`Failed to create delegation: ${dialogMessages.at(-1)}`);
+    }
+    throw error;
+  } finally {
+    pageAlice.off('dialog', onDialog);
+  }
 
   const proof = await getDelegationProof(pageAlice);
 
@@ -472,10 +509,10 @@ async function ensureBobHasImportedDelegation(
  * Helper: Authenticate user with WebAuthn biometric
  */
 async function authenticateUser(page: Page, user: typeof users[0]) {
-  // DID setup lives under Delegations in the current UI.
-  const delegationsTab = page.getByRole('button', { name: /delegations/i });
-  await expect(delegationsTab).toBeVisible({ timeout: 30000 });
-  await delegationsTab.click();
+  // DID setup is available from Upload tab in the current UI.
+  const uploadTab = page.getByRole('button', { name: /upload files/i });
+  await expect(uploadTab).toBeVisible({ timeout: 30000 });
+  await uploadTab.click();
 
   const authButton = page
     .getByTestId('create-did-button')
@@ -485,32 +522,46 @@ async function authenticateUser(page: Page, user: typeof users[0]) {
   await authButton.waitFor({ state: 'visible', timeout: 10000 });
   await expect(authButton).toBeEnabled({ timeout: 5000 });
   await authButton.click();
-  
-  // WebAuthn will trigger - in headed mode, user needs to authenticate
-  // In headless mode, this might fail unless virtual authenticator is configured
-  // Wait for DID to be created (look for success message or DID display)
-  await page.waitForTimeout(5000);
-  
-  // Try to extract the DID from the page
-  // Prefer stable data-testid first, then fall back to textual extraction.
-  try {
-    const didElement = page.getByTestId('did-display').or(page.locator('code:has-text("did:key:")')).first();
-    if (await didElement.isVisible({ timeout: 5000 })) {
-      const didText = await didElement.textContent();
-      if (didText) {
-        user.did = didText.trim();
+
+  // Wait for DID to be persisted and then read canonical value from storage.
+  await page.waitForFunction(() => {
+    try {
+      const ed = localStorage.getItem('ed25519_keypair');
+      if (ed) {
+        const parsed = JSON.parse(ed) as { did?: string };
+        if (parsed?.did && parsed.did.startsWith('did:key:')) return true;
       }
+      const hw = localStorage.getItem('webauthn_ed25519_hardware_signer');
+      if (hw) {
+        const parsed = JSON.parse(hw) as { did?: string };
+        if (parsed?.did && parsed.did.startsWith('did:key:')) return true;
+      }
+    } catch {
+      // keep polling
     }
-  } catch {
-    console.warn(`⚠️ Could not extract DID for ${user.name} from UI, trying alternative method...`);
-    
-    // Alternative: look for any element with did:key: text
-    const pageContent = await page.content();
-    const didMatch = pageContent.match(/did:key:[A-Za-z0-9]+/);
-    if (didMatch) {
-      user.did = didMatch[0];
+    return false;
+  }, { timeout: 20000 });
+
+  user.did = await page.evaluate(() => {
+    try {
+      const ed = localStorage.getItem('ed25519_keypair');
+      if (ed) {
+        const parsed = JSON.parse(ed) as { did?: string };
+        if (parsed?.did?.startsWith('did:key:')) return parsed.did;
+      }
+      const hw = localStorage.getItem('webauthn_ed25519_hardware_signer');
+      if (hw) {
+        const parsed = JSON.parse(hw) as { did?: string };
+        if (parsed?.did?.startsWith('did:key:')) return parsed.did;
+      }
+    } catch {
+      // fall through to DOM parsing
     }
-  }
+
+    const text = document.body?.innerText || '';
+    const match = text.match(/did:key:[A-Za-z0-9]+/);
+    return match?.[0] || '';
+  });
   
   if (!user.did) {
     throw new Error(`Failed to get DID for ${user.name}`);
@@ -531,6 +582,22 @@ async function getDelegationProof(page: Page): Promise<string> {
       if (proofValue && proofValue.length > 100) {
         return proofValue;
       }
+    }
+
+    // Fallback: read last created delegation proof from persisted state.
+    const storedProof = await page.evaluate(() => {
+      try {
+        const raw = localStorage.getItem('created_delegations');
+        if (!raw) return '';
+        const parsed = JSON.parse(raw) as Array<{ proof?: string }>;
+        const latest = parsed.at(-1);
+        return (latest?.proof || '').trim();
+      } catch {
+        return '';
+      }
+    });
+    if (storedProof.length > 100) {
+      return storedProof;
     }
 
     // Fallback for older UI variants that render proof in code/text elements.

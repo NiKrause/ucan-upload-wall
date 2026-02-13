@@ -51,11 +51,20 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
   const TEST_IMAGE_PATH = 'tests/assets/klassik-logo.png';
   const TEST_IMAGE_NAME = 'klassik-logo.png';
   const mode = modeConfig.mode;
+  const delegationsTabInNav = (page: Page) =>
+    page.getByRole('navigation').getByRole('button', { name: 'Delegations', exact: true });
+
+  async function openDelegationsTab(page: Page) {
+    const tab = delegationsTabInNav(page);
+    await expect(tab).toBeVisible({ timeout: 15000 });
+    await tab.click();
+  }
+
   async function waitForAppShell(page: Page) {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await expect(page).toHaveTitle(/UCAN Upload Wall/i);
     await expect(page.getByRole('button', { name: /upload files/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /delegations/i })).toBeVisible();
+    await expect(delegationsTabInNav(page)).toBeVisible();
   }
 
   let context: BrowserContext;
@@ -181,7 +190,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
   async function createDIDInUI(): Promise<string> {
     console.log('📝 Creating DID in React UI...');
 
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(1000);
 
     const createButton = page.getByTestId('create-did-button');
@@ -309,7 +318,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
   async function importDelegationViaUI(delegationBase64: string, name: string): Promise<void> {
     console.log('📥 Importing delegation into React UI...');
 
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     const didDisplay = page.getByTestId('did-display');
@@ -423,7 +432,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     }
 
     // Navigate to Delegations tab
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(3000);
     await page.waitForLoadState('networkidle');
 
@@ -495,7 +504,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
       await page.waitForTimeout(3000);
     }
 
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(3000);
 
     // Step 4: Check for Created Delegations section
@@ -548,7 +557,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     await importDelegationViaUI(delegationBase64, 'Test Cache Delegation');
 
     // Step 3: Verify delegation is active
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     const activeBadge = page.getByText('Active', { exact: true });
@@ -698,7 +707,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     await importDelegationViaUI(expiredDelegationBase64, 'Test Expired Delegation');
 
     // Step 4: Navigate to Delegations tab and verify Expired badge
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     // If DID setup is showing, we need to re-authenticate
@@ -802,7 +811,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     console.log('✅ Delegation persisted after reload:', delegationsAfter.length, 'delegation(s)');
 
     // Step 6: Navigate to Delegations tab and check UI
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(3000);
     await page.waitForLoadState('networkidle');
 
@@ -836,7 +845,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     await importDelegationViaUI(validDelegation, 'Valid Delegation 1');
 
     // Step 3: Navigate to Delegations and verify count
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     let receivedHeading = page.getByRole('heading', { name: /Delegations Received \(1\)/i });
@@ -854,7 +863,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     await importDelegationViaUI(validDelegation2, 'Valid Delegation 2');
 
     // Step 5: Verify count increased
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     receivedHeading = page.getByRole('heading', { name: /Delegations Received \(2\)/i });
@@ -885,7 +894,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     await importDelegationViaUI(delegationBase64, 'Test Details Delegation');
 
     // Step 3: Navigate to Delegations tab
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     // Step 4: Verify delegation details are displayed
@@ -961,7 +970,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
       await page.waitForTimeout(3000);
     }
 
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(3000);
 
     // Step 5: Click delete button for received delegations
@@ -1020,7 +1029,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     await importDelegationViaUI(delegationBase64, 'Test Copy Delegation');
 
     // Step 3: Navigate to Delegations tab
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     // Step 4: Find and click copy button
@@ -1057,7 +1066,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     await createDIDInUI();
 
     // Step 2: Navigate to Delegations tab to create a delegation
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     // Step 3: Create a delegation to another DID (simulating issuer role)
@@ -1111,7 +1120,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
       await page.waitForTimeout(3000);
     }
 
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     // Check for Revoked badge
@@ -1174,7 +1183,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     }
 
     // Step 4: Navigate to Delegations tab
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(3000);
 
     // Step 5: Check for created delegation section
@@ -1253,7 +1262,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     await importDelegationViaUI(delegationBase64, 'Delegation to Manage');
 
     // Step 3: Navigate to Delegations tab
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     // Step 4: Verify received delegation exists
@@ -1330,7 +1339,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     }, testDelegation);
 
     // Step 3: Navigate to Delegations tab
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     // Step 4: Check initial state - should be Active
@@ -1383,7 +1392,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     }
 
     // Navigate back to Delegations
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     // Step 7: Verify badge changed to Revoked
@@ -1544,7 +1553,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     console.log('🔌 Simulating network failure');
 
     // Step 4: Navigate to Delegations tab
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     // Step 5: Attempt to check revocation status (should fail gracefully)
@@ -1611,12 +1620,12 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     console.log('📦 Set up invalid delegation data');
 
     // Step 3: Navigate to Delegations tab - should not crash
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     // Step 4: Verify the app handles invalid data gracefully
     // The page should still load without crashing
-    const delegationsTab = page.getByRole('button', { name: /delegations/i });
+    const delegationsTab = delegationsTabInNav(page);
     await expect(delegationsTab).toBeVisible({ timeout: 5000 });
     console.log('✅ App remains stable with invalid data');
 
@@ -1652,7 +1661,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     await importDelegationViaUI(delegationBase64, 'Cache TTL Test Delegation');
 
     // Step 3: Navigate to Delegations tab
-    await page.getByRole('button', { name: /delegations/i }).click();
+    await openDelegationsTab(page);
     await page.waitForTimeout(2000);
 
     // Step 4: Set up cache with a fresh entry
