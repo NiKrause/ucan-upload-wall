@@ -71,6 +71,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
   const [dummyProofEd25519, setDummyProofEd25519] = useState('');
   const [dummyProofP256, setDummyProofP256] = useState('');
   const [isGeneratingDummyProof, setIsGeneratingDummyProof] = useState<null | 'ed25519' | 'p256'>(null);
+  const showDummyVarsigTester = import.meta.env.VITE_ENABLE_DUMMY_VARSIG_TESTER === '1' || import.meta.env.DEV;
 
   // Available capabilities with descriptions
   const availableCapabilities = [
@@ -118,6 +119,13 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       setSavedCredentials(true);
     }
   }, [delegationService, loadData]);
+
+  useEffect(() => {
+    // If explicitly enabled, make the tester discoverable by default.
+    if (!showDummyVarsigTester) return;
+    if (hasUserSelectedSubView.current) return;
+    setActiveSubView('identity');
+  }, [showDummyVarsigTester]);
 
   useEffect(() => {
     let cancelled = false;
@@ -834,17 +842,18 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
         ))}
       </div>
 
+      {showDummyVarsigTester && (
       <div className="card p-6 mt-4 border-2 border-primary-200 bg-primary-50/40">
         <div className="flex items-center mb-3">
           <Cpu className="h-5 w-5 text-storacha-red mr-2" />
-          <h3 className="text-lg font-semibold font-heading text-dark">Dummy Varsig Tester (Dev Only)</h3>
+          <h3 className="text-lg font-semibold font-heading text-dark">Dummy Varsig Tester</h3>
         </div>
         <p className="text-sm text-neutral-700 mb-4">
           This helper creates two minimal delegations with only <code>upload/list</code> capability
           using hardcoded dummy credentials: one for Ed25519 target DID, one for P-256 target DID.
         </p>
         <div className="bg-primary-100 border border-primary-300 rounded-lg p-3 text-xs text-primary-900 mb-4">
-          Never use production credentials here. These values are intentionally static and should only be used for local demo testing.
+          Enabled via <code>VITE_ENABLE_DUMMY_VARSIG_TESTER=1</code> (or in dev). Never use production credentials here.
         </div>
         <div className="flex flex-wrap gap-2 mb-4">
           <button
@@ -894,6 +903,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
           </div>
         </div>
       </div>
+      )}
 
       {/* Info message for native Ed25519 users */}
       {isNativeEd25519 && (savedCredentials || receivedDelegations.length > 0) && (
