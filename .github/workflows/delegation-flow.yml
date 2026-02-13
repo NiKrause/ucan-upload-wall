@@ -233,6 +233,10 @@ jobs:
 
   delegation-flow-alice-bob:
     runs-on: ubuntu-latest
+    env:
+      ALICE_STORACHA_KEY: ${{ secrets.ALICE_STORACHA_KEY }}
+      ALICE_STORACHA_PROOF: ${{ secrets.ALICE_STORACHA_PROOF }}
+      ALICE_STORACHA_SPACE_DID: ${{ secrets.ALICE_STORACHA_SPACE_DID }}
     defaults:
       run:
         working-directory: ./web
