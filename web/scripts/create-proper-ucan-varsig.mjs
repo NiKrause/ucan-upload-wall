@@ -63,18 +63,21 @@ async function createDelegationProof(client, targetDid, capabilities, expiration
 }
 
 function patchDelegationManager(content, constants) {
-  const keyLine = `    key: '${constants.credentials.key}',`;
-  const proofLine = `    proof: '${constants.credentials.proof}',`;
-  const spaceLine = `    spaceDid: '${constants.credentials.spaceDid}',`;
-  const targetEdLine = `    ed25519: '${constants.targetDids.ed25519}',`;
-  const targetP256Line = `    p256: '${constants.targetDids.p256}',`;
+  const start = content.indexOf('const DUMMY_VARSIG_TESTER');
+  const end = content.indexOf('} as const;', start);
+  if (start === -1 || end === -1) {
+    throw new Error('Could not find DUMMY_VARSIG_TESTER block to patch');
+  }
 
-  return content
-    .replace(/    key: 'REPLACE_WITH_DUMMY_STORACHA_KEY',/, keyLine)
-    .replace(/    proof: 'REPLACE_WITH_DUMMY_STORACHA_PROOF',/, proofLine)
-    .replace(/    spaceDid: 'REPLACE_WITH_DUMMY_SPACE_DID',/, spaceLine)
-    .replace(/    ed25519: 'did:key:[^']+',/, targetEdLine)
-    .replace(/    p256: 'did:key:[^']+',/, targetP256Line);
+  const block = content.slice(start, end);
+  const patched = block
+    .replace(/(\\n\\s*key:\\s*)'[^']*'/, `$1'${constants.credentials.key}'`)
+    .replace(/(\\n\\s*proof:\\s*)'[^']*'/, `$1'${constants.credentials.proof}'`)
+    .replace(/(\\n\\s*spaceDid:\\s*)'[^']*'/, `$1'${constants.credentials.spaceDid}'`)
+    .replace(/(\\n\\s*ed25519:\\s*)'did:key:[^']*'/, `$1'${constants.targetDids.ed25519}'`)
+    .replace(/(\\n\\s*p256:\\s*)'did:key:[^']*'/, `$1'${constants.targetDids.p256}'`);
+
+  return content.slice(0, start) + patched + content.slice(end);
 }
 
 async function main() {
