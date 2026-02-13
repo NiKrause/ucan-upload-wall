@@ -91,6 +91,8 @@ test.beforeAll(async () => {
 });
 
 const HARDWARE_SIGNER_KEY = 'webauthn_ed25519_hardware_signer';
+const TEST_IMAGE_PATH = 'tests/assets/klassik-logo.png';
+const TEST_IMAGE_NAME = 'klassik-logo.png';
 
 type TestMode = 'hardware-ed25519' | 'hardware-p256' | 'worker';
 
@@ -880,26 +882,9 @@ for (const modeConfig of TEST_MODES) {
     await page.waitForTimeout(2000);
     await page.waitForLoadState('networkidle');
 
-    // Create a test file
-    const testFileContent = 'Hello from E2E test! ' + new Date().toISOString();
-
     // Upload file using file input
     const fileInput = page.locator('input[type="file"]');
-    
-    // Create a data transfer with our test file
-    const dataTransfer = await page.evaluateHandle((content) => {
-      const dt = new DataTransfer();
-      const file = new File([content], 'test-file.txt', { type: 'text/plain' });
-      dt.items.add(file);
-      return dt;
-    }, testFileContent);
-    
-    await fileInput.evaluateHandle((input: unknown, dt: unknown) => {
-      const element = input as HTMLInputElement;
-      const dataTransfer = dt as DataTransfer;
-      element.files = dataTransfer.files;
-      element.dispatchEvent(new Event('change', { bubbles: true }));
-    }, dataTransfer);
+    await fileInput.setInputFiles(TEST_IMAGE_PATH);
 
     await page.waitForTimeout(1000);
 
@@ -912,7 +897,7 @@ for (const modeConfig of TEST_MODES) {
       await signConfirmButton.click();
     }
 
-    const uploadSuccessAlert = page.getByText(/Successfully uploaded test-file\.txt/i);
+    const uploadSuccessAlert = page.getByText(new RegExp(`Successfully uploaded ${TEST_IMAGE_NAME}`, 'i'));
     const uploadErrorAlert = page.getByText(/Upload failed|Delegated upload failed/i);
     const uploadOutcome = await Promise.race([
       uploadSuccessAlert.waitFor({ state: 'visible', timeout: 60000 }).then(() => 'success'),
@@ -976,19 +961,7 @@ for (const modeConfig of TEST_MODES) {
       await page.waitForTimeout(2000);
       await page.waitForLoadState('networkidle');
 
-      const retryDataTransfer = await page.evaluateHandle((content) => {
-        const dt = new DataTransfer();
-        const file = new File([content], 'test-file.txt', { type: 'text/plain' });
-        dt.items.add(file);
-        return dt;
-      }, testFileContent);
-
-      await fileInput.evaluateHandle((input: unknown, dt: unknown) => {
-        const element = input as HTMLInputElement;
-        const dataTransfer = dt as DataTransfer;
-        element.files = dataTransfer.files;
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-      }, retryDataTransfer);
+      await fileInput.setInputFiles(TEST_IMAGE_PATH);
 
       await page.waitForTimeout(1000);
       await expect(uploadButton).toBeVisible({ timeout: 5000 });
@@ -1000,7 +973,7 @@ for (const modeConfig of TEST_MODES) {
     await expect(uploadedHeading).toBeVisible({ timeout: 60000 });
     const uploadedFilename = uploadedHeading
       .locator('..')
-      .locator('h3', { hasText: 'test-file.txt' });
+      .locator('h3', { hasText: TEST_IMAGE_NAME });
     await expect(uploadedFilename).toBeVisible({ timeout: 60000 });
     console.log('✅ Upload completed and appeared in list');
     await captureStepScreenshot('step-05-upload-complete');

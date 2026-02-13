@@ -73,8 +73,8 @@ test.describe('Basic UI - Happy Path', () => {
     // Navigate to Delegations tab (where Setup component is)
     await page.getByRole('button', { name: /delegations/i }).click();
 
-    // Delegations Setup uses a unique button label ("Create Ed25519 DID").
-    await expect(page.getByRole('button', { name: /create ed25519 did/i })).toBeVisible({ timeout: 10000 });
+    // Use stable test id instead of UI copy that may change.
+    await expect(page.getByTestId('create-did-button')).toBeVisible({ timeout: 10000 });
 
     console.log('✅ Setup screen displayed');
   });
@@ -119,7 +119,7 @@ test.describe('Basic UI - Happy Path', () => {
 
     // Navigate to Delegations
     await delegationsTab.click();
-    await expect(page.getByRole('button', { name: /create ed25519 did/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('create-did-button')).toBeVisible({ timeout: 10000 });
 
     // Navigate back to Upload
     await uploadTab.click();

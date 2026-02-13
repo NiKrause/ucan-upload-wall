@@ -48,6 +48,8 @@ const modeConfig: { mode: TestMode; titleSuffix: string } = forceWorkerMode
     : { mode: 'hardware-ed25519', titleSuffix: 'Hardware Ed25519' };
 
 test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
+  const TEST_IMAGE_PATH = 'tests/assets/klassik-logo.png';
+  const TEST_IMAGE_NAME = 'klassik-logo.png';
   const mode = modeConfig.mode;
   async function waitForAppShell(page: Page) {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
@@ -623,21 +625,7 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     console.log(`📦 Upload button visible: ${hasUploadButton}`);
 
     if (hasFileInput) {
-      // Create a test file
-      const testFileContent = 'Hello from validation test! ' + new Date().toISOString();
-
-      const dataTransfer = await page.evaluateHandle((content) => {
-        const dt = new DataTransfer();
-        const file = new File([content], 'validation-test.txt', { type: 'text/plain' });
-        dt.items.add(file);
-        return dt;
-      }, testFileContent);
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await fileInput.evaluateHandle((input: any, dt: any) => {
-        input.files = dt.files;
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-      }, dataTransfer);
+      await fileInput.setInputFiles(TEST_IMAGE_PATH);
 
       await page.waitForTimeout(1000);
       console.log('✅ Test file selected');
@@ -1453,24 +1441,12 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     const fileInput = page.locator('input[type="file"]');
     const uploadButton = page.getByRole('button', { name: /Upload to Storacha/i });
 
-    const firstContent = `revocation-test-before-${Date.now()}`;
-    const firstTransfer = await page.evaluateHandle((content) => {
-      const dt = new DataTransfer();
-      const file = new File([content], 'revocation-before.txt', { type: 'text/plain' });
-      dt.items.add(file);
-      return dt;
-    }, firstContent);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await fileInput.evaluateHandle((input: any, dt: any) => {
-      input.files = dt.files;
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    }, firstTransfer);
+    await fileInput.setInputFiles(TEST_IMAGE_PATH);
 
     await uploadButton.click();
     await confirmUploadSigningIfPrompted();
 
-    const firstSuccess = page.getByText(/Successfully uploaded revocation-before\.txt/i);
+    const firstSuccess = page.getByText(new RegExp(`Successfully uploaded ${TEST_IMAGE_NAME}`, 'i'));
     const firstError = page.getByText(/Upload failed|Delegated upload failed|No valid upload delegation found|revoked/i);
     const firstOutcome = await Promise.race([
       firstSuccess.waitFor({ state: 'visible', timeout: 60000 }).then(() => 'success'),
@@ -1504,23 +1480,11 @@ test.describe(`UCAN Revocation Flow - E2E (${modeConfig.titleSuffix})`, () => {
     console.log('✅ Delegation revoked via service');
 
     // Step 5: Attempt upload again (should be blocked)
-    const secondContent = `revocation-test-after-${Date.now()}`;
-    const secondTransfer = await page.evaluateHandle((content) => {
-      const dt = new DataTransfer();
-      const file = new File([content], 'revocation-after.txt', { type: 'text/plain' });
-      dt.items.add(file);
-      return dt;
-    }, secondContent);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await fileInput.evaluateHandle((input: any, dt: any) => {
-      input.files = dt.files;
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-    }, secondTransfer);
+    await fileInput.setInputFiles(TEST_IMAGE_PATH);
 
     await uploadButton.click();
     await confirmUploadSigningIfPrompted();
-    const secondSuccess = page.getByText(/Successfully uploaded revocation-after\.txt/i);
+    const secondSuccess = page.getByText(new RegExp(`Successfully uploaded ${TEST_IMAGE_NAME}`, 'i'));
     const secondError = page.getByText(/No valid upload delegation found|revoked|Upload failed|Delegated upload failed/i);
     const secondOutcome = await Promise.race([
       secondSuccess.waitFor({ state: 'visible', timeout: 60000 }).then(() => 'success'),

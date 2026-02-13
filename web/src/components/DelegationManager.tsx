@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Share, Copy, Check, Plus, Download, Upload, Shield, Trash2, ArrowRight, User, Clock, Key, XCircle, Ban, Lock, Cpu, MessageCircle, ChevronDown } from 'lucide-react';
 import { UCANDelegationService, DelegationInfo } from '../lib/ucan-delegation';
 import { createCarFile } from '../lib/car-utils';
@@ -10,6 +10,8 @@ interface DelegationManagerProps {
   onDelegationImported?: () => void;
   onDelegationUploaded?: (cid: string) => void;
 }
+
+type DelegationsSubView = 'received' | 'created' | 'identity';
 
 export function DelegationManager({ delegationService, onDidCreated, onDelegationImported, onDelegationUploaded }: DelegationManagerProps) {
   const [currentDID, setCurrentDID] = useState<string | null>(null);
@@ -43,6 +45,8 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
   const [isCredentialsExpanded, setIsCredentialsExpanded] = useState(true);
   const [isCreateExpanded, setIsCreateExpanded] = useState(true);
   const [revokingDelegation, setRevokingDelegation] = useState<string | null>(null);
+  const [activeSubView, setActiveSubView] = useState<DelegationsSubView>('received');
+  const hasUserSelectedSubView = useRef(false);
   const [signingMode, setSigningMode] = useState<{
     mode: 'hardware' | 'worker';
     did: string | null;
@@ -378,6 +382,29 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
     }
   };
 
+  const handleSubViewChange = (subView: DelegationsSubView) => {
+    hasUserSelectedSubView.current = true;
+    setActiveSubView(subView);
+  };
+
+  useEffect(() => {
+    if (!currentDID || hasUserSelectedSubView.current) {
+      return;
+    }
+
+    if (receivedDelegations.length > 0) {
+      setActiveSubView('received');
+      return;
+    }
+
+    if (createdDelegations.length > 0) {
+      setActiveSubView('created');
+      return;
+    }
+
+    setActiveSubView('received');
+  }, [currentDID, createdDelegations.length, receivedDelegations.length]);
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-6 md:p-6 space-y-8">
       {/* Show Setup component when no DID exists */}
@@ -414,7 +441,52 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
             </div>
           </div>
 
-          {/* Current DID - Most Important! */}
+          <div className="card p-2 border border-primary-200">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => handleSubViewChange('received')}
+                className={`rounded-xl px-4 py-3 text-left transition-colors ${
+                  activeSubView === 'received'
+                    ? 'bg-accent-purple border border-accent-blue text-accent-blue-dark'
+                    : 'bg-white border border-neutral-200 text-neutral-700 hover:border-primary-300'
+                }`}
+                data-testid="delegations-subtab-received"
+              >
+                <div className="text-sm font-semibold">Received</div>
+                <div className="text-xs">Import + incoming delegations ({receivedDelegations.length})</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSubViewChange('created')}
+                className={`rounded-xl px-4 py-3 text-left transition-colors ${
+                  activeSubView === 'created'
+                    ? 'bg-accent-purple border border-accent-blue text-accent-blue-dark'
+                    : 'bg-white border border-neutral-200 text-neutral-700 hover:border-primary-300'
+                }`}
+                data-testid="delegations-subtab-created"
+              >
+                <div className="text-sm font-semibold">Created</div>
+                <div className="text-xs">Create + outgoing delegations ({createdDelegations.length})</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSubViewChange('identity')}
+                className={`rounded-xl px-4 py-3 text-left transition-colors ${
+                  activeSubView === 'identity'
+                    ? 'bg-accent-purple border border-accent-blue text-accent-blue-dark'
+                    : 'bg-white border border-neutral-200 text-neutral-700 hover:border-primary-300'
+                }`}
+                data-testid="delegations-subtab-identity"
+              >
+                <div className="text-sm font-semibold">Identity</div>
+                <div className="text-xs">DID + credentials setup</div>
+              </button>
+            </div>
+          </div>
+
           {currentDID && (
         <div className="bg-accent-purple border border-primary-200 rounded-xl p-6 shadow-card">
           <div className="flex items-center justify-between">
@@ -460,6 +532,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
       )}
 
       {/* Primary Action: Import UCAN Delegation */}
+      {activeSubView === 'received' && (
       <div className="card border border-primary-200 p-6">
         <div className="flex items-center mb-4">
           <Download className="h-6 w-6 text-accent-blue mr-3" />
@@ -572,8 +645,11 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
           </div>
         )}
       </div>
+      )}
 
       {/* Secondary Option: Storacha Credentials */}
+      {activeSubView === 'identity' && (
+      <>
       <div className="card p-6">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center">
@@ -713,8 +789,12 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
           </div>
         </div>
       )}
+      </>
+      )}
 
       {/* Create Delegation (show if user has credentials OR received delegations for chaining) */}
+      {activeSubView === 'created' && (
+      <>
       {(savedCredentials || receivedDelegations.length > 0) && !isNativeEd25519 && (
         <div className="card p-6">
           <div className="flex items-start justify-between mb-4">
@@ -1136,8 +1216,11 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* Received Delegations */}
+      {activeSubView === 'received' && (
       <div className="card p-6">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center">
@@ -1385,6 +1468,7 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
           </div>
         )}
       </div>
+      )}
 
       {/* Delegation Proof Modal */}
       {showDelegationProof && (

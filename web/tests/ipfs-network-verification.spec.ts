@@ -14,7 +14,8 @@
  */
 
 import type { Server } from 'node:http';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { test, expect, BrowserContext, Page } from '@playwright/test';
 import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpers/webauthn';
@@ -103,6 +104,8 @@ test.beforeAll(async () => {
 });
 
 test.describe(`IPFS Network Verification - Two Browser Test (${modeConfig.titleSuffix})`, () => {
+  const TEST_IMAGE_PATH = 'tests/assets/klassik-logo.png';
+  const TEST_IMAGE_NAME = 'klassik-logo.png';
   const mode = modeConfig.mode;
   const expectedDidPattern =
     mode === 'hardware-p256' ? /^did:key:zDna/i : /^did:key:z6Mk/i;
@@ -669,26 +672,14 @@ test.describe(`IPFS Network Verification - Two Browser Test (${modeConfig.titleS
     await pageA.getByRole('button', { name: /Upload Files/i }).first().click();
     await pageA.waitForTimeout(2000);
 
-    const testFileContent = `IPFS Network Test File - ${new Date().toISOString()}`;
-    const testFileName = 'ipfs-test-file.txt';
+    const testFilePath = TEST_IMAGE_PATH;
+    const testFileName = TEST_IMAGE_NAME;
+    const testFileBytes = await readFile(testFilePath);
+    const expectedContentHash = createHash('sha256').update(testFileBytes).digest('hex');
+    const expectedByteLength = testFileBytes.length;
 
     const fileInput = pageA.locator('input[type="file"]');
-    const dataTransfer = await pageA.evaluateHandle(
-      ({ content, name }) => {
-        const dt = new DataTransfer();
-        const file = new File([content], name, { type: 'text/plain' });
-        dt.items.add(file);
-        return dt;
-      },
-      { content: testFileContent, name: testFileName }
-    );
-
-    await fileInput.evaluateHandle((input: unknown, dt: unknown) => {
-      const element = input as HTMLInputElement;
-      const dataTransfer = dt as DataTransfer;
-      element.files = dataTransfer.files;
-      element.dispatchEvent(new Event('change', { bubbles: true }));
-    }, dataTransfer);
+    await fileInput.setInputFiles(testFilePath);
 
     await pageA.waitForTimeout(1000);
 
@@ -733,7 +724,7 @@ test.describe(`IPFS Network Verification - Two Browser Test (${modeConfig.titleS
 
     // Inject the CID and fetch via IPFS (Helia only, no gateway fallback).
     // Keep each attempt bounded and retry briefly to absorb network propagation delays.
-    let downloadResult: { success: boolean; content?: string; source?: string; error?: string } = {
+    let downloadResult: { success: boolean; hash?: string; byteLength?: number; source?: string; error?: string } = {
       success: false,
       error: 'Download did not run',
     };
@@ -758,12 +749,15 @@ test.describe(`IPFS Network Verification - Two Browser Test (${modeConfig.titleS
             ]);
 
             console.log('🟣 Browser B: IPFS fetch completed, source:', result.source);
-            const decoder = new TextDecoder();
-            const content = decoder.decode(result.data);
+            const digestBuffer = await crypto.subtle.digest('SHA-256', result.data);
+            const hash = Array.from(new Uint8Array(digestBuffer))
+              .map((byte) => byte.toString(16).padStart(2, '0'))
+              .join('');
 
             return {
               success: true,
-              content,
+              hash,
+              byteLength: result.data.length,
               source: result.source,
             };
           } catch (error) {
@@ -800,10 +794,11 @@ test.describe(`IPFS Network Verification - Two Browser Test (${modeConfig.titleS
     expect(downloadResult.source).toBe('helia');
     console.log('✅ Verified: Content fetched directly from IPFS network via Helia');
 
-    // Verify content matches
-    console.log('🔍 Verifying content matches...');
-    expect(downloadResult.content).toBe(testFileContent);
-    console.log('✅ Content verified - matches uploaded file!');
+    // Verify content matches uploaded image bytes
+    console.log('🔍 Verifying content hash and size...');
+    expect(downloadResult.hash).toBe(expectedContentHash);
+    expect(downloadResult.byteLength).toBe(expectedByteLength);
+    console.log('✅ Content verified - matches uploaded image bytes!');
     await captureStepScreenshot(pageB, 'step-05-browser-b-ipfs-download-success');
 
     console.log('\n🎉 TEST COMPLETE: IPFS Network Verification Passed!\n');
