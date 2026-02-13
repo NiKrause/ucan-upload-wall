@@ -1,5 +1,7 @@
 import { test, expect, Page, BrowserContext, chromium, CDPSession } from '@playwright/test';
-import { enableVirtualAuthenticator, disableVirtualAuthenticator } from '../helpers/webauthn';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { enableVirtualAuthenticator, disableVirtualAuthenticator } from './helpers/webauthn';
 
 // Launch a shared browser instance
 const browser = await chromium.launch({
@@ -140,12 +142,13 @@ test.describe('Alice & Bob: Delegation and File Sharing', () => {
     await pageAlice.goto('/');
     await pageAlice.getByRole('button', { name: /upload files/i }).click();
     
-    // Create a test file
-    const fileName = 'alice-test-file.txt';
-    const fileContent = 'Hello from Alice!';
+    // Upload real image asset
+    const fileName = 'klassik-logo.png';
+    const filePath = path.resolve(process.cwd(), 'tests/assets/klassik-logo.png');
+    const fileBuffer = await readFile(filePath);
     
     // Upload file (look for file input or drag-drop zone)
-    await uploadFile(pageAlice, fileName, fileContent);
+    await uploadFile(pageAlice, fileName, fileBuffer, 'image/png');
     
     // Verify upload by checking session upload list shows this file.
     await expect(pageAlice.getByText(/recently uploaded files/i)).toBeVisible({ timeout: 20000 });
@@ -167,12 +170,13 @@ test.describe('Alice & Bob: Delegation and File Sharing', () => {
     await pageBob.goto('/');
     await pageBob.getByRole('button', { name: /upload files/i }).click();
     
-    // Create a test file
-    const fileName = 'bob-test-file.txt';
-    const fileContent = 'Hello from Bob!';
+    // Upload real image asset
+    const fileName = 'yoga.webp';
+    const filePath = path.resolve(process.cwd(), 'tests/assets/yoga.webp');
+    const fileBuffer = await readFile(filePath);
     
     // Upload file
-    await uploadFile(pageBob, fileName, fileContent);
+    await uploadFile(pageBob, fileName, fileBuffer, 'image/webp');
     
     // Verify upload by checking session upload list shows this file.
     await expect(pageBob.getByText(/recently uploaded files/i)).toBeVisible({ timeout: 20000 });
@@ -549,9 +553,7 @@ async function getDelegationProof(page: Page): Promise<string> {
 /**
  * Helper: Upload a file
  */
-async function uploadFile(page: Page, fileName: string, content: string) {
-  // Create a buffer from the content
-  const buffer = Buffer.from(content, 'utf-8');
+async function uploadFile(page: Page, fileName: string, buffer: Buffer, mimeType: string) {
   
   // Look for file input
   const fileInput = page.locator('input[type="file"]');
@@ -560,7 +562,7 @@ async function uploadFile(page: Page, fileName: string, content: string) {
     // Set the file directly on the input
     await fileInput.setInputFiles({
       name: fileName,
-      mimeType: 'text/plain',
+      mimeType,
       buffer: buffer,
     });
   } else {
@@ -572,8 +574,9 @@ async function uploadFile(page: Page, fileName: string, content: string) {
     const dropZone = page.locator('[data-testid="upload-zone"], .upload-zone, [class*="upload"]').first();
     
     // Create a file using the File constructor in the browser
-    await dropZone.evaluateHandle((node, { fileName, content }) => {
-      const file = new File([content], fileName, { type: 'text/plain' });
+    const bytes = Array.from(buffer);
+    await dropZone.evaluateHandle((node, { fileName, bytes, mimeType }) => {
+      const file = new File([new Uint8Array(bytes)], fileName, { type: mimeType });
       const dataTransfer = new DataTransfer();
       dataTransfer.items.add(file);
       
@@ -584,7 +587,7 @@ async function uploadFile(page: Page, fileName: string, content: string) {
       });
       
       node.dispatchEvent(dropEvent);
-    }, { fileName, content });
+    }, { fileName, bytes, mimeType });
   }
 
   // Start actual upload (file selection alone is not enough in current UI).
@@ -633,11 +636,4 @@ async function countVisibleFiles(page: Page): Promise<number> {
   }
   
   return 0;
-}
-
-// Extend user type to include delegation proof
-declare module './alice-bob-delegation.spec' {
-  interface User {
-    delegationProof?: string;
-  }
 }
