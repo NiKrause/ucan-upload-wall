@@ -264,6 +264,39 @@ jobs:
           path: web/test-results/
           retention-days: 7
 
+  basic-ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: './web/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npm run playwright:install
+
+      - name: Run Basic UI E2E suite
+        run: PLAYWRIGHT_BASE_URL=http://localhost:4173 npx playwright test tests/basic-ui.spec.ts --project=chromium
+
+      - name: Upload Basic UI test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-basic-ui
+          path: web/test-results/
+          retention-days: 7
+
   build-delegation-flow-pages:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
