@@ -81,7 +81,9 @@ async function main() {
   const shouldPatch = process.argv.includes('--patch-delegation-manager');
   const capabilities = ['upload/list'];
   const oneHour = 60 * 60;
-  const twentyFourHours = 24 * oneHour;
+  // For probing server support we want a long-lived delegation chain.
+  // Note: we use 365d years to avoid calendar complexity.
+  const twoYears = 2 * 365 * 24 * oneHour;
 
   const targetEd25519 = process.env.DUMMY_TARGET_DID_ED25519 || DEFAULT_TARGET_ED25519;
   const targetP256 = process.env.DUMMY_TARGET_DID_P256 || DEFAULT_TARGET_P256;
@@ -101,7 +103,7 @@ async function main() {
   const dummyPrincipal = await Ed25519.generate();
 
   const dummyBaseDelegation = await authorityClient.createDelegation(dummyPrincipal, capabilities, {
-    expiration: Math.floor(Date.now() / 1000) + twentyFourHours,
+    expiration: Math.floor(Date.now() / 1000) + twoYears,
   });
   const dummyProof = await archiveDelegationToMultibase(dummyBaseDelegation);
 
@@ -117,9 +119,9 @@ async function main() {
     dummyClient,
     targetEd25519,
     capabilities,
-    oneHour
+    twoYears
   );
-  const p256ProbeProof = await createDelegationProof(dummyClient, targetP256, capabilities, oneHour);
+  const p256ProbeProof = await createDelegationProof(dummyClient, targetP256, capabilities, twoYears);
 
   const result = {
     credentials: {
