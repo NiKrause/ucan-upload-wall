@@ -231,6 +231,72 @@ jobs:
           path: web/test-results/
           retention-days: 7
 
+  delegation-flow-alice-bob:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./web
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: './web/package-lock.json'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npm run playwright:install
+
+      - name: Create Playwright config for archived Alice/Bob suite
+        run: |
+          cat > playwright.archive.config.ts <<'TS'
+          import { defineConfig, devices } from '@playwright/test'
+          import dotenv from 'dotenv'
+
+          dotenv.config()
+
+          export default defineConfig({
+            testDir: './tests',
+            fullyParallel: false,
+            workers: 1,
+            reporter: 'line',
+            use: {
+              baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:4173',
+              trace: 'on-first-retry',
+              screenshot: 'only-on-failure'
+            },
+            projects: [
+              {
+                name: 'chromium',
+                use: { ...devices['Desktop Chrome'] }
+              }
+            ],
+            webServer: {
+              command: 'npm run dev -- --host 127.0.0.1 --port 4173',
+              url: 'http://localhost:4173',
+              reuseExistingServer: false,
+              timeout: 120000
+            }
+          })
+          TS
+
+      - name: Run Alice/Bob archived E2E suite
+        run: PLAYWRIGHT_BASE_URL=http://localhost:4173 npx playwright test tests/archive/alice-bob-delegation.spec.ts -c playwright.archive.config.ts --project=chromium
+
+      - name: Upload Alice/Bob test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-alice-bob
+          path: web/test-results/
+          retention-days: 7
+
   build-delegation-flow-pages:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
