@@ -32,10 +32,6 @@ test.describe('Basic UI - Happy Path', () => {
     // Create fresh context
     context = await browser.newContext();
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-    await context.addInitScript(() => {
-      localStorage.clear();
-      sessionStorage.clear();
-    });
     page = await context.newPage();
 
     // Enable virtual WebAuthn authenticator

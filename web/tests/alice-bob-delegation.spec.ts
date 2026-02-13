@@ -253,7 +253,7 @@ test.describe('Alice & Bob: Delegation and File Sharing', () => {
  * Helper: Initialize a new page for a user
  */
 async function initializePage(page: Page, user: typeof users[0]) {
-  const pageUrl = process.env.PLAYWRIGHT_BASE_URL || process.env.PAGE_URL || 'http://localhost:4173';
+  const pageUrl = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:4173';
   
   console.log(`📄 Initializing ${user.name}'s page...`);
   await page.goto(pageUrl);
