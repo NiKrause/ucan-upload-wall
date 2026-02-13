@@ -13,6 +13,20 @@ interface DelegationManagerProps {
 
 type DelegationsSubView = 'received' | 'created' | 'identity';
 
+// DEV-ONLY dummy tester: intentionally static placeholders.
+// Replace these with non-production credentials/proofs for local testing only.
+const DUMMY_VARSIG_TESTER = {
+  credentials: {
+    key: 'MgCbM8aF7bwPR7Z+x+BRfcY+1UF4NOCDmYvVArw3KzAgIS+0BtZoFxNWaOjwe8ltZkUvMrne3TJXLVGruJwtn0BA5Bpg=',
+    proof: 'mOqJlcm9vdHOB2CpYJQABcRIgjbXH6pfJCjuD1xmINYCYhI/x5JFHw/jJLrPGV8lPZ05ndmVyc2lvbgHgBgFxEiCVWkL49oj2zo8Kr/0qxDF5ircBeMVfSTJ8vUdZZ+XTqKhhc1hE7aEDQDfVDsM7h1mEDaOwUjuwQCkIP26y1AunO1VJKw4h8DFpMIchZXAMW1RhsmcItC1XK9usIw9XfrymIbj64TyJLwFhdmUwLjkuMWNhdHSIomNjYW5nc3BhY2UvKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuZmJsb2IvKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuZ2luZGV4Lypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTaiY2NhbmdzdG9yZS8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5odXBsb2FkLypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTaiY2NhbmhhY2Nlc3MvKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuamZpbGVjb2luLypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTaiY2Nhbmd1c2FnZS8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2Y2F1ZFgi7QFg7PBXEfYK5i04FdaWy4Dem/CLaWqypmzwhz+8Nh+2iGNleHAaanxJDGNmY3SBoWVzcGFjZaFkbmFtZXFvcmJpdGRiLWNhci10b29sc2Npc3NYIu0Bp8/V5b6B6JABEVDzwBZ/rkExkuGM+nZsDoPqvZ97KMNjcHJmgIUHAXESIMYXcCe7fGLXOd5ticCYjyqvdBkDa67GNscGMLAU868bqGFzWETtoQNAGRwZkRWEFxJzJnmMfvEn5Nc/pqf2XFhRFG5Q00RZPTGVzK8N6vqd5sFTWWY02N81B4BNfvo7LhgB+6CF7Z7QDGF2ZTAuOS4xY2F0dIiiY2NhbmdzcGFjZS8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5mYmxvYi8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5naW5kZXgvKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuZ3N0b3JlLypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTaiY2Nhbmh1cGxvYWQvKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuaGFjY2Vzcy8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5qZmlsZWNvaW4vKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuZ3VzYWdlLypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTZjYXVkWCLtAWDs8FcR9grmLTgV1pbLgN6b8ItparKmbPCHP7w2H7aIY2V4cPZjZmN0gaFlc3BhY2WhZG5hbWVxb3JiaXRkYi1jYXItdG9vbHNjaXNzWCLtAWDs8FcR9grmLTgV1pbLgN6b8ItparKmbPCHP7w2H7aIY3ByZoHYKlglAAFxEiCVWkL49oj2zo8Kr/0qxDF5ircBeMVfSTJ8vUdZZ+XTqK4HAXESIKFYP5TRAYOaKeO65KUEBl7hRCvtlN97BIVzLBXVe7c4qGFzWETtoQNA5OPDnxcKjbDbzyANGOOI9M5Wkx3zaKwCbjWWiF6TNVwNHHRsJBbRWiVDd/D2QT2nB4xz8Y3A3hf9BWkK97zPDGF2ZTAuOS4xY2F0dIiiY2NhbmdzcGFjZS8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5mYmxvYi8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5naW5kZXgvKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuZ3N0b3JlLypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTaiY2Nhbmh1cGxvYWQvKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuaGFjY2Vzcy8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5qZmlsZWNvaW4vKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuZ3VzYWdlLypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTZjYXVkWCLtAWDs8FcR9grmLTgV1pbLgN6b8ItparKmbPCHP7w2H7aIY2V4cPZjZmN0gaFlc3BhY2WhZG5hbWVxb3JiaXRkYi1jYXItdG9vbHNjaXNzWCLtAWDs8FcR9grmLTgV1pbLgN6b8ItparKmbPCHP7w2H7aIY3ByZoLYKlglAAFxEiCVWkL49oj2zo8Kr/0qxDF5ircBeMVfSTJ8vUdZZ+XTqNgqWCUAAXESIMYXcCe7fGLXOd5ticCYjyqvdBkDa67GNscGMLAU868b1wcBcRIgQdUtplE+jj0ePfTIEEOmwAL66z9L9OwQCYsnP00YhX6oYXNYRO2hA0DLu+dB2WplvrZpGSRcz6qGMKSj55xGFDgVLw214EU1PXGAKSGXlZASnyf8Hlg5RAzmFa0V2GKBT0N21WqiR1oFYXZlMC45LjFjYXR0iKJjY2FuZ3NwYWNlLypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTaiY2NhbmZibG9iLypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTaiY2NhbmdpbmRleC8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5nc3RvcmUvKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuaHVwbG9hZC8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5oYWNjZXNzLypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTaiY2NhbmpmaWxlY29pbi8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5ndXNhZ2UvKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNmNhdWRYIu0BYOzwVxH2CuYtOBXWlsuA3pvwi2lqsqZs8Ic/vDYftohjZXhw9mNmY3SBoWVzcGFjZaFkbmFtZXFvcmJpdGRiLWNhci10b29sc2Npc3NYIu0BYOzwVxH2CuYtOBXWlsuA3pvwi2lqsqZs8Ic/vDYftohjcHJmg9gqWCUAAXESIJVaQvj2iPbOjwqv/SrEMXmKtwF4xV9JMny9R1ln5dOo2CpYJQABcRIgxhdwJ7t8Ytc53m2JwJiPKq90GQNrrsY2xwYwsBTzrxvYKlglAAFxEiChWD+U0QGDminjuuSlBAZe4UQr7ZTfewSFcywV1Xu3OIAIAXESIAjaMR8MhG2/U5OGnVkfd4wJU14Vjppe5pzJO5fCiiRKqGFzWETtoQNAQKZnlU1cBQwAjlGwGjhTyO4Fh+/WPqwCHo0f55GfJDXLlj7FUrTnlBzRGssqYI/oipaX4FF2cOTAMqqwon0OCmF2ZTAuOS4xY2F0dIiiY2NhbmdzcGFjZS8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5mYmxvYi8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5naW5kZXgvKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuZ3N0b3JlLypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTaiY2Nhbmh1cGxvYWQvKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuaGFjY2Vzcy8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5qZmlsZWNvaW4vKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuZ3VzYWdlLypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTZjYXVkWCLtAWDs8FcR9grmLTgV1pbLgN6b8ItparKmbPCHP7w2H7aIY2V4cPZjZmN0gaFlc3BhY2WhZG5hbWVxb3JiaXRkYi1jYXItdG9vbHNjaXNzWCLtAWDs8FcR9grmLTgV1pbLgN6b8ItparKmbPCHP7w2H7aIY3ByZoTYKlglAAFxEiCVWkL49oj2zo8Kr/0qxDF5ircBeMVfSTJ8vUdZZ+XTqNgqWCUAAXESIMYXcCe7fGLXOd5ticCYjyqvdBkDa67GNscGMLAU868b2CpYJQABcRIgoVg/lNEBg5op47rkpQQGXuFEK+2U33sEhXMsFdV7tzjYKlglAAFxEiBB1S2mUT6OPR499MgQQ6bAAvrrP0v07BAJiyc/TRiFfqkIAXESICPPY7Nhpxz+1OXHl8q7q2Qq8NO3UZmh07ydKecFHr4PqGFzWETtoQNATVEeXgPx5dgHgeBcKVrEV5E8rgDw5GGD6eUb/Zoo+9GCaz03hIpotiNndUSzdTIWNd2gA3cUKsDj1GhAE0wPCGF2ZTAuOS4xY2F0dIiiY2NhbmdzcGFjZS8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5mYmxvYi8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5naW5kZXgvKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuZ3N0b3JlLypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTaiY2Nhbmh1cGxvYWQvKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuaGFjY2Vzcy8qZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2omNjYW5qZmlsZWNvaW4vKmR3aXRoeDhkaWQ6a2V5Ono2TWtxa0t3YVZoZ1NFTnpKbVBRd2c4RDNkdkJEaHJMM0w2Smt3bjJpM1JnRlBZNqJjY2FuZ3VzYWdlLypkd2l0aHg4ZGlkOmtleTp6Nk1rcWtLd2FWaGdTRU56Sm1QUXdnOEQzZHZCRGhyTDNMNkprd24yaTNSZ0ZQWTZjYXVkWCLtAbjbOGv43MZtT4AGoxM8qeimtuQ3zy++LLGQ8uyDQ3gYY2V4cPZjZmN0gaFlc3BhY2WhZG5hbWVxb3JiaXRkYi1jYXItdG9vbHNjaXNzWCLtAWDs8FcR9grmLTgV1pbLgN6b8ItparKmbPCHP7w2H7aIY3ByZoXYKlglAAFxEiCVWkL49oj2zo8Kr/0qxDF5ircBeMVfSTJ8vUdZZ+XTqNgqWCUAAXESIMYXcCe7fGLXOd5ticCYjyqvdBkDa67GNscGMLAU868b2CpYJQABcRIgoVg/lNEBg5op47rkpQQGXuFEK+2U33sEhXMsFdV7tzjYKlglAAFxEiBB1S2mUT6OPR499MgQQ6bAAvrrP0v07BAJiyc/TRiFftgqWCUAAXESIAjaMR8MhG2/U5OGnVkfd4wJU14Vjppe5pzJO5fCiiRKiQMBcRIg4+Av1xIIuR0jJhk7axdvektVf23TH5vqhICp4sw/OG2oYXNYRO2hA0Brrv2Ap3a6ky8BFgpRWxOWkOMIIBVGW4TnGUQ6AVnh0sBfDZ3Exqjo01LWxgvIfxUMrMxM0/DOvobGIc0Ou3ICYXZlMC45LjFjYXR0gaJjY2Fua3VwbG9hZC9saXN0ZHdpdGh4OGRpZDprZXk6ejZNa3FrS3dhVmhnU0VOekptUFF3ZzhEM2R2QkRockwzTDZKa3duMmkzUmdGUFk2Y2F1ZFgi7QG1mgXE1Zo6PB7yW1mRS8yud7dMlctUau4nC2fQEDkGmGNleHAaaZDOM2NmY3SBoWVzcGFjZaJkbmFtZXFvcmJpdGRiLWNhci10b29sc2ZhY2Nlc3OhZHR5cGVmcHVibGljY2lzc1gi7QG42zhr+NzGbU+ABqMTPKnoprbkN88vviyxkPLsg0N4GGNwcmaB2CpYJQABcRIgI89js2GnHP7U5ceXyrurZCrw07dRmaHTvJ0p5wUevg9ZAXESII21x+qXyQo7g9cZiDWAmISP8eSRR8P4yS6zxlfJT2dOoWp1Y2FuQDAuOS4x2CpYJQABcRIg4+Av1xIIuR0jJhk7axdvektVf23TH5vqhICp4sw/OG0=',
+    spaceDid: 'did:key:z6MkrtrwZTJKCgaF5ij8u6EhctkkzVxGP9qvQgdSoH6mRUp7',
+  },
+  targetDids: {
+    ed25519: 'did:key:z6MkuYkLDa6rXQg7BrepYS1DnEZSUK45qvtEVaTSkxsmyvFF',
+    p256: 'did:key:zDnaeuYtq2wZ3bXvDLHqyo9bcUY9AtjNN5gNdDQfv9FFCeX9Q',
+  },
+} as const;
+
 export function DelegationManager({ delegationService, onDidCreated, onDelegationImported, onDelegationUploaded }: DelegationManagerProps) {
   const [currentDID, setCurrentDID] = useState<string | null>(null);
   const [isNativeEd25519, setIsNativeEd25519] = useState(false);
@@ -53,6 +67,10 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
     secure: boolean;
     algorithm?: 'Ed25519' | 'P-256';
   } | null>(null);
+  const [dummyTesterStatus, setDummyTesterStatus] = useState<string>('');
+  const [dummyProofEd25519, setDummyProofEd25519] = useState('');
+  const [dummyProofP256, setDummyProofP256] = useState('');
+  const [isGeneratingDummyProof, setIsGeneratingDummyProof] = useState<null | 'ed25519' | 'p256'>(null);
 
   // Available capabilities with descriptions
   const availableCapabilities = [
@@ -157,6 +175,56 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
     setSavedCredentials(true);
     setShowCredentialsForm(false);
     alert('Credentials saved successfully!');
+  };
+
+  const hasConfiguredDummyCredentials = useCallback(() => {
+    const { key, proof, spaceDid } = DUMMY_VARSIG_TESTER.credentials;
+    return !key.startsWith('REPLACE_') && !proof.startsWith('REPLACE_') && !spaceDid.startsWith('REPLACE_');
+  }, []);
+
+  const handleLoadDummyCredentials = () => {
+    if (!hasConfiguredDummyCredentials()) {
+      setDummyTesterStatus('Dummy credentials are not configured yet. Replace REPLACE_* values in DUMMY_VARSIG_TESTER.');
+      return;
+    }
+    delegationService.storeStorachaCredentials({
+      key: DUMMY_VARSIG_TESTER.credentials.key,
+      proof: DUMMY_VARSIG_TESTER.credentials.proof,
+      spaceDid: DUMMY_VARSIG_TESTER.credentials.spaceDid,
+    });
+    setCredentials({
+      key: DUMMY_VARSIG_TESTER.credentials.key,
+      proof: DUMMY_VARSIG_TESTER.credentials.proof,
+      spaceDid: DUMMY_VARSIG_TESTER.credentials.spaceDid,
+    });
+    setSavedCredentials(true);
+    setDummyTesterStatus('Dummy credentials loaded into local storage.');
+  };
+
+  const handleGenerateDummyProbe = async (algorithm: 'ed25519' | 'p256') => {
+    if (!hasConfiguredDummyCredentials()) {
+      setDummyTesterStatus('Dummy credentials are not configured yet. Replace REPLACE_* values in DUMMY_VARSIG_TESTER.');
+      return;
+    }
+    setIsGeneratingDummyProof(algorithm);
+    setDummyTesterStatus('');
+    try {
+      const target = DUMMY_VARSIG_TESTER.targetDids[algorithm];
+      const proof = await delegationService.createDelegation(target, ['upload/list'], 1);
+      if (algorithm === 'ed25519') {
+        setDummyProofEd25519(proof);
+      } else {
+        setDummyProofP256(proof);
+      }
+      setDummyTesterStatus(
+        `Generated ${algorithm.toUpperCase()} upload/list delegation (dummy tester).`
+      );
+      loadData();
+    } catch (error) {
+      setDummyTesterStatus(`Failed to generate ${algorithm.toUpperCase()} dummy probe: ${String(error)}`);
+    } finally {
+      setIsGeneratingDummyProof(null);
+    }
   };
 
 
@@ -764,6 +832,67 @@ export function DelegationManager({ delegationService, onDidCreated, onDelegatio
             )}
           </>
         ))}
+      </div>
+
+      <div className="card p-6 mt-4 border-2 border-primary-200 bg-primary-50/40">
+        <div className="flex items-center mb-3">
+          <Cpu className="h-5 w-5 text-storacha-red mr-2" />
+          <h3 className="text-lg font-semibold font-heading text-dark">Dummy Varsig Tester (Dev Only)</h3>
+        </div>
+        <p className="text-sm text-neutral-700 mb-4">
+          This helper creates two minimal delegations with only <code>upload/list</code> capability
+          using hardcoded dummy credentials: one for Ed25519 target DID, one for P-256 target DID.
+        </p>
+        <div className="bg-primary-100 border border-primary-300 rounded-lg p-3 text-xs text-primary-900 mb-4">
+          Never use production credentials here. These values are intentionally static and should only be used for local demo testing.
+        </div>
+        <div className="flex flex-wrap gap-2 mb-4">
+          <button
+            onClick={handleLoadDummyCredentials}
+            className="btn-secondary text-sm"
+          >
+            Load Dummy Credentials
+          </button>
+          <button
+            onClick={() => handleGenerateDummyProbe('ed25519')}
+            disabled={isGeneratingDummyProof !== null}
+            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          >
+            {isGeneratingDummyProof === 'ed25519' ? 'Generating...' : 'Generate Ed25519 upload/list'}
+          </button>
+          <button
+            onClick={() => handleGenerateDummyProbe('p256')}
+            disabled={isGeneratingDummyProof !== null}
+            className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          >
+            {isGeneratingDummyProof === 'p256' ? 'Generating...' : 'Generate P-256 upload/list'}
+          </button>
+        </div>
+        {dummyTesterStatus && (
+          <div className="text-sm text-neutral-700 mb-3">{dummyTesterStatus}</div>
+        )}
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-neutral-700 mb-1">Ed25519 Dummy Probe Proof</label>
+            <textarea
+              value={dummyProofEd25519}
+              readOnly
+              rows={2}
+              className="input-field font-mono text-xs bg-white"
+              placeholder="Generated proof will appear here"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-neutral-700 mb-1">P-256 Dummy Probe Proof</label>
+            <textarea
+              value={dummyProofP256}
+              readOnly
+              rows={2}
+              className="input-field font-mono text-xs bg-white"
+              placeholder="Generated proof will appear here"
+            />
+          </div>
+        </div>
       </div>
 
       {/* Info message for native Ed25519 users */}
