@@ -1,4 +1,16 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Epilogue:wght@400;500;600;700&display=swap');
+/* Self-hosted fonts (CSP-friendly). Installed via @fontsource/* packages. */
+@import '@fontsource/dm-sans/400.css';
+@import '@fontsource/dm-sans/500.css';
+@import '@fontsource/dm-sans/600.css';
+@import '@fontsource/dm-sans/700.css';
+
+@import '@fontsource/epilogue/400.css';
+@import '@fontsource/epilogue/500.css';
+@import '@fontsource/epilogue/600.css';
+@import '@fontsource/epilogue/700.css';
+
+@import '@fontsource/dm-mono/400.css';
+@import '@fontsource/dm-mono/500.css';
 
 @tailwind base;
 @tailwind components;
