@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Upload, Share, Download, Calendar, Clock, Trash2, RefreshCw, X } from 'lucide-react';
+import { Upload, Share, Download, Calendar, Clock, Trash2, RefreshCw, X, HardDrive, CheckCircle, Loader } from 'lucide-react';
 import { Header } from './components/Header';
 import { UploadZone } from './components/UploadZone';
 import { Alert } from './components/Alert';
@@ -8,12 +8,16 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { useFileUpload } from './hooks/useFileUpload';
 import { UploadedFile } from './types/upload';
 import { loadIpfsBlobUrl, getGatewayUrl } from './lib/ipfs-fetch';
+import { getFilecoinStatusForUpload } from './lib/filecoin-status';
+import type { FilecoinStatus } from './types/upload';
 
 type AppView = 'upload' | 'delegations';
 
 function App() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [storachaFiles, setStorachaFiles] = useState<Array<{ root: string; shards?: string[]; insertedAt?: string; updatedAt?: string }>>([]);
+  const [filecoinStatuses, setFilecoinStatuses] = useState<Record<string, FilecoinStatus>>({});
+  const [checkingFilecoin, setCheckingFilecoin] = useState<Set<string>>(new Set());
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [deletingFiles, setDeletingFiles] = useState<Set<string>>(new Set());
   const [alert, setAlert] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -152,6 +156,13 @@ function App() {
         filename: file.name,
         size: file.size,
         uploadedAt: new Date().toISOString(),
+        shards: result.shards,
+        piece: result.piece,
+        filecoin: {
+          piece: result.piece,
+          status: 'offered',
+          lastChecked: new Date().toISOString()
+        }
       };
 
       setUploadedFiles(prev => [newFile, ...prev]);
@@ -281,6 +292,68 @@ function App() {
       });
     } finally {
       setIsLoadingFiles(false);
+    }
+  }, [delegationService]);
+  
+  const handleCheckFilecoinStatus = useCallback(async (rootCid: string, shards?: string[], pieceCid?: string) => {
+    if (!shards || shards.length === 0) {
+      setAlert({
+        type: 'error',
+        message: 'No shards available for this upload',
+      });
+      return;
+    }
+    
+    setCheckingFilecoin(prev => new Set(prev).add(rootCid));
+    
+    try {
+      // Get storacha client if available
+      let storachaClient;
+      try {
+        const credentials = delegationService.getStorachaCredentials();
+        if (credentials) {
+          storachaClient = await delegationService.initializeStorachaClient();
+        }
+      } catch (err) {
+        console.warn('Could not initialize Storacha client for filecoin info:', err);
+      }
+      
+      const status = await getFilecoinStatusForUpload(rootCid, shards, pieceCid, storachaClient);
+      
+      if (status) {
+        setFilecoinStatuses(prev => ({
+          ...prev,
+          [rootCid]: status
+        }));
+        
+        const statusMessage = status.status === 'active' && status.deals && status.deals.length > 0
+          ? `Filecoin: ${status.deals.length} active deal(s)`
+          : status.status === 'pending'
+          ? 'Filecoin: Pending deals'
+          : 'Filecoin: Offered';
+        
+        setAlert({
+          type: 'success',
+          message: statusMessage,
+        });
+      } else {
+        setAlert({
+          type: 'error',
+          message: 'Failed to retrieve Filecoin status',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to check Filecoin status:', error);
+      setAlert({
+        type: 'error',
+        message: `Failed to check Filecoin status: ${error}`,
+      });
+    } finally {
+      setCheckingFilecoin(prev => {
+        const next = new Set(prev);
+        next.delete(rootCid);
+        return next;
+      });
     }
   }, [delegationService]);
   
@@ -438,6 +511,8 @@ function App() {
                     {storachaFiles.map((file, index) => {
                       const isImage = file.root.startsWith('bafkrei'); // Most images use raw codec
                       const previewUrl = previewUrls[file.root];
+                      const filecoinStatus = filecoinStatuses[file.root];
+                      const isCheckingStatus = checkingFilecoin.has(file.root);
                       
                       return (
                         <div key={file.root} className="bg-white rounded-lg border border-gray-200 p-4">
@@ -512,6 +587,85 @@ function App() {
                                   <span>{file.shards.length} shard{file.shards.length > 1 ? 's' : ''}</span>
                                 )}
                               </div>
+                              
+                              {/* Filecoin Status */}
+                              <div className="mt-3 pt-3 border-t border-gray-100">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex items-center gap-2">
+                                    <HardDrive className="w-4 h-4 text-purple-600" />
+                                    <span className="text-xs font-medium text-gray-700">Filecoin Status:</span>
+                                    {filecoinStatus ? (
+                                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                        filecoinStatus.status === 'active' 
+                                          ? 'bg-green-100 text-green-700'
+                                          : filecoinStatus.status === 'pending'
+                                          ? 'bg-yellow-100 text-yellow-700'
+                                          : 'bg-blue-100 text-blue-700'
+                                      }`}>
+                                        {filecoinStatus.status === 'active' && <CheckCircle className="w-3 h-3 inline mr-1" />}
+                                        {filecoinStatus.status.charAt(0).toUpperCase() + filecoinStatus.status.slice(1)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-xs text-gray-500">Not checked</span>
+                                    )}
+                                  </div>
+                                  
+                                  <button
+                                    onClick={() => handleCheckFilecoinStatus(file.root, file.shards, undefined)}
+                                    disabled={isCheckingStatus || !file.shards || file.shards.length === 0}
+                                    className="flex items-center gap-1 text-xs text-purple-600 hover:text-purple-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="Check Filecoin status"
+                                  >
+                                    {isCheckingStatus ? (
+                                      <>
+                                        <Loader className="w-3 h-3 animate-spin" />
+                                        Checking...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <RefreshCw className="w-3 h-3" />
+                                        Check Status
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                                
+                                {/* Filecoin Details */}
+                                {filecoinStatus && (
+                                  <div className="mt-2 space-y-1">
+                                    {filecoinStatus.piece && (
+                                      <div className="text-xs text-gray-600">
+                                        <span className="font-medium">Piece CID:</span>{' '}
+                                        <code className="bg-gray-50 px-1 py-0.5 rounded text-xs">
+                                          {filecoinStatus.piece.substring(0, 20)}...{filecoinStatus.piece.slice(-10)}
+                                        </code>
+                                      </div>
+                                    )}
+                                    {filecoinStatus.deals && filecoinStatus.deals.length > 0 && (
+                                      <div className="text-xs text-gray-600">
+                                        <span className="font-medium">Deals:</span> {filecoinStatus.deals.length} active
+                                        <div className="ml-4 mt-1 space-y-1">
+                                          {filecoinStatus.deals.slice(0, 3).map((deal, i) => (
+                                            <div key={i} className="text-xs text-gray-500">
+                                              • Provider: {deal.storageProvider} (Deal #{deal.dealId})
+                                            </div>
+                                          ))}
+                                          {filecoinStatus.deals.length > 3 && (
+                                            <div className="text-xs text-gray-500">
+                                              • ... and {filecoinStatus.deals.length - 3} more
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+                                    {filecoinStatus.lastChecked && (
+                                      <div className="text-xs text-gray-500">
+                                        Last checked: {new Date(filecoinStatus.lastChecked).toLocaleString()}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -527,27 +681,55 @@ function App() {
                 <div className="w-full max-w-2xl mt-12">
                   <h2 className="text-2xl font-bold text-gray-900 mb-6">Recently Uploaded Files</h2>
                   <div className="space-y-3">
-                    {uploadedFiles.map((file) => (
-                      <div key={file.id} className="bg-white rounded-lg border border-gray-200 p-5">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1 min-w-0">
-                            <h3 className="text-base font-semibold text-gray-900 truncate">
-                              {file.filename}
-                            </h3>
-                            <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
-                              <span>{Math.round(file.size / 1024)} KB</span>
-                              <span>•</span>
-                              <span>{new Date(file.uploadedAt).toLocaleString()}</span>
-                            </div>
-                            <div className="mt-2">
-                              <code className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded">
-                                {file.cid}
-                              </code>
+                    {uploadedFiles.map((file) => {
+                      const filecoinStatus = file.filecoin;
+                      
+                      return (
+                        <div key={file.id} className="bg-white rounded-lg border border-gray-200 p-5">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-base font-semibold text-gray-900 truncate">
+                                {file.filename}
+                              </h3>
+                              <div className="flex items-center gap-3 text-sm text-gray-500 mt-1">
+                                <span>{Math.round(file.size / 1024)} KB</span>
+                                <span>•</span>
+                                <span>{new Date(file.uploadedAt).toLocaleString()}</span>
+                              </div>
+                              <div className="mt-2">
+                                <code className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded">
+                                  {file.cid}
+                                </code>
+                              </div>
+                              
+                              {/* Filecoin Status for recent uploads */}
+                              {filecoinStatus && (
+                                <div className="mt-3 pt-3 border-t border-gray-100">
+                                  <div className="flex items-center gap-2">
+                                    <HardDrive className="w-4 h-4 text-purple-600" />
+                                    <span className="text-xs font-medium text-gray-700">Filecoin:</span>
+                                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                                      filecoinStatus.status === 'active' 
+                                        ? 'bg-green-100 text-green-700'
+                                        : filecoinStatus.status === 'pending'
+                                        ? 'bg-yellow-100 text-yellow-700'
+                                        : 'bg-blue-100 text-blue-700'
+                                    }`}>
+                                      {filecoinStatus.status.charAt(0).toUpperCase() + filecoinStatus.status.slice(1)}
+                                    </span>
+                                  </div>
+                                  {file.shards && file.shards.length > 0 && (
+                                    <div className="text-xs text-gray-500 mt-1">
+                                      {file.shards.length} shard{file.shards.length > 1 ? 's' : ''} uploaded
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

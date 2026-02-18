@@ -711,7 +711,7 @@ export class UCANDelegationService {
    * Browser A: Uses stored Storacha credentials directly
    * Browser B: Uses delegations received from Browser A
    */
-  async uploadFile(file: File): Promise<{ cid: string }> {
+  async uploadFile(file: File): Promise<{ cid: string; shards?: string[]; piece?: string }> {
     console.log('\ud83d\udcc2 uploadFile() called for:', file.name);
     
     const credentials = this.getStorachaCredentials();
@@ -761,7 +761,7 @@ export class UCANDelegationService {
   /**
    * Upload file using Storacha credentials (Browser A)
    */
-  private async uploadWithStorachaCredentials(file: File): Promise<{ cid: string }> {
+  private async uploadWithStorachaCredentials(file: File): Promise<{ cid: string; shards?: string[]; piece?: string }> {
     if (!this.storachaClient) {
       await this.initializeStorachaClient();
     }
@@ -773,10 +773,29 @@ export class UCANDelegationService {
     try {
       // Convert File to Blob
       const blob = new Blob([await file.arrayBuffer()]);
-      const cid = await this.storachaClient.uploadFile(blob);
+      
+      // Track shards and piece CIDs during upload
+      const shards: string[] = [];
+      let pieceCid: string | undefined;
+      
+      const cid = await this.storachaClient.uploadFile(blob, {
+        onShardStored: (meta) => {
+          if (meta.cid) {
+            shards.push(meta.cid.toString());
+            console.log('Shard stored:', meta.cid.toString());
+          }
+          // Capture piece CID from the first shard
+          if (meta.piece && !pieceCid) {
+            pieceCid = meta.piece.toString();
+            console.log('Piece CID:', pieceCid);
+          }
+        }
+      });
       
       console.log('✅ File uploaded via Storacha credentials:', cid.toString());
-      return { cid: cid.toString() };
+      console.log('Shards:', shards);
+      console.log('Piece CID:', pieceCid);
+      return { cid: cid.toString(), shards, piece: pieceCid };
     } catch (error) {
       console.error('Upload with Storacha credentials failed:', error);
       throw new Error(`Upload failed: ${error}`);
@@ -941,7 +960,7 @@ export class UCANDelegationService {
   /**
    * Upload file using delegations (Browser B)
    */
-  private async uploadWithDelegation(file: File, delegationInfo: DelegationInfo): Promise<{ cid: string }> {
+  private async uploadWithDelegation(file: File, delegationInfo: DelegationInfo): Promise<{ cid: string; shards?: string[]; piece?: string }> {
     try {
       console.log('Using delegation for upload:', delegationInfo.id);
       
@@ -1008,10 +1027,29 @@ export class UCANDelegationService {
       // Upload file using the Storacha client's high-level API
       console.log('Uploading file...');
       const blob = new Blob([await file.arrayBuffer()]);
-      const cid = await client.uploadFile(blob);
+      
+      // Track shards and piece CIDs during upload
+      const shards: string[] = [];
+      let pieceCid: string | undefined;
+      
+      const cid = await client.uploadFile(blob, {
+        onShardStored: (meta) => {
+          if (meta.cid) {
+            shards.push(meta.cid.toString());
+            console.log('Shard stored:', meta.cid.toString());
+          }
+          // Capture piece CID from the first shard
+          if (meta.piece && !pieceCid) {
+            pieceCid = meta.piece.toString();
+            console.log('Piece CID:', pieceCid);
+          }
+        }
+      });
       
       console.log('✅ File uploaded successfully:', cid.toString());
-      return { cid: cid.toString() };
+      console.log('Shards:', shards);
+      console.log('Piece CID:', pieceCid);
+      return { cid: cid.toString(), shards, piece: pieceCid };
     } catch (error) {
       console.error('Upload with delegation failed:', error);
       throw new Error(`Delegated upload failed: ${error}`);
@@ -1027,7 +1065,13 @@ export class UCANDelegationService {
    * @param capabilities Array of capability strings to delegate
    * @param expirationHours Number of hours until delegation expires (default: 24, null = no expiration)
    */
-  async createDelegation(toDid: string, capabilities: string[] = ['space/blob/add', 'space/blob/list', 'space/blob/remove', 'store/add', 'store/list', 'store/remove', 'upload/add', 'upload/list', 'upload/remove'], expirationHours: number | null = 24): Promise<string> {
+  async createDelegation(toDid: string, capabilities: string[] = [
+    'space/blob/add', 'space/blob/list', 'space/blob/remove',
+    'space/index/add',
+    'store/add', 'store/list', 'store/remove',
+    'upload/add', 'upload/list', 'upload/remove',
+    'filecoin/offer', 'filecoin/info'
+  ], expirationHours: number | null = 24): Promise<string> {
     if (!this.webauthnProvider) {
       throw new Error('WebAuthn provider not initialized');
     }
@@ -1700,7 +1744,13 @@ export class UCANDelegationService {
       localStorage.removeItem(STORAGE_KEYS.CREATED_DELEGATIONS);
       
       // Create new bridge delegation with correct DID chain
-      const delegationProof = await this.createDelegation(currentDID, ['space/blob/add', 'space/blob/list', 'space/blob/remove', 'store/add', 'store/list', 'store/remove', 'upload/add', 'upload/list', 'upload/remove']);
+      const delegationProof = await this.createDelegation(currentDID, [
+        'space/blob/add', 'space/blob/list', 'space/blob/remove',
+        'space/index/add',
+        'store/add', 'store/list', 'store/remove',
+        'upload/add', 'upload/list', 'upload/remove',
+        'filecoin/offer', 'filecoin/info'
+      ]);
       
       // Import the fresh delegation
       await this.importDelegation(delegationProof);
@@ -2122,7 +2172,13 @@ export class UCANDelegationService {
       }
 
       // Create a delegation to ourselves for testing
-      const delegationProof = await this.createDelegation(currentDID, ['space/blob/add', 'space/blob/list', 'space/blob/remove', 'store/add', 'store/list', 'store/remove', 'upload/add', 'upload/list', 'upload/remove']);
+      const delegationProof = await this.createDelegation(currentDID, [
+        'space/blob/add', 'space/blob/list', 'space/blob/remove',
+        'space/index/add',
+        'store/add', 'store/list', 'store/remove',
+        'upload/add', 'upload/list', 'upload/remove',
+        'filecoin/offer', 'filecoin/info'
+      ]);
       
       // Clear existing delegations and import the fresh one
       localStorage.removeItem(STORAGE_KEYS.RECEIVED_DELEGATIONS);
