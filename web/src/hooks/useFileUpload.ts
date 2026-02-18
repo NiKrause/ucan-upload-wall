@@ -36,10 +36,14 @@ export function useFileUpload() {
       console.log('📤 Starting upload via delegationService.uploadFile()...');
       const result = await delegationService.uploadFile(file);
       console.log('✅ Upload completed! CID:', result.cid);
+      console.log('Shards:', result.shards);
+      console.log('Piece CID:', result.piece);
       
       return {
         ok: true,
-        cid: result.cid
+        cid: result.cid,
+        shards: result.shards,
+        piece: result.piece
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Upload failed';

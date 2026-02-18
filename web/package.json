@@ -27,6 +27,7 @@
     "@libp2p/ping": "^2.0.37",
     "@libp2p/websockets": "^9.2.19",
     "@storacha/client": "^1.8.21",
+    "@storacha/indexing-service-client": "^2.6.10",
     "@ucanto/client": "^9.0.2",
     "@ucanto/core": "^10.4.6",
     "@ucanto/interface": "^11.0.1",
