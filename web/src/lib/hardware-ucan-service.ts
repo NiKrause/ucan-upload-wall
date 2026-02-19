@@ -4,7 +4,12 @@
  * Adds hardware-backed UCAN signing using WebAuthn Ed25519 or P-256 with varsig encoding
  */
 
-import { WebAuthnEd25519Signer, WebAuthnP256Signer, createWebAuthnEd25519Credential, checkEd25519Support, type WebAuthnCredentialOptions } from './webauthn-ed25519-signer.js';
+import {
+  WebAuthnEd25519Signer,
+  WebAuthnP256Signer,
+  createWebAuthnEd25519Credential,
+  checkEd25519Support
+} from '@le-space/orbitdb-identity-provider-webauthn-did/standalone';
 import {
   decodeWebAuthnVarsigV1,
   verifyWebAuthnAssertion,
@@ -31,6 +36,10 @@ interface HardwareSignerInfo {
   publicKey: string; // hex encoded
   algorithm: 'Ed25519' | 'P-256'; // Track which algorithm is used
   created: string;
+}
+
+export interface WebAuthnCredentialOptions {
+  authenticatorType?: 'platform' | 'cross-platform' | 'any';
 }
 
 export function getStoredHardwareSignerInfo(): Pick<HardwareSignerInfo, 'did' | 'algorithm'> | null {
@@ -390,18 +399,7 @@ export class HardwareUCANDelegationService {
    * Store hardware signer info
    */
   private async storeHardwareSigner(signer: WebAuthnEd25519Signer | WebAuthnP256Signer): Promise<void> {
-    const credentialId = signer.getCredentialId();
-    const credentialIdBytes =
-      credentialId instanceof Uint8Array
-        ? credentialId
-        : new Uint8Array(
-            credentialId instanceof ArrayBuffer
-              ? credentialId
-              : credentialId.buffer.slice(
-                  credentialId.byteOffset,
-                  credentialId.byteOffset + credentialId.byteLength
-                )
-          );
+    const credentialIdBytes = signer.getCredentialId();
     const info: HardwareSignerInfo = {
       credentialId: btoa(String.fromCharCode(...Array.from(credentialIdBytes as Uint8Array))),
       did: signer.did,

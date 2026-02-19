@@ -6,6 +6,12 @@
  */
 
 import { base58btc } from 'multiformats/bases/base58';
+import {
+  clearWebAuthnCredentialSafe,
+  extractPrfSeedFromCredential,
+  loadWebAuthnCredentialSafe,
+  storeWebAuthnCredentialSafe
+} from '@le-space/orbitdb-identity-provider-webauthn-did/standalone';
 
 // TypeScript type definitions
 export interface WebAuthnCredentialInfo {
@@ -77,12 +83,7 @@ export async function checkWebAuthnSupport(): Promise<{
  */
 export function storeWebAuthnCredential(credential: WebAuthnCredentialInfo, key?: string): void {
   const storageKey = key || STORAGE_KEY;
-  
-  // Create a copy without prfSeed (security: don't persist encryption key material)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { prfSeed, ...credentialWithoutSeed } = credential;
-  
-  localStorage.setItem(storageKey, JSON.stringify(credentialWithoutSeed));
+  storeWebAuthnCredentialSafe(credential, storageKey);
   console.log('💾 Stored credential (prfSeed excluded for security)');
 }
 
@@ -91,14 +92,7 @@ export function storeWebAuthnCredential(credential: WebAuthnCredentialInfo, key?
  */
 export function loadWebAuthnCredential(key?: string): WebAuthnCredentialInfo | null {
   const storageKey = key || STORAGE_KEY;
-  const stored = localStorage.getItem(storageKey);
-  if (!stored) return null;
-  
-  try {
-    return JSON.parse(stored);
-  } catch {
-    return null;
-  }
+  return loadWebAuthnCredentialSafe(storageKey) as WebAuthnCredentialInfo | null;
 }
 
 /**
@@ -106,7 +100,7 @@ export function loadWebAuthnCredential(key?: string): WebAuthnCredentialInfo | n
  */
 export function clearWebAuthnCredential(key?: string): void {
   const storageKey = key || STORAGE_KEY;
-  localStorage.removeItem(storageKey);
+  clearWebAuthnCredentialSafe(storageKey);
 }
 
 /**
@@ -484,29 +478,15 @@ export class WebAuthnDIDProvider {
    */
   static async extractPrfSeed(credentialInfo: WebAuthnCredentialInfo): Promise<Uint8Array> {
     console.log('🔐 Extracting PRF seed - WebAuthn authentication required');
-    
-    // Re-authenticate with WebAuthn to get fresh PRF output
-    try {
-      const freshCredInfo = await this.authenticateWithExistingCredential(
-        credentialInfo.credentialId,
-        window.location.hostname,
-        credentialInfo.prfInput
-      );
-      
-      if (freshCredInfo && freshCredInfo.prfSeed) {
-        console.log('✅ PRF seed extracted from WebAuthn authentication', {
-          source: freshCredInfo.prfSource,
-          seedLength: freshCredInfo.prfSeed.length
-        });
-        return freshCredInfo.prfSeed;
-      }
-    } catch (error) {
-      console.warn('⚠️ WebAuthn authentication failed, falling back to rawCredentialId:', error);
-    }
-    
-    // Fallback to rawCredentialId if authentication fails
-    console.log('ℹ️ Using rawCredentialId as PRF seed (fallback)');
-    return credentialInfo.rawCredentialId;
+    const result = await extractPrfSeedFromCredential(credentialInfo, {
+      rpId: window.location.hostname,
+      prfInput: credentialInfo.prfInput
+    });
+    console.log('✅ PRF seed extraction result', {
+      source: result.source,
+      seedLength: result.seed.length
+    });
+    return result.seed;
   }
 
   /**
