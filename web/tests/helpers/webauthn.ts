@@ -27,6 +27,8 @@ export async function enableVirtualAuthenticator(context: BrowserContext) {
       hasUserVerification: true,
       isUserVerified: true,
       automaticPresenceSimulation: true,
+      ctap2Version: 'ctap2_1',
+      hasPrf: true,
     },
   });
 

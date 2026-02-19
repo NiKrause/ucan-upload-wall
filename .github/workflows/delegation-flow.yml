@@ -258,7 +258,7 @@ jobs:
         run: npm run playwright:install
 
       - name: Run Alice/Bob archived E2E suite
-        run: PLAYWRIGHT_BASE_URL=http://localhost:4173 npx playwright test tests/alice-bob-delegation.spec.ts --project=chromium --retries=2 --workers=1 --grep-invert "Authenticate with Biometric and receive DIDs"
+        run: PLAYWRIGHT_BASE_URL=http://localhost:4173 npx playwright test tests/alice-bob-delegation.spec.ts --project=chromium --retries=2 --workers=1
 
       - name: Upload Alice/Bob test results
         if: failure()
@@ -291,7 +291,7 @@ jobs:
         run: npm run playwright:install
 
       - name: Run Basic UI E2E suite
-        run: PLAYWRIGHT_BASE_URL=http://localhost:4173 npx playwright test tests/basic-ui.spec.ts --project=chromium --retries=2 --workers=1 --grep-invert "should create a DID successfully"
+        run: PLAYWRIGHT_BASE_URL=http://localhost:4173 npx playwright test tests/basic-ui.spec.ts --project=chromium --retries=2 --workers=1
 
       - name: Upload Basic UI test results
         if: failure()
@@ -324,7 +324,7 @@ jobs:
         run: npm run playwright:install
 
       - name: Run Hardware Mode E2E suite
-        run: PLAYWRIGHT_BASE_URL=http://localhost:4173 npx playwright test tests/hardware-mode.spec.ts --project=chromium --retries=2 --workers=1 --grep-invert "falls back to worker mode when hardware init is disabled"
+        run: PLAYWRIGHT_BASE_URL=http://localhost:4173 npx playwright test tests/hardware-mode.spec.ts --project=chromium --retries=2 --workers=1
 
       - name: Upload Hardware Mode test results
         if: failure()
