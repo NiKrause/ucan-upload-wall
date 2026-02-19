@@ -31,6 +31,10 @@ export default defineConfig({
       allow: [rootDir, standaloneWorkerDir],
     },
   },
+  worker: {
+    // Required for standalone toolkit worker builds under Vite 7.
+    format: 'es',
+  },
   build: {
     // The app pulls in large libp2p/helia dependency trees; splitting is possible but
     // the default warning threshold is too low to be actionable for this project.
