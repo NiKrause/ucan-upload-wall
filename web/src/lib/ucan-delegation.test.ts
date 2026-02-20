@@ -40,15 +40,8 @@ vi.mock('./hardware-ucan-service', () => ({
   getStoredHardwareSignerInfo: () => null,
 }));
 
-vi.mock('./webauthn-ed25519-signer', () => ({
+vi.mock('@le-space/orbitdb-identity-provider-webauthn-did/standalone', () => ({
   checkEd25519Support: vi.fn(async () => true),
-}));
-
-vi.mock('@ucanto/principal', () => ({
-  WebAuthnEd25519: class {},
-}));
-
-vi.mock('./secure-ed25519-did', () => ({
   initEd25519KeystoreWithPrfSeed: mockInitKeystore,
   generateWorkerEd25519DID: mockGenerateWorkerEd25519DID,
   encryptArchive: mockEncryptArchive,

@@ -21,10 +21,10 @@ import {
   initEd25519KeystoreWithPrfSeed,
   generateWorkerEd25519DID,
   encryptArchive,
-  decryptArchive
-} from './secure-ed25519-did';
+  decryptArchive,
+  checkEd25519Support
+} from '@le-space/orbitdb-identity-provider-webauthn-did/standalone';
 import { HardwareUCANDelegationService, getStoredHardwareSignerInfo } from './hardware-ucan-service';
-import { checkEd25519Support } from './webauthn-ed25519-signer';
 
 // Storage keys for localStorage
 const STORAGE_KEYS = {
@@ -521,7 +521,16 @@ export class UCANDelegationService {
             const iv = new Uint8Array(
               encryptedArchive.iv.match(/.{1,2}/g)!.map((byte: string) => parseInt(byte, 16))
             );
-            this.ed25519Archive = await decryptArchive(ciphertext, iv);
+            const decryptedArchive = await decryptArchive(ciphertext, iv);
+            this.ed25519Archive = {
+              id: decryptedArchive.id,
+              keys: Object.fromEntries(
+                Object.entries(decryptedArchive.keys || {}).map(([didKey, keyBytes]) => [
+                  didKey,
+                  keyBytes instanceof Uint8Array ? keyBytes : new Uint8Array(keyBytes as number[])
+                ])
+              )
+            };
             console.log('✅ Successfully decrypted and restored Ed25519 archive');
           } else {
             console.warn('WebAuthn credential missing, cannot decrypt archive');
@@ -580,6 +589,7 @@ export class UCANDelegationService {
     await initEd25519KeystoreWithPrfSeed(prfSeed);
 
     const { publicKey, did, archive } = await generateWorkerEd25519DID();
+    const archiveTyped = archive as { id: string; keys: Record<string, Uint8Array> };
     console.log('Generated worker-based Ed25519 DID from WebAuthn PRF-derived keystore:', did);
 
     const keypair: Ed25519KeyPair = {
@@ -593,7 +603,7 @@ export class UCANDelegationService {
     localStorage.setItem(STORAGE_KEYS.ED25519_KEYPAIR, JSON.stringify(keypair));
     
     // Encrypt archive using worker's AES key and store it
-    const { ciphertext, iv } = await encryptArchive(archive);
+    const { ciphertext, iv } = await encryptArchive(archiveTyped);
     const encryptedArchive = {
       ciphertext: Array.from(ciphertext).map(b => b.toString(16).padStart(2, '0')).join(''),
       iv: Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join('')
@@ -601,7 +611,7 @@ export class UCANDelegationService {
     localStorage.setItem(STORAGE_KEYS.ED25519_ARCHIVE_ENCRYPTED, JSON.stringify(encryptedArchive));
     
     this.ed25519Keypair = keypair;
-    this.ed25519Archive = archive;
+    this.ed25519Archive = archiveTyped;
     console.log('✅ Created and stored new Ed25519 DID with encrypted archive:', did);
     
     return keypair;
@@ -891,8 +901,12 @@ export class UCANDelegationService {
       if (!hardwareSigner) {
         throw new Error('Hardware signer not initialized');
       }
+      const ucantoSigner = this.hardwareService.getUcantoSignerForUcan();
+      if (!ucantoSigner) {
+        throw new Error('Hardware UCAN signer not initialized');
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return hardwareSigner.toUcantoSigner() as any;
+      return ucantoSigner as any;
     }
     // Worker mode: use worker-based Ed25519
     return this.getWorkerPrincipal();

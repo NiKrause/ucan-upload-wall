@@ -21,6 +21,7 @@ export default defineConfig({
   ],
   optimizeDeps: {
     exclude: ['lucide-react', '@le-space/orbitdb-identity-provider-webauthn-did', '@le-space/orbitdb-identity-provider-webauthn-did/standalone'],
+    include: ['p-queue', 'eventemitter3', 'lru', 'timeout-abort-controller'],
   },
   define: {
     global: 'globalThis',

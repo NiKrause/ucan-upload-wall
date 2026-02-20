@@ -1,3 +1,32 @@
+declare module '@le-space/orbitdb-identity-provider-webauthn-did' {
+  export class WebAuthnDIDProvider {
+    constructor(credentialInfo: Record<string, unknown>);
+    credentialId: string;
+    rawCredentialId: Uint8Array;
+    publicKey: Record<string, unknown>;
+    static isSupported(): boolean;
+    static isPlatformAuthenticatorAvailable(): Promise<boolean>;
+    static createCredential(options?: {
+      userId?: string;
+      displayName?: string;
+      domain?: string;
+      encryptKeystore?: boolean;
+      keystoreEncryptionMethod?: 'prf' | 'hmac-secret' | 'largeBlob';
+    }): Promise<Record<string, unknown>>;
+    static createDID(credentialInfo: Record<string, unknown>): Promise<string>;
+    sign(data: string | Uint8Array): Promise<string>;
+    verify(signatureData: string): Promise<boolean>;
+    authenticate(): Promise<unknown>;
+  }
+
+  export function checkWebAuthnSupport(): Promise<{
+    supported: boolean;
+    platformAuthenticator: boolean;
+    error: string | null;
+    message: string;
+  }>;
+}
+
 declare module '@le-space/orbitdb-identity-provider-webauthn-did/standalone' {
   export class StandaloneWebAuthnVarsigSigner {
     constructor(credential: {
@@ -10,10 +39,10 @@ declare module '@le-space/orbitdb-identity-provider-webauthn-did/standalone' {
     did: string;
     publicKey: Uint8Array;
     algorithm: 'Ed25519' | 'P-256';
-    sign(data: Uint8Array | string): Promise<Uint8Array>;
-    verify(signature: Uint8Array, data: Uint8Array | string): Promise<boolean>;
+    sign(data: Uint8Array | string, domainLabel?: string): Promise<Uint8Array>;
+    verify(signature: Uint8Array, data: Uint8Array | string, domainLabel?: string): Promise<boolean>;
     getCredentialId(): Uint8Array;
-    toUcantoSigner(): unknown;
+    toUcantoSigner(options?: { domainLabel?: string }): unknown;
   }
 
   export class WebAuthnEd25519Signer extends StandaloneWebAuthnVarsigSigner {
@@ -23,6 +52,35 @@ declare module '@le-space/orbitdb-identity-provider-webauthn-did/standalone' {
   export class WebAuthnP256Signer extends StandaloneWebAuthnVarsigSigner {
     constructor(credentialId: Uint8Array | ArrayBuffer, did: string, publicKey: Uint8Array);
   }
+
+  export class WebAuthnHardwareSignerService {
+    constructor(options?: { storageKey?: string });
+    initialize(options?: {
+      userId?: string;
+      displayName?: string;
+      authenticatorType?: 'platform' | 'cross-platform' | 'any';
+    }): Promise<StandaloneWebAuthnVarsigSigner>;
+    load(): StandaloneWebAuthnVarsigSigner | null;
+    store(signer: StandaloneWebAuthnVarsigSigner): void;
+    clear(): void;
+    getSigner(): StandaloneWebAuthnVarsigSigner | null;
+    getDID(): string | null;
+    getAlgorithm(): 'Ed25519' | 'P-256' | null;
+  }
+
+  export function getStoredWebAuthnHardwareSignerInfo(
+    key?: string
+  ): { did: string; algorithm: 'Ed25519' | 'P-256' } | null;
+
+  export function createWebAuthnSigner(
+    options?: {
+      userId?: string;
+      displayName?: string;
+      domain?: string;
+      authenticatorType?: 'platform' | 'cross-platform' | 'any';
+      forceP256?: boolean;
+    }
+  ): Promise<StandaloneWebAuthnVarsigSigner>;
 
   export function createWebAuthnEd25519Credential(
     userId: string,

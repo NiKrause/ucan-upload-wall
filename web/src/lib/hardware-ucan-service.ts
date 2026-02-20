@@ -7,7 +7,8 @@
 import {
   WebAuthnEd25519Signer,
   WebAuthnP256Signer,
-  createWebAuthnEd25519Credential,
+  WebAuthnHardwareSignerService,
+  getStoredWebAuthnHardwareSignerInfo,
   checkEd25519Support
 } from '@le-space/orbitdb-identity-provider-webauthn-did/standalone';
 import {
@@ -26,6 +27,7 @@ import {
  */
 const HARDWARE_SIGNER_KEY = 'webauthn_ed25519_hardware_signer';
 const SIGN_COUNT_KEY_PREFIX = 'webauthn_signcount_';
+const UCAN_WEBAUTHN_DOMAIN_LABEL = 'ucan-webauthn-v1:';
 
 /**
  * Stored hardware signer info
@@ -43,6 +45,10 @@ export interface WebAuthnCredentialOptions {
 }
 
 export function getStoredHardwareSignerInfo(): Pick<HardwareSignerInfo, 'did' | 'algorithm'> | null {
+  const toolkitInfo = getStoredWebAuthnHardwareSignerInfo(HARDWARE_SIGNER_KEY);
+  if (toolkitInfo) return toolkitInfo;
+
+  // Legacy fallback for old upload-wall serialization format.
   const stored = localStorage.getItem(HARDWARE_SIGNER_KEY);
   if (!stored) return null;
   try {
@@ -61,6 +67,9 @@ export function getStoredHardwareSignerInfo(): Pick<HardwareSignerInfo, 'did' | 
  */
 export class HardwareUCANDelegationService {
   private hardwareSigner: WebAuthnEd25519Signer | WebAuthnP256Signer | null = null;
+  private toolkitHardwareService = new WebAuthnHardwareSignerService({
+    storageKey: HARDWARE_SIGNER_KEY
+  });
   
   /**
    * Check if hardware-backed Ed25519 is supported
@@ -78,35 +87,19 @@ export class HardwareUCANDelegationService {
    * @param options - WebAuthn credential options (authenticator type preference)
    */
   async initializeHardwareSigner(
-    userId?: string, 
+    userId?: string,
     displayName?: string,
     options?: WebAuthnCredentialOptions
   ): Promise<boolean> {
     try {
-      // Try to load existing signer
-      const loaded = await this.loadHardwareSigner();
-      if (loaded) {
-        console.log('✅ Loaded existing hardware-backed signer');
-        return true;
-      }
-      
-      // Create new credential
-      console.log('🔑 Creating new hardware-backed Ed25519 credential...');
-      const signer = await createWebAuthnEd25519Credential(
-        userId || 'user@example.com',
-        displayName || 'UCAN User',
-        options
-      );
-      
-      if (!signer) {
-        console.error('❌ Failed to create hardware credential');
-        return false;
-      }
-      
-      // Store signer info
-      await this.storeHardwareSigner(signer);
-      this.hardwareSigner = signer;
-      
+      const signer = await this.toolkitHardwareService.initialize({
+        userId: userId || 'user@example.com',
+        displayName: displayName || 'UCAN User',
+        authenticatorType: options?.authenticatorType || 'platform'
+      });
+
+      this.hardwareSigner = signer as unknown as WebAuthnEd25519Signer | WebAuthnP256Signer;
+
       console.log('✅ Hardware-backed signer initialized');
       console.log('   DID:', signer.did);
       return true;
@@ -121,6 +114,30 @@ export class HardwareUCANDelegationService {
    */
   getSigner(): WebAuthnEd25519Signer | WebAuthnP256Signer | null {
     return this.hardwareSigner;
+  }
+
+  /**
+   * Get a UCAN signer that always uses the UCAN challenge domain label.
+   */
+  getUcantoSignerForUcan(): unknown {
+    if (!this.hardwareSigner) return null;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const baseSigner = this.hardwareSigner.toUcantoSigner() as any;
+    const signatureCode =
+      typeof baseSigner?.signatureCode === 'number'
+        ? baseSigner.signatureCode
+        : this.hardwareSigner.algorithm === 'Ed25519'
+          ? 0xd0ed
+          : 0xd01200;
+
+    const ucantoSigner = Object.create(baseSigner);
+    ucantoSigner.sign = async (payload: Uint8Array) => {
+      const varsig = await this.hardwareSigner!.sign(payload, UCAN_WEBAUTHN_DOMAIN_LABEL);
+      const DagUcanSignature = await import('@ipld/dag-ucan/signature');
+      return DagUcanSignature.create(signatureCode, varsig);
+    };
+    return ucantoSigner;
   }
   
   /**
@@ -181,7 +198,7 @@ export class HardwareUCANDelegationService {
     
     // Create delegation with hardware signer
     const delegation = await delegate({
-      issuer: this.hardwareSigner.toUcantoSigner() as UcanSigner,
+      issuer: this.getUcantoSignerForUcan() as UcanSigner,
       audience: targetVerifier,
       capabilities: ucanCapabilities as never,
       expiration: expirationTimestamp,
@@ -395,68 +412,7 @@ export class HardwareUCANDelegationService {
     }
   }
   
-  /**
-   * Store hardware signer info
-   */
-  private async storeHardwareSigner(signer: WebAuthnEd25519Signer | WebAuthnP256Signer): Promise<void> {
-    const credentialIdBytes = signer.getCredentialId();
-    const info: HardwareSignerInfo = {
-      credentialId: btoa(String.fromCharCode(...Array.from(credentialIdBytes as Uint8Array))),
-      did: signer.did,
-      publicKey: Array.from(signer.publicKey).map(b => b.toString(16).padStart(2, '0')).join(''),
-      algorithm: signer.algorithm,
-      created: new Date().toISOString()
-    };
-    
-    localStorage.setItem(HARDWARE_SIGNER_KEY, JSON.stringify(info));
-  }
-  
-  /**
-   * Load hardware signer from storage
-   */
-  private async loadHardwareSigner(): Promise<boolean> {
-    const stored = localStorage.getItem(HARDWARE_SIGNER_KEY);
-    if (!stored) return false;
-    
-    try {
-      const info: HardwareSignerInfo = JSON.parse(stored);
-      
-      // Convert hex public key back to bytes
-      const publicKey = new Uint8Array(
-        info.publicKey.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))
-      );
-      
-      // Convert base64 credential ID back to bytes
-      const binaryString = atob(info.credentialId);
-      const credentialId = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        credentialId[i] = binaryString.charCodeAt(i);
-      }
-      
-      // Recreate signer based on algorithm
-      const algorithm = info.algorithm || 'Ed25519'; // Default to Ed25519 for backward compatibility
-      
-      if (algorithm === 'P-256') {
-        this.hardwareSigner = new WebAuthnP256Signer(
-          credentialId.buffer,
-          info.did,
-          publicKey
-        );
-      } else {
-        this.hardwareSigner = new WebAuthnEd25519Signer(
-          credentialId.buffer,
-          info.did,
-          publicKey
-        );
-      }
-      
-      return true;
-    } catch (error) {
-      console.error('Failed to load hardware signer:', error);
-      return false;
-    }
-  }
-  
+
   /**
    * Parse a `did:key` and return its raw public key bytes plus inferred key type.
    *
