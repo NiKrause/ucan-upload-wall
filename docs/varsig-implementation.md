@@ -104,7 +104,7 @@ Core varsig module:
 - `iso-webauthn-varsig` package sources
 
 WebAuthn signers:
-- `web/src/lib/webauthn-ed25519-signer.ts`
+- `@le-space/orbitdb-identity-provider-webauthn-did/standalone`
 
 UCAN integration:
 - `web/src/lib/hardware-ucan-service.ts`

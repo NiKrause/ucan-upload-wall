@@ -73,6 +73,19 @@ The two-browser IPFS verification flow now runs as a separate 3-job workflow (Wo
 - DID format: `did:key:z6Mk...` (Ed25519 public key)
 - Used for: UCAN signing, Storacha client principal when hardware Ed25519 is unavailable
 
+### **Standalone Toolkit Migration (Issue #13)**
+- Runtime cryptography and WebAuthn worker/signer primitives are sourced from:
+  - `@le-space/orbitdb-identity-provider-webauthn-did/standalone`
+- Upload-wall keeps app-owned orchestration locally:
+  - UCAN delegation business rules
+  - UI state transitions and mode UX
+  - service/environment wiring
+- Runtime imports now use standalone toolkit modules directly in app services.
+- Remaining app-local translation layer:
+  - `web/src/lib/webauthn-did.ts` (credential shape + storage compatibility)
+- Step-5 migration checklist and completion notes:
+  - `docs/STEP5-MIGRATION-CHECKLIST.md`
+
 **Worker Functions:**
 - `init(prfSeed)` - Initialize AES key from WebAuthn PRF seed
 - `generateKeypair()` - Generate Ed25519 keypair and archive
@@ -285,10 +298,11 @@ See **[PLANNING.md](./PLANNING.md)** for the complete roadmap and technical deta
 - AES key derived deterministically from PRF seed
 
 ### **Secure Ed25519 DID**
-- Location: `web/src/lib/secure-ed25519-did.ts`
-- Wraps worker communication
-- Provides `encryptArchive()` / `decryptArchive()` helpers
-- Manages DID generation and storage
+- Worker-keystore primitives are consumed from:
+  - `@le-space/orbitdb-identity-provider-webauthn-did/standalone`
+- App orchestration and DID lifecycle handling remain in:
+  - `web/src/lib/ucan-delegation.ts`
+  - `web/src/lib/webauthn-did.ts`
 
 ### **UCAN Delegation Service**
 - Location: `web/src/lib/ucan-delegation.ts`

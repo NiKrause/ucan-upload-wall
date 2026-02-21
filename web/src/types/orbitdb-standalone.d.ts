@@ -59,6 +59,7 @@ declare module '@le-space/orbitdb-identity-provider-webauthn-did/standalone' {
       userId?: string;
       displayName?: string;
       authenticatorType?: 'platform' | 'cross-platform' | 'any';
+      forceP256?: boolean;
     }): Promise<StandaloneWebAuthnVarsigSigner>;
     load(): StandaloneWebAuthnVarsigSigner | null;
     store(signer: StandaloneWebAuthnVarsigSigner): void;

@@ -173,8 +173,22 @@ for (const modeConfig of TEST_MODES) {
     const delegationsTab = page
       .getByRole('navigation')
       .getByRole('button', { name: 'Delegations', exact: true });
+    const receivedSubtab = page.getByTestId('delegations-subtab-received');
     await expect(delegationsTab).toBeVisible({ timeout: 15000 });
-    await delegationsTab.click();
+
+    // Import success callback can asynchronously switch back to Upload view.
+    // Retry until Delegations content is actually visible.
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      await delegationsTab.click();
+      const receivedVisible = await receivedSubtab.isVisible({ timeout: 2500 }).catch(() => false);
+      if (receivedVisible) {
+        await receivedSubtab.click();
+        return;
+      }
+      await page.waitForTimeout(300);
+    }
+
+    throw new Error('Failed to open Delegations tab and render received subtab');
   }
   const heliaRoots = new Set<string>();
   let spaceAgent: EdSigner; // The agent that owns the space

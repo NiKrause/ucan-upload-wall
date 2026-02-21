@@ -417,7 +417,7 @@ const STORAGE_KEYS = {
 ## Related Documentation
 
 - [SECURE_CREDENTIAL_STORAGE.md](./SECURE_CREDENTIAL_STORAGE.md) - Proposed three-tier architecture
-- [web/src/lib/secure-ed25519-did.ts](../web/src/lib/secure-ed25519-did.ts) - Main thread keystore API
+- [web/src/lib/ucan-delegation.ts](../web/src/lib/ucan-delegation.ts) - App orchestration over standalone keystore APIs
 - [web/src/workers/ed25519-keystore.worker.ts](../web/src/workers/ed25519-keystore.worker.ts) - Worker implementation
 - [web/src/lib/webauthn-did.ts](../web/src/lib/webauthn-did.ts) - WebAuthn PRF integration
 

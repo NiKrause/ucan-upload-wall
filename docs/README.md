@@ -33,6 +33,11 @@ This directory contains detailed technical documentation for the UCAN Upload Wal
   - Lifecycle diagrams and security analysis
   - FAQ and best practices
 
+- **[STEP5-MIGRATION-CHECKLIST.md](./STEP5-MIGRATION-CHECKLIST.md)** - Issue #13 migration closure notes
+  - What was migrated to `@le-space/orbitdb-identity-provider-webauthn-did/standalone`
+  - What remains intentionally app-local
+  - Validation gates used for migration cleanup
+
 ### Phase 1.5: Secure Credential Storage (📋 Planned)
 - **[SECURE_CREDENTIAL_STORAGE.md](./SECURE_CREDENTIAL_STORAGE.md)** - Architecture design
   - Three-tier hybrid storage (largeBlob + Storacha + localStorage)

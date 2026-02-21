@@ -1,14 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const rootDir = path.dirname(fileURLToPath(import.meta.url));
-const standaloneWorkerDir = path.resolve(
-  rootDir,
-  '../../orbitdb-identity-provider-webauthn-did/src/standalone/worker'
-);
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -25,12 +17,6 @@ export default defineConfig({
   },
   define: {
     global: 'globalThis',
-  },
-  server: {
-    fs: {
-      // Needed in local migration mode where worker URL resolves to the linked package source.
-      allow: [rootDir, standaloneWorkerDir],
-    },
   },
   worker: {
     // Required for standalone toolkit worker builds under Vite 7.

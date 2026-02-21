@@ -304,6 +304,7 @@ export class UCANDelegationService {
 
     const overrides = globalThis as typeof globalThis & {
       __FORCE_WORKER_MODE__?: boolean;
+      __FORCE_P256_HARDWARE__?: boolean;
     };
     if (overrides.__FORCE_WORKER_MODE__) {
       this.hardwareModeChecked = true;
@@ -332,16 +333,23 @@ export class UCANDelegationService {
         return false;
       }
 
-      console.log('🔍 Checking for hardware-backed Ed25519 support...');
+      const forceP256 = overrides.__FORCE_P256_HARDWARE__ === true;
+      console.log(
+        forceP256
+          ? '🔍 Forcing hardware P-256 mode for this session...'
+          : '🔍 Checking for hardware-backed Ed25519 support...'
+      );
       
       // Check browser support
       const supported = await checkEd25519Support();
-      if (!supported) {
+      if (!supported && !forceP256) {
         console.log('ℹ️ Hardware Ed25519 not supported, will use worker mode');
         return false;
       }
       
-      console.log('✅ Hardware Ed25519 supported! Attempting to use hardware mode...');
+      if (!forceP256) {
+        console.log('✅ Hardware Ed25519 supported! Attempting to use hardware mode...');
+      }
       
       // Try to initialize hardware service
       this.hardwareService = new HardwareUCANDelegationService();
@@ -350,7 +358,10 @@ export class UCANDelegationService {
       const initialized = await this.hardwareService.initializeHardwareSigner(
         'user@ucan-upload-wall.app',
         'UCAN User',
-        authenticatorType ? { authenticatorType } : undefined
+        {
+          ...(authenticatorType ? { authenticatorType } : {}),
+          forceP256
+        }
       );
       
       if (initialized) {
@@ -792,6 +803,13 @@ export class UCANDelegationService {
     return false;
   }
 
+  private isForceWorkerMode(): boolean {
+    const overrides = globalThis as typeof globalThis & {
+      __FORCE_WORKER_MODE__?: boolean;
+    };
+    return overrides.__FORCE_WORKER_MODE__ === true;
+  }
+
   private isSessionDelegationEnabled(): boolean {
     const enabled = import.meta.env.VITE_SESSION_DELEGATION;
     return enabled === '1' || enabled === 'true';
@@ -1070,8 +1088,13 @@ export class UCANDelegationService {
   }
 
   private async getWorkerPrincipal(): Promise<UcanSigner<UcanDID<'key'>>> {
-    // Check if using native Ed25519 (incompatible with worker-based signing)
-    if (this.isNativeEd25519()) {
+    const hasWorkerArchiveMaterial =
+      Boolean(this.ed25519Archive) ||
+      Boolean(localStorage.getItem(STORAGE_KEYS.ED25519_ARCHIVE_ENCRYPTED));
+
+    // Native Ed25519 cannot sign UCAN data through worker path unless a worker archive exists
+    // (or worker mode is explicitly forced for tests/fallback validation).
+    if (this.isNativeEd25519() && !this.isForceWorkerMode() && !hasWorkerArchiveMaterial) {
       throw new Error(
         'Native Ed25519 WebAuthn keys cannot sign UCAN data. ' +
         'Please use P-256 keys or worker-based Ed25519 to create/use delegations.'

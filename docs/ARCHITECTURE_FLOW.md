@@ -382,7 +382,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Main as Main Thread<br/>(secure-ed25519-did.ts)
+    participant Main as Main Thread<br/>(ucan-delegation.ts + standalone worker client)
     participant Worker as Web Worker<br/>(ed25519-keystore.worker.ts)
     participant WebCrypto as Web Crypto API
     participant LocalStorage as localStorage

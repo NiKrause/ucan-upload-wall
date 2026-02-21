@@ -42,24 +42,11 @@ interface HardwareSignerInfo {
 
 export interface WebAuthnCredentialOptions {
   authenticatorType?: 'platform' | 'cross-platform' | 'any';
+  forceP256?: boolean;
 }
 
 export function getStoredHardwareSignerInfo(): Pick<HardwareSignerInfo, 'did' | 'algorithm'> | null {
-  const toolkitInfo = getStoredWebAuthnHardwareSignerInfo(HARDWARE_SIGNER_KEY);
-  if (toolkitInfo) return toolkitInfo;
-
-  // Legacy fallback for old upload-wall serialization format.
-  const stored = localStorage.getItem(HARDWARE_SIGNER_KEY);
-  if (!stored) return null;
-  try {
-    const parsed = JSON.parse(stored) as HardwareSignerInfo;
-    if (typeof parsed.did !== 'string') return null;
-    const algorithm = parsed.algorithm === 'P-256' ? 'P-256' : 'Ed25519';
-    return { did: parsed.did, algorithm };
-  } catch (error) {
-    console.warn('Failed to parse stored hardware signer info:', error);
-    return null;
-  }
+  return getStoredWebAuthnHardwareSignerInfo(HARDWARE_SIGNER_KEY);
 }
 
 /**
@@ -92,10 +79,14 @@ export class HardwareUCANDelegationService {
     options?: WebAuthnCredentialOptions
   ): Promise<boolean> {
     try {
+      const overrides = globalThis as typeof globalThis & {
+        __FORCE_P256_HARDWARE__?: boolean;
+      };
       const signer = await this.toolkitHardwareService.initialize({
         userId: userId || 'user@example.com',
         displayName: displayName || 'UCAN User',
-        authenticatorType: options?.authenticatorType || 'platform'
+        authenticatorType: options?.authenticatorType || 'platform',
+        forceP256: options?.forceP256 ?? overrides.__FORCE_P256_HARDWARE__ === true
       });
 
       this.hardwareSigner = signer as unknown as WebAuthnEd25519Signer | WebAuthnP256Signer;
